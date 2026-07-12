@@ -1233,19 +1233,178 @@
 // ============================================================
 const SUPABASE_URL = 'https://jvpnnaamcynydqrjnuve.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cG5uYWFtY3lueWRxcmpudXZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc3NDY5MzQsImV4cCI6MjA5MzMyMjkzNH0.AnEI3zZGxoHidMCqWKfl18MPxKzezUterSo4vrfBYng';
+const GOOGLE_CLIENT_ID = '692096767036-gklqud4ip2sughqf035esejtrl2f8qh1.apps.googleusercontent.com';
+let googleAccessToken = null;
+let googleRefreshToken = localStorage.getItem('ss_google_refresh') || null;
 
 const KILMORE_SUBURB_DISTANCES = {
-  'kilmore': 0, 'broadford': 18, 'seymour': 30, 'wallan': 22,
-  'whittlesea': 45, 'plenty': 52, 'epping': 58, 'south morang': 60,
-  'doreen': 50, 'mernda': 53, 'craigieburn': 52, 'roxburgh park': 58,
-  'beveridge': 28, 'wandong': 10, 'heathcote': 55, 'pyalong': 25,
-  'lancefield': 20, 'romsey': 35, 'kyneton': 60, 'macedon': 50,
-  'woodend': 45, 'gisborne': 48, 'sunbury': 55, 'diggers rest': 62,
-  'melton': 80, 'bacchus marsh': 95, 'ballarat': 150, 'bendigo': 120,
-  'melbourne cbd': 75, 'richmond': 78, 'fitzroy': 76, 'brunswick': 72,
-  'northcote': 70, 'preston': 65, 'reservoir': 63, 'thomastown': 60,
-  'lalor': 58, 'mill park': 57, 'bundoora': 60
+  // Kilmore / immediate area
+  'kilmore': 0, 'kilmore east': 3, 'wandong': 10, 'heathcote junction': 12,
+  'pyalong': 25, 'wallan': 22, 'broadford': 18, 'clonbinane': 14,
+  'springsteen': 8, 'tantaraboo': 6, 'willowmavin': 5, 'mt disappointment': 18,
+  // Seymour / Nagambie / Mitchell Shire
+  'seymour': 30, 'nagambie': 45, 'tallarook': 15, 'puckapunyal': 28,
+  'mangalore': 32, 'avenel': 38, 'euroa': 65, 'longwood': 50,
+  'violet town': 70, 'benalla': 100, 'shepparton': 140,
+  // Lancefield / Romsey / Macedon Ranges
+  'lancefield': 20, 'romsey': 35, 'riddells creek': 40, 'macedon': 50,
+  'woodend': 45, 'kyneton': 60, 'malmsbury': 65, 'metcalfe': 72,
+  'gisborne': 48, 'new gisborne': 50, 'bullengarook': 52,
+  'sunbury': 55, 'diggers rest': 62, 'toolern vale': 58,
+  'trentham': 72, 'tylden': 65, 'mt macedon': 52,
+  'carlsruhe': 55, 'kyneton south': 62,
+  // Beveridge / Craigieburn / Northern Suburbs
+  'beveridge': 28, 'donnybrook': 32, 'mickelham': 36,
+  'craigieburn': 52, 'roxburgh park': 58, 'meadow heights': 60,
+  'coolaroo': 62, 'broadmeadows': 63, 'dallas': 64, 'jacana': 64,
+  'glenroy': 66, 'gladstone park': 64, 'tullamarine': 62,
+  'airport west': 63, 'keilor': 65, 'keilor east': 64, 'keilor park': 63,
+  'sunshine north': 70, 'albanvale': 72, 'st albans': 70,
+  'taylors lakes': 65, 'watergardens': 66, 'taylors hill': 67,
+  'caroline springs': 72, 'derrimut': 74, 'truganina': 76,
+  // Whittlesea / Diamond Valley
+  'whittlesea': 45, 'doreen': 50, 'mernda': 53, 'south morang': 60,
+  'plenty': 52, 'yarrambat': 50, 'hurstbridge': 58, 'diamond creek': 55,
+  'eltham': 57, 'research': 55, 'templestowe': 60, 'doncaster': 62,
+  'warrandyte': 58, 'wonga park': 56, 'chirnside park': 60,
+  'christmas hills': 55, 'panton hill': 52, 'st andrews': 48,
+  'kinglake': 40, 'kinglake west': 38, 'strathewen': 38,
+  // Epping / Mill Park / Bundoora
+  'epping': 58, 'lalor': 58, 'thomastown': 60, 'mill park': 57,
+  'bundoora': 60, 'wollert': 55, 'eden park': 52, 'woodstock': 48,
+  // Preston / Reservoir / Northcote
+  'reservoir': 63, 'thornbury': 66, 'northcote': 70, 'clifton hill': 70,
+  'fitzroy': 76, 'fitzroy north': 74, 'brunswick': 72, 'brunswick west': 72,
+  'brunswick east': 73, 'coburg': 68, 'coburg north': 66,
+  'pascoe vale': 66, 'pascoe vale south': 67, 'oak park': 66,
+  'moonee ponds': 68, 'essendon': 68, 'essendon north': 66,
+  'niddrie': 66, 'avondale heights': 67, 'aberfeldie': 68,
+  'ascot vale': 70, 'flemington': 71, 'kensington': 72,
+  // Preston
+  'preston': 65, 'reservoir': 63, 'heidelberg': 63, 'heidelberg west': 63,
+  'heidelberg heights': 62, 'rosanna': 62, 'viewbank': 61,
+  'montmorency': 60, 'greensborough': 58, 'watsonia': 60,
+  'macleod': 63, 'yallambie': 61, 'bellfield': 64,
+  // Melbourne CBD & inner
+  'melbourne cbd': 75, 'melbourne': 75, 'cbd': 75,
+  'docklands': 75, 'southbank': 76, 'south yarra': 77,
+  'prahran': 77, 'windsor': 77, 'st kilda': 78,
+  'st kilda east': 78, 'st kilda west': 78,
+  'elwood': 80, 'brighton': 82, 'brighton east': 82,
+  'hampton': 83, 'sandringham': 84, 'black rock': 85,
+  'beaumaris': 86, 'mentone': 84, 'parkdale': 85,
+  'mordialloc': 86, 'cheltenham': 84, 'highett': 83,
+  'moorabbin': 83, 'bentleigh': 82, 'bentleigh east': 82,
+  'mckinnon': 82, 'ormond': 82, 'glen huntly': 82,
+  'caulfield': 80, 'caulfield north': 80, 'caulfield south': 80,
+  'carnegie': 81, 'murrumbeena': 81, 'oakleigh': 80,
+  'oakleigh south': 80, 'oakleigh east': 80, 'hughesdale': 81,
+  'huntingdale': 81, 'springvale': 82, 'springvale south': 83,
+  'noble park': 82, 'noble park north': 81,
+  'keysborough': 84, 'dingley village': 84,
+  // East / SE Suburbs
+  'richmond': 78, 'hawthorn': 78, 'hawthorn east': 78,
+  'glen iris': 78, 'malvern': 79, 'malvern east': 79,
+  'glen waverley': 80, 'mount waverley': 80, 'wheelers hill': 82,
+  'mulgrave': 81, 'rowville': 82, 'lysterfield': 82,
+  'vermont': 78, 'vermont south': 80, 'forest hill': 79,
+  'surrey hills': 78, 'box hill': 78, 'box hill south': 78,
+  'box hill north': 77, 'mont albert': 77, 'mont albert north': 77,
+  'blackburn': 76, 'blackburn north': 76, 'blackburn south': 77,
+  'nunawading': 76, 'mitcham': 76, 'ringwood': 75,
+  'ringwood east': 76, 'ringwood north': 75,
+  'heathmont': 77, 'croydon': 74, 'croydon north': 73,
+  'croydon south': 74, 'croydon hills': 73,
+  'mooroolbark': 72, 'kilsyth': 70, 'kilsyth south': 72,
+  'bayswater': 75, 'bayswater north': 74, 'boronia': 76,
+  'the basin': 76, 'ferntree gully': 78, 'upper ferntree gully': 78,
+  'knoxfield': 78, 'scoresby': 80, 'knox': 79,
+  'wantirna': 79, 'wantirna south': 80,
+  // Dandenong / Casey
+  'dandenong': 83, 'dandenong north': 82, 'dandenong south': 84,
+  'dandenong south industrial': 85, 'cleeland': 84, 'lynbrook': 86,
+  'lyndhurst': 88, 'cranbourne': 94, 'cranbourne north': 92,
+  'cranbourne east': 96, 'cranbourne west': 93, 'cranbourne south': 96,
+  'botanic ridge': 98, 'clyde': 100, 'clyde north': 100,
+  'officer': 96, 'officer south': 97, 'pakenham': 100,
+  'pakenham upper': 98, 'east pakenham': 101,
+  'berwick': 92, 'harkaway': 90, 'beaconsfield': 94,
+  'beaconsfield upper': 95, 'narre warren': 90,
+  'narre warren north': 88, 'narre warren south': 92,
+  'hallam': 88, 'hampton park': 88, 'endeavour hills': 86,
+  // Frankston / Mornington Peninsula
+  'frankston': 90, 'frankston north': 88, 'frankston south': 92,
+  'seaford': 92, 'carrum downs': 90, 'karingal': 90,
+  'langwarrin': 92, 'langwarrin south': 93,
+  'mornington': 100, 'mount eliza': 96, 'mount martha': 104,
+  'dromana': 110, 'rosebud': 115, 'rye': 120,
+  'blairgowrie': 122, 'portsea': 130, 'sorrento': 128,
+  'safety beach': 108, 'mc crae': 112, 'capel sound': 114,
+  'fingal': 125, 'shoreham': 120, 'red hill': 115,
+  'red hill south': 116, 'main ridge': 118, 'merricks': 110,
+  'somers': 118, 'balnarring': 112, 'baxter': 96,
+  'tyabb': 98, 'moorooduc': 94,
+  // Western Suburbs
+  'footscray': 72, 'yarraville': 72, 'seddon': 72,
+  'williamstown': 74, 'newport': 74, 'spotswood': 73,
+  'altona': 76, 'altona meadows': 78, 'altona north': 74,
+  'laverton': 78, 'hoppers crossing': 80, 'werribee': 83,
+  'werribee south': 86, 'point cook': 82, 'williams landing': 82,
+  'wyndham vale': 86, 'manor lakes': 87, 'little river': 90,
+  'lara': 88, 'geelong': 110, 'geelong north': 110,
+  'belmont': 112, 'south geelong': 112, 'newtown geelong': 112,
+  'corio': 108, 'norlane': 108, 'newcomb': 114,
+  'st albans park': 114, 'breakwater': 114,
+  'torquay': 125, 'jan juc': 126, 'anglesea': 130,
+  'lorne': 148, 'apollo bay': 175,
+  // Melton
+  'melton': 80, 'melton south': 82, 'melton west': 78,
+  'rockbank': 76, 'eynesbury': 80, 'cobblebank': 82,
+  'kurunjang': 80, 'strathtulloh': 81, 'burnside': 82,
+  'burnside heights': 80, 'hillside': 76,
+  // Bacchus Marsh / Ballarat
+  'bacchus marsh': 95, 'hopetoun park': 92,
+  'ballan': 108, 'gordon': 120, 'buninyong': 145,
+  'ballarat': 150, 'ballarat central': 150, 'ballarat east': 150,
+  'sebastopol': 150, 'mount clear': 150, 'alfredton': 152,
+  'delacombe': 152, 'lucas': 150, 'winter valley': 153,
+  'invermay park': 152, 'smythes creek': 152,
+  // Bendigo direction
+  'bendigo': 120, 'heathcote': 55, 'rochester': 110,
+  'echuca': 160, 'elmore': 100, 'mckinnons bridge': 85,
+  'redesdale': 70, 'tooborac': 52, 'baynton': 65,
+  'axedale': 80, 'goornong': 100, 'raywood': 110,
+  'emu creek': 45, 'glenhope': 60, 'eppalock': 68,
+  // Yarra Valley / Lilydale
+  'lilydale': 65, 'coldstream': 65, 'yering': 66,
+  'yarra glen': 65, 'healesville': 75, 'badger creek': 78,
+  'don valley': 80, 'toolangi': 72, 'marysville': 90,
+  'narbethong': 85, 'buxton': 95, 'murrindindi': 85,
+  'whittlesea township': 45,
+  // Mildura / NW Victoria
+  'mildura': 400, 'red cliffs': 405, 'irymple': 400,
+  'ouyen': 320, 'sea lake': 340, 'hopetoun': 350,
+  // Wangaratta / Wodonga / NE Victoria
+  'wangaratta': 145, 'wodonga': 240, 'albury': 245,
+  'bright': 200, 'myrtleford': 185, 'beechworth': 210,
+  'rutherglen': 220, 'corowa': 230,
+  // Gippsland
+  'traralgon': 185, 'sale': 215, 'bairnsdale': 270,
+  'lakes entrance': 290, 'warragul': 148, 'drouin': 140,
+  'yarragon': 152, 'trafalgar': 155, 'moe': 162,
+  'morwell': 170, 'latrobe city': 170, 'leongatha': 180,
+  'korumburra': 170, 'wonthaggi': 175, 'cowes': 195,
+  'san remo': 188, 'inverloch': 185,
+  // South Gippsland
+  'foster': 198, 'fish creek': 195, 'meeniyan': 185,
+  'mirboo north': 180,
+  // Horsham / Wimmera
+  'horsham': 270, 'ararat': 200, 'stawell': 215,
+  'hamilton': 280, 'warrnambool': 290, 'portland': 340,
+  // Albury direction
+  'thurgoona': 245, 'lavington': 244,
 };
+
 
 const BEDROOM_TO_METRES = {
   '2': 45, '3': 62, '4': 80, '5+': 105
@@ -1520,14 +1679,18 @@ function calcTravel() {
   const suburb = document.getElementById('client-suburb').value.trim().toLowerCase();
   let km = KILMORE_SUBURB_DISTANCES[suburb];
   if (km === undefined) {
-    // estimate unknown suburbs
-    km = 40;
-    document.getElementById('travel-display').value = '~$40 est. (unknown suburb)';
-  } else {
-    const cost = km * 1;
-    clientInfo.travelKm = km;
+    // estimate unknown suburbs — default 40km one-way = 80km return
+    const returnKm = 80;
+    const cost = returnKm * 1;
+    clientInfo.travelKm = returnKm;
     clientInfo.travelCost = cost;
-    document.getElementById('travel-display').value = km === 0 ? 'No travel charge' : `${km}km — $${cost.toFixed(2)}`;
+    document.getElementById('travel-display').value = `~${returnKm}km return — $${cost.toFixed(2)} est. (unknown suburb)`;
+  } else {
+    const returnKm = km * 2; // return trip
+    const cost = returnKm * 1;
+    clientInfo.travelKm = returnKm;
+    clientInfo.travelCost = cost;
+    document.getElementById('travel-display').value = km === 0 ? 'No travel charge' : `${returnKm}km return — $${cost.toFixed(2)}`;
   }
 }
 
@@ -2325,15 +2488,81 @@ function editStep(idx) {
 }
 
 function showCustomQuote(reason) {
-  const container = document.getElementById('flow-steps');
-  container.innerHTML += `
-    <div class="alert alert-custom" style="margin-top:16px;">
-      🚨 <strong>Custom Quote Required</strong><br>
-      ${reason}<br><br>
-      <strong>Action:</strong> Get client name, phone, suburb, and full address. Contact Simon directly.<br>
-      📱 Simon: 0447 130 743
-    </div>
-  `;
+  const existing = document.getElementById('custom-quote-modal');
+  if (existing) existing.remove();
+
+  // Determine what photos/info are needed based on reason
+  const is3Storey = reason.toLowerCase().includes('3+') || reason.toLowerCase().includes('storey');
+  const isNonOrganic = reason.toLowerCase().includes('non-organic') || reason.toLowerCase().includes('stain');
+  const isNonStandard = reason.toLowerCase().includes('non-standard') || reason.toLowerCase().includes('photos');
+
+  let photoScript = '';
+  if (is3Storey) {
+    photoScript = `<li>Photos of the full exterior showing the height and roof/gutter access</li>
+      <li>Number of storeys and approximate roof pitch if known</li>
+      <li>Any existing safety equipment (anchor points, guard rails) on the roof</li>`;
+  } else if (isNonOrganic) {
+    photoScript = `<li>Close-up photos of the stained areas (different angles)</li>
+      <li>Wide shot showing overall coverage of staining</li>
+      <li>What caused the staining if known (rust, oil, paint, etc.)</li>`;
+  } else {
+    photoScript = `<li>Photos of the area/surface requiring the service</li>
+      <li>Any relevant details about the surface type or condition</li>`;
+  }
+
+  const modal = document.createElement('div');
+  modal.id = 'custom-quote-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto;';
+  modal.innerHTML = `
+    <div style="background:var(--surface);border-radius:16px;padding:24px;max-width:480px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.4);margin:auto;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <span style="font-size:28px;">🚨</span>
+        <div>
+          <div style="font-size:17px;font-weight:800;color:#dc2626;">Custom Quote Required</div>
+          <div style="font-size:12px;color:var(--text3);">Contact Simon immediately</div>
+        </div>
+      </div>
+
+      <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:12px;margin-bottom:16px;font-size:13px;color:#991b1b;">
+        <strong>Reason:</strong> ${reason}
+      </div>
+
+      <div style="font-size:13px;font-weight:700;color:var(--text1);margin-bottom:6px;">📞 Step 1 — Tell the client:</div>
+      <div style="background:var(--bg);border-radius:8px;padding:12px;font-size:13px;color:var(--text2);margin-bottom:14px;font-style:italic;border-left:3px solid #dc2626;">
+        "That's a great question — this type of job does require a custom quote from our expert. What I can do is pass your details straight to Simon, our director, and he'll be in touch very shortly with a personalised price. It won't take long at all."
+      </div>
+
+      <div style="font-size:13px;font-weight:700;color:var(--text1);margin-bottom:6px;">📋 Step 2 — Collect this info:</div>
+      <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:14px;">
+        <ul style="margin:0;padding-left:16px;font-size:13px;color:var(--text2);line-height:1.8;">
+          <li>Client full name</li>
+          <li>Best phone number</li>
+          <li>Full property address (number, street, suburb)</li>
+          <li>Best time to call back</li>
+          ${photoScript}
+        </ul>
+      </div>
+
+      <div style="font-size:13px;font-weight:700;color:var(--text1);margin-bottom:6px;">📱 Step 3 — Contact Simon now:</div>
+      <div style="background:#fef2f2;border-radius:8px;padding:12px;margin-bottom:16px;display:flex;align-items:center;gap:12px;">
+        <span style="font-size:24px;">📲</span>
+        <div>
+          <div style="font-weight:800;font-size:16px;color:#dc2626;">0447 130 743</div>
+          <div style="font-size:12px;color:var(--text3);">Call or text Simon with the client's details</div>
+        </div>
+      </div>
+
+      <div style="font-size:13px;font-weight:700;color:var(--text1);margin-bottom:6px;">💬 Step 4 — Ask for photos via SMS/WhatsApp:</div>
+      <div style="background:var(--bg);border-radius:8px;padding:12px;font-size:13px;color:var(--text2);margin-bottom:16px;font-style:italic;border-left:3px solid var(--ss-green);">
+        "Could you also send through some photos to 0447 130 743? That way Simon can give you the most accurate price possible."
+      </div>
+
+      <button onclick="document.getElementById('custom-quote-modal').remove()" style="width:100%;background:var(--ss-green);color:#fff;border:none;padding:14px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;">
+        Got it — I've contacted Simon
+      </button>
+    </div>`;
+
+  document.body.appendChild(modal);
 }
 
 function showQuote() {
@@ -2397,13 +2626,14 @@ function showQuote() {
       <div class="closing-script">
         <div class="closing-script-title">💬 Closing Script</div>
         <div class="closing-script-text">
-          "So just to confirm, we'll be doing ${svc.name} at ${clientInfo.suburb || '[suburb]'} for a total of <strong>$${result.total.toFixed(2)}</strong> including travel. ${svc.inclusions[0]}. When works best for you — are you flexible on dates or is there a particular time that suits?"
+          "So we're all good to go — that's <strong>$${result.total.toFixed(2)}</strong> all up for ${clientInfo.suburb || '[suburb]'}. To lock it in I just need to grab a date that works for you. Are you flexible on timing, or is there a particular day or week that would suit best?"
         </div>
       </div>
 
       <div class="quote-actions">
+        <button class="btn-primary" onclick="acceptQuote(${result.total})" style="background:#14532d;">&#10003; Quote Accepted — Book Job</button>
         <button class="btn-primary" onclick="saveQuoteToCRM(${result.total})">Save to CRM</button>
-        <button class="btn-secondary" onclick="emailQuote(${result.total})">📧 Email Quote</button>
+        <button class="btn-secondary" onclick="emailQuote(${result.total})">&#128231; Email Quote</button>
         <button class="btn-secondary" onclick="openAddFollowUp()">Add Follow-up</button>
         <button class="btn-secondary" onclick="backToServices()">New Quote</button>
       </div>
@@ -2497,6 +2727,254 @@ async function saveQuoteToCRM(total) {
     showToast('Saved locally — check CRM connection');
     console.error(e);
   }
+}
+
+// ============================================================
+// QUOTE ACCEPTED — BOOK JOB + GOOGLE CALENDAR
+// ============================================================
+
+async function getGoogleToken() {
+  // Try to refresh if we have a stored refresh token
+  if (googleRefreshToken) {
+    try {
+      const r = await fetch('/api/google-refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: googleRefreshToken })
+      });
+      const d = await r.json();
+      if (d.access_token) { googleAccessToken = d.access_token; return googleAccessToken; }
+    } catch(e) {}
+  }
+  return null;
+}
+
+function signInGoogleCalendar() {
+  return new Promise((resolve) => {
+    const popup = window.open('/api/google-auth', 'google_auth', 'width=500,height=600');
+    const handler = (e) => {
+      if (e.data && e.data.type === 'google_tokens') {
+        window.removeEventListener('message', handler);
+        googleAccessToken = e.data.access_token;
+        if (e.data.refresh_token) {
+          googleRefreshToken = e.data.refresh_token;
+          try { localStorage.setItem('ss_google_refresh', googleRefreshToken); } catch(e2) {}
+        }
+        resolve(googleAccessToken);
+      } else if (e.data && e.data.type === 'google_error') {
+        window.removeEventListener('message', handler);
+        resolve(null);
+      }
+    };
+    window.addEventListener('message', handler);
+    // Timeout after 3 mins
+    setTimeout(() => { window.removeEventListener('message', handler); resolve(null); }, 180000);
+  });
+}
+
+async function loadCalendarFreeBusy(token, dateStr) {
+  // Returns list of busy event summaries for the given date
+  try {
+    const start = dateStr + 'T00:00:00+10:00';
+    const end = dateStr + 'T23:59:59+10:00';
+    const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(start)}&timeMax=${encodeURIComponent(end)}&singleEvents=true&orderBy=startTime`;
+    const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    const d = await r.json();
+    return (d.items || []).map(ev => ev.summary || 'Busy');
+  } catch(e) { return []; }
+}
+
+async function bookJobOnCalendar(token, dateStr, clientName, service, suburb, total) {
+  const title = `${clientName} | ${service} | ${suburb} | $${total.toFixed(0)}`;
+  const body = {
+    summary: title,
+    description: `Phone-quoted job booked via Call Dashboard.\nService: ${service}\nSuburb: ${suburb}\nTotal: $${total.toFixed(2)}\nRep: ${currentRep ? currentRep.name : 'unknown'}`,
+    start: { date: dateStr },
+    end: { date: dateStr },
+    colorId: '2' // Sage green
+  };
+  const r = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  return r.ok;
+}
+
+async function acceptQuote(total) {
+  const svc = SERVICES[currentService];
+  if (!svc) return;
+
+  // Step 1: Save quote as accepted + create job in CRM
+  const quoteId = 'Q-' + Date.now();
+  const jobId = 'J-' + Date.now();
+  try {
+    // Upsert client
+    let clientId = null;
+    const existingRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/clients?phone=eq.${encodeURIComponent(clientInfo.phone)}&select=id`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    const existing = await existingRes.json();
+    if (existing && existing.length > 0) {
+      clientId = existing[0].id;
+    } else {
+      const nc = await fetch(`${SUPABASE_URL}/rest/v1/clients`, {
+        method: 'POST',
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+        body: JSON.stringify({ id: 'C-' + Date.now(), name: clientInfo.name, phone: clientInfo.phone, suburb: clientInfo.suburb, status: 'customer', source: 'phone-call', created_at: new Date().toISOString() })
+      });
+      const ncData = await nc.json();
+      if (ncData && ncData[0]) clientId = ncData[0].id;
+    }
+
+    // Save quote as accepted
+    await fetch(`${SUPABASE_URL}/rest/v1/quotes`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify({ id: quoteId, client: clientInfo.name, date: new Date().toISOString().split('T')[0], total, status: 'approved', items: [{ description: svc.name, total }], notes: `Accepted on call. Service: ${svc.name}. Suburb: ${clientInfo.suburb}. Travel: $${clientInfo.travelCost.toFixed(2)}.`, created_at: new Date().toISOString() })
+    });
+
+    // Create job (status Active, no date yet — date set after calendar booking)
+    await fetch(`${SUPABASE_URL}/rest/v1/jobs`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify({ id: jobId, client: clientInfo.name, service: svc.name, description: `Phone-quoted job. Suburb: ${clientInfo.suburb}.`, status: 'Active', revenue: total, hours: 0, completion_date: null, notes: `Booked via Call Dashboard. Rep: ${currentRep ? currentRep.name : 'unknown'}. Quote: ${quoteId}.`, created_at: new Date().toISOString() })
+    });
+
+    showToast('Quote accepted ✓ — Job created in CRM');
+  } catch(e) {
+    showToast('CRM save error — check connection', 'error');
+    console.error(e);
+  }
+
+  // Step 2: Google Calendar booking modal
+  showCalendarBookingModal(total, jobId);
+}
+
+async function showCalendarBookingModal(total, jobId) {
+  const svc = SERVICES[currentService];
+  const existing = document.getElementById('cal-booking-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'cal-booking-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto;';
+  modal.innerHTML = `
+    <div style="background:var(--surface);border-radius:16px;padding:24px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.4);margin:auto;">
+      <div style="font-size:17px;font-weight:800;margin-bottom:4px;">&#128197; Book the Job</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:16px;">${clientInfo.name} &middot; ${svc ? svc.name : ''} &middot; $${total.toFixed(2)}</div>
+
+      <div id="cal-booking-body">
+        <div style="text-align:center;padding:24px;">
+          <div style="font-size:32px;margin-bottom:12px;">&#128197;</div>
+          <div style="font-size:14px;color:var(--text2);margin-bottom:16px;">Connect Google Calendar to check availability and book the job.</div>
+          <button onclick="loadCalBooking(${total}, '${jobId}')" style="background:var(--ss-green);color:#fff;border:none;padding:12px 24px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">Connect Google Calendar</button>
+        </div>
+      </div>
+
+      <button onclick="document.getElementById('cal-booking-modal').remove()" style="width:100%;background:transparent;border:1px solid var(--border);color:var(--text3);padding:10px;border-radius:8px;font-size:13px;cursor:pointer;margin-top:12px;">Skip — book manually later</button>
+    </div>`;
+  document.body.appendChild(modal);
+
+  // Try to auto-load if we already have a token
+  const token = await getGoogleToken();
+  if (token) { await loadCalBooking(total, jobId); }
+}
+
+async function loadCalBooking(total, jobId) {
+  const body = document.getElementById('cal-booking-body');
+  if (!body) return;
+  body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3);">Connecting to Google Calendar&#8230;</div>';
+
+  let token = await getGoogleToken();
+  if (!token) { token = await signInGoogleCalendar(); }
+  if (!token) {
+    body.innerHTML = '<div style="text-align:center;padding:24px;color:#dc2626;">Could not connect to Google Calendar. Book manually in the CRM.</div>';
+    return;
+  }
+
+  // Show next 14 days with availability
+  const today = new Date();
+  const days = [];
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    days.push(d.toISOString().split('T')[0]);
+  }
+
+  body.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text3);">Loading calendar&#8230;</div>';
+
+  // Load busy slots for next 14 days in one call
+  let busyByDay = {};
+  try {
+    const start = days[0] + 'T00:00:00+10:00';
+    const end = days[days.length - 1] + 'T23:59:59+10:00';
+    const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(start)}&timeMax=${encodeURIComponent(end)}&singleEvents=true&orderBy=startTime`;
+    const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    const d = await r.json();
+    (d.items || []).forEach(ev => {
+      const date = ev.start?.date || (ev.start?.dateTime || '').split('T')[0];
+      if (!busyByDay[date]) busyByDay[date] = [];
+      busyByDay[date].push(ev.summary || 'Busy');
+    });
+  } catch(e) {}
+
+  const dayCards = days.map(dateStr => {
+    const evts = busyByDay[dateStr] || [];
+    const d = new Date(dateStr + 'T12:00:00');
+    const label = d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+    const isFree = evts.length === 0;
+    // Check if any job in same suburb
+    const sameArea = evts.some(e => e.toLowerCase().includes((clientInfo.suburb || '').toLowerCase()));
+    const badge = isFree
+      ? '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:2px 6px;border-radius:10px;font-weight:700;">FREE</span>'
+      : sameArea
+        ? '<span style="font-size:10px;background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:10px;font-weight:700;">&#9733; SAME AREA</span>'
+        : `<span style="font-size:10px;background:#fee2e2;color:#991b1b;padding:2px 6px;border-radius:10px;font-weight:700;">${evts.length} job${evts.length>1?'s':''}</span>`;
+    const evtList = evts.length > 0 ? `<div style="font-size:10px;color:var(--text3);margin-top:2px;">${evts.slice(0,2).join(', ')}${evts.length>2?' +more':''}</div>` : '';
+    return `<div onclick="confirmCalBooking('${dateStr}', '${label}', ${total}, '${jobId}')"
+      style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;cursor:pointer;background:${isFree?'#f0fdf4':'#fff'};transition:all 0.15s;"
+      onmouseover="this.style.borderColor='var(--ss-green)'" onmouseout="this.style.borderColor='var(--border)'">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-size:13px;font-weight:700;">${label}</div>
+        ${badge}
+      </div>
+      ${evtList}
+    </div>`;
+  }).join('');
+
+  body.innerHTML = `
+    <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:10px;">Select a day to book:</div>
+    <div style="display:flex;flex-direction:column;gap:6px;max-height:340px;overflow-y:auto;">${dayCards}</div>`;
+}
+
+async function confirmCalBooking(dateStr, label, total, jobId) {
+  const modal = document.getElementById('cal-booking-modal');
+  const body = document.getElementById('cal-booking-body');
+  if (body) body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3);">Booking&#8230;</div>';
+
+  const token = await getGoogleToken();
+  if (!token) {
+    showToast('Calendar session expired — please reconnect');
+    if (modal) modal.remove();
+    return;
+  }
+
+  const svc = SERVICES[currentService];
+  const booked = await bookJobOnCalendar(token, dateStr, clientInfo.name, svc ? svc.name : 'Job', clientInfo.suburb, total);
+
+  // Update job in CRM with the date
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/jobs?id=eq.${jobId}`, {
+      method: 'PATCH',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ completion_date: dateStr })
+    });
+  } catch(e) {}
+
+  if (modal) modal.remove();
+  showToast(booked ? `Job booked for ${label} ✓` : `Job saved in CRM — add to calendar manually`);
 }
 
 // ============================================================
@@ -2884,7 +3362,10 @@ function showCalDay(dateStr) {
 
 function fuDateShift(delta) {
   const input = document.getElementById('fu-browse-date');
+  const today = new Date().toISOString().split('T')[0];
+  if (!input.value) input.value = today;
   const d = new Date(input.value + 'T00:00:00');
+  if (isNaN(d.getTime())) { input.value = today; return renderFollowUps(); }
   d.setDate(d.getDate() + delta);
   input.value = d.toISOString().split('T')[0];
   renderFollowUps();
@@ -3175,28 +3656,30 @@ function showFollowUpOutcomeModal(id) {
 async function completeFollowUp(id, outcome, outcomeLabel) {
   document.getElementById('fu-outcome-modal').remove();
 
-  // If they need another callback, open a new follow-up form pre-filled
+  // If they need another callback — show date picker to reschedule the SAME follow-up
   if (outcome === 'callback_later') {
-    // First mark current as done
-    await fetch(`${SUPABASE_URL}/rest/v1/call_followups?id=eq.${id}`, {
-      method: 'PATCH',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'done', notes: (await getCurrentFuNote(id)) + ' [Outcome: needs another call]' })
-    });
-    // Find the follow-up to prefill
     const fu = followUps.find(f => f.id === id);
-    if (fu) {
-      // Pre-fill the add follow-up form
-      const nextDate = new Date();
-      nextDate.setDate(nextDate.getDate() + 7);
-      document.getElementById('fu-date').value = nextDate.toISOString().split('T')[0];
-      document.getElementById('fu-name').value = fu.client_name || '';
-      document.getElementById('fu-phone').value = fu.phone || '';
-      document.getElementById('fu-notes').value = 'Follow-up call — previous contact: ' + fu.call_date;
-      document.getElementById('followup-modal').classList.add('open');
-      showToast('Previous call marked done — schedule the next one below');
-    }
-    loadFollowUps();
+    const nextDate = new Date();
+    nextDate.setDate(nextDate.getDate() + 7);
+    const defaultDate = nextDate.toISOString().split('T')[0];
+
+    // Show reschedule mini-modal
+    const existing = document.getElementById('fu-reschedule-modal');
+    if (existing) existing.remove();
+    const rm = document.createElement('div');
+    rm.id = 'fu-reschedule-modal';
+    rm.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    rm.innerHTML = `
+      <div style="background:var(--surface);border-radius:16px;padding:24px;max-width:340px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+        <div style="font-size:17px;font-weight:700;margin-bottom:6px;">Reschedule Follow-up</div>
+        <div style="font-size:13px;color:var(--text3);margin-bottom:16px;">Pick the new call date for <strong>${fu ? fu.client_name : ''}</strong></div>
+        <input type="date" id="fu-reschedule-date" value="${defaultDate}" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;margin-bottom:16px;">
+        <div style="display:flex;gap:10px;">
+          <button onclick="confirmReschedule('${id}')" style="flex:1;background:var(--ss-green);color:#fff;border:none;padding:12px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">Reschedule</button>
+          <button onclick="document.getElementById('fu-reschedule-modal').remove()" style="flex:1;background:var(--border);color:var(--text2);border:none;padding:12px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;">Cancel</button>
+        </div>
+      </div>`;
+    document.body.appendChild(rm);
     return;
   }
 
@@ -3220,6 +3703,25 @@ async function completeFollowUp(id, outcome, outcomeLabel) {
 async function getCurrentFuNote(id) {
   const fu = followUps.find(f => f.id === id);
   return fu ? (fu.notes || '') : '';
+}
+
+async function confirmReschedule(id) {
+  const newDate = document.getElementById('fu-reschedule-date').value;
+  document.getElementById('fu-reschedule-modal').remove();
+  if (!newDate) return;
+  try {
+    const fu = followUps.find(f => f.id === id);
+    const noteAppend = fu ? ` | Rescheduled from ${fu.call_date} on ${new Date().toISOString().split('T')[0]}` : '';
+    await fetch(`${SUPABASE_URL}/rest/v1/call_followups?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ call_date: newDate, status: 'pending', notes: (fu ? (fu.notes || '') : '') + noteAppend })
+    });
+    showToast('Follow-up rescheduled to ' + newDate);
+    loadFollowUps();
+  } catch(e) {
+    showToast('Error rescheduling follow-up');
+  }
 }
 
 function openEditFollowUp(id) {
@@ -3289,6 +3791,7 @@ function showToast(msg) {
 // Init
 initRep();
 document.getElementById('fu-date').valueAsDate = new Date();
+document.getElementById('fu-browse-date').value = new Date().toISOString().split('T')[0];
 // Set default perf dates
 const today = new Date();
 const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
