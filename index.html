@@ -2590,7 +2590,7 @@ function printQuote(total) {
     <td style="text-align:center;"></td>
     <td style="text-align:right;">$${clientInfo.travelCost.toFixed(2)}</td>
     <td style="text-align:right;">$${clientInfo.travelCost.toFixed(2)}</td>
-  </tr>` : \'\';
+  </tr>` : '';
 
   const html = `<!DOCTYPE html>
 <html>
@@ -2620,8 +2620,8 @@ function printQuote(total) {
   .social-row { margin-top: 14px; text-align: center; font-size: 11px; }
   .social-row span { margin: 0 10px; font-weight: 600; color: #39b54a; }
   @media print { body { padding: 20px; } }
-</style>
-</head>
+<\/style>
+<\/head>
 <body>
 <div class="header">
   <div class="logo-side">
@@ -2674,8 +2674,8 @@ function printQuote(total) {
     Connect with us: <span>&#11088; Google Review</span> <span>Facebook</span> <span>Instagram</span> <span>TikTok</span>
   </div>
 </div>
-</body>
-</html>`;
+<\/body>
+<\/html>`;
 
   const win = window.open('', '_blank');
   win.document.write(html);
