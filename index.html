@@ -2507,28 +2507,47 @@ function emailQuote(total) {
   const subject = `Your Quote from SS Exterior Services — ${svc.name}`;
   const itemLines = result.breakdown ? result.breakdown.map(b => `• ${b}`).join('\n') : `• ${svc.name} — $${total.toFixed(2)}`;
   const travelLine = clientInfo.travelCost > 0 ? `• Travel (${clientInfo.travelKm}km from Kilmore) — $${clientInfo.travelCost.toFixed(2)}\n` : '';
+  const inclusionsList = svc.inclusions && svc.inclusions.length > 0
+    ? svc.inclusions.map(i => `  • ${i}`).join('\n')
+    : '';
+
   const body =
 `Hi ${firstName},
 
 Thank you for calling SS Exterior Services! Here is your quote as discussed:
 
-Service: ${svc.name}
-Address: ${clientInfo.suburb}
+─────────────────────────────────────────
+SERVICE: ${svc.name}
+ADDRESS: ${clientInfo.suburb || 'As discussed'}
+─────────────────────────────────────────
 
-Items:
+PRICE BREAKDOWN:
 ${itemLines}
 ${travelLine}
 ─────────────────────
-TOTAL: $${total.toFixed(2)}
+TOTAL (inc. GST): $${total.toFixed(2)}
 ─────────────────────
 
-This quote is valid for 30 days. If you'd like to go ahead or have any questions, please don't hesitate to call or reply to this email.
+${inclusionsList ? `WHAT'S INCLUDED:\n${inclusionsList}\n\n` : ''}IMPORTANT NOTES:
+  • Please ensure clear access to all areas to be serviced on the day
+  • A responsible adult must be present or access arrangements confirmed in advance
+  • Prices may vary if site conditions differ materially from what was described
+  • This quote is valid for 30 days from today's date
+  • All prices are inclusive of GST
+
+To accept this quote, simply reply to this email or call/text Simon directly. We'll then lock in a suitable date and time.
+
+If you have any questions at all, don't hesitate to get in touch — we're happy to help!
 
 Kind regards,
 Simon Sibillin
 SS Exterior Services
 📞 0447 130 743
-📧 ssexteriorservices@outlook.com`;
+📧 ssexteriorservices@outlook.com
+🌐 ssexteriorservices.com.au
+
+---
+Google Review: g.page/r/ssexteriorservices | Facebook | Instagram | TikTok`;
 
   if (email) {
     window.open(
@@ -2554,69 +2573,106 @@ function printQuote(total) {
   const svc = SERVICES[currentService];
   if (!svc) return;
   const result = svc.calcQuote(answers);
-  const date = new Date().toLocaleDateString('en-AU');
+  const date = new Date().toLocaleDateString('en-AU', { day:'2-digit', month:'2-digit', year:'numeric' });
   const quoteId = 'Q-' + Date.now();
+  const serviceTotal = total - clientInfo.travelCost;
+
+  const serviceRow = `<tr>
+    <td>${svc.name}</td>
+    <td style="text-align:center;">1</td>
+    <td style="text-align:center;"></td>
+    <td style="text-align:right;">$${serviceTotal.toFixed(2)}</td>
+    <td style="text-align:right;">$${serviceTotal.toFixed(2)}</td>
+  </tr>`;
+  const travelRow = clientInfo.travelCost > 0 ? `<tr>
+    <td>Travel (${clientInfo.travelKm}km from Kilmore)</td>
+    <td style="text-align:center;">1</td>
+    <td style="text-align:center;"></td>
+    <td style="text-align:right;">$${clientInfo.travelCost.toFixed(2)}</td>
+    <td style="text-align:right;">$${clientInfo.travelCost.toFixed(2)}</td>
+  </tr>` : \'\';
 
   const html = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>Quote — SS Exterior Services</title>
+<title>Quote ${quoteId} - SS Exterior Services</title>
 <style>
-  body { font-family: Arial, sans-serif; margin: 0; padding: 40px; color: #222; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; }
-  .brand { font-size: 22px; font-weight: 800; color: #2e7d32; }
-  .brand-sub { font-size: 12px; color: #555; margin-top: 4px; }
-  .quote-meta { text-align: right; font-size: 12px; color: #555; }
-  .quote-meta strong { font-size: 18px; color: #222; display: block; }
-  .divider { border: none; border-top: 2px solid #2e7d32; margin: 20px 0; }
-  .section { margin-bottom: 20px; }
-  .section-title { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-  .client-name { font-size: 18px; font-weight: 700; }
-  .client-detail { font-size: 13px; color: #555; margin-top: 2px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-  th { text-align: left; font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; padding: 8px 4px; border-bottom: 1px solid #ddd; }
-  td { padding: 12px 4px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
-  td:last-child { text-align: right; font-weight: 600; }
-  .total-row td { font-size: 16px; font-weight: 800; color: #2e7d32; border-top: 2px solid #2e7d32; border-bottom: none; padding-top: 16px; }
-  .footer { margin-top: 48px; font-size: 11px; color: #888; border-top: 1px solid #eee; padding-top: 16px; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; padding: 40px; color: #222; font-size: 13px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+  .logo-side { display: flex; align-items: flex-start; gap: 14px; }
+  .brand-name { font-size: 24px; font-weight: 900; color: #39b54a; }
+  .brand-contact { font-size: 11px; color: #555; margin-top: 5px; line-height: 1.7; }
+  .quote-block { text-align: right; }
+  .quote-title { font-size: 30px; font-weight: 900; color: #222; letter-spacing: 3px; }
+  .quote-id { font-size: 15px; font-weight: 700; color: #333; margin-top: 4px; }
+  .quote-meta { font-size: 11px; color: #666; margin-top: 5px; line-height: 1.8; }
+  .divider { border: none; border-top: 3px solid #39b54a; margin: 18px 0; }
+  .prepared-label { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .client-name { font-size: 17px; font-weight: 700; }
+  .client-detail { font-size: 12px; color: #555; margin-top: 3px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+  th { text-align: left; font-size: 11px; font-weight: 700; color: #555; text-transform: uppercase; padding: 10px 8px; border-top: 2px solid #222; border-bottom: 2px solid #222; }
+  td { padding: 13px 8px; border-bottom: 1px solid #eee; font-size: 13px; }
+  .total-row td { font-size: 15px; font-weight: 800; border-top: 2px solid #222; border-bottom: none; padding-top: 14px; }
+  .footer { margin-top: 40px; font-size: 11px; color: #666; border-top: 1px solid #ddd; padding-top: 16px; line-height: 1.7; }
+  .social-row { margin-top: 14px; text-align: center; font-size: 11px; }
+  .social-row span { margin: 0 10px; font-weight: 600; color: #39b54a; }
   @media print { body { padding: 20px; } }
 </style>
 </head>
 <body>
 <div class="header">
-  <div>
-    <div class="brand">SS Exterior Services</div>
-    <div class="brand-sub">Kilmore VIC 3764 · 0447 130 743 · ssexteriorservices@outlook.com</div>
+  <div class="logo-side">
+    <div>
+      <div class="brand-name">SS Exterior Services</div>
+      <div class="brand-contact">
+        ABN 93 572 816 955 | Kilmore VIC 3764 | 0447 130 743 | ssexteriorservices@outlook.com
+      </div>
+    </div>
   </div>
-  <div class="quote-meta">
-    <strong>QUOTE</strong>
-    ${quoteId}<br>
-    Date: ${date}<br>
-    Valid: 30 days
+  <div class="quote-block">
+    <div class="quote-title">QUOTE</div>
+    <div class="quote-id">${quoteId}</div>
+    <div class="quote-meta">Date: ${date}<br>Valid: 30 days</div>
   </div>
 </div>
+
 <hr class="divider">
-<div class="section">
-  <div class="section-title">Prepared For</div>
-  <div class="client-name">${clientInfo.name || '—'}</div>
-  <div class="client-detail">${clientInfo.phone || ''}</div>
-  <div class="client-detail">${clientInfo.email || ''}</div>
-  <div class="client-detail">${clientInfo.suburb || ''}</div>
+
+<div style="margin-bottom:24px;">
+  <div class="prepared-label">Prepared For</div>
+  <div class="client-name">${clientInfo.name || '&mdash;'}</div>
+  ${clientInfo.phone ? `<div class="client-detail">${clientInfo.phone}</div>` : ''}
+  ${clientInfo.suburb ? `<div class="client-detail">${clientInfo.suburb}</div>` : ''}
 </div>
+
 <table>
   <thead>
-    <tr><th>Description</th><th style="text-align:right;">Amount</th></tr>
+    <tr>
+      <th style="width:48%;">Description</th>
+      <th style="text-align:center;width:10%;">QTY</th>
+      <th style="text-align:center;width:10%;">Unit</th>
+      <th style="text-align:right;width:16%;">Rate</th>
+      <th style="text-align:right;width:16%;">Total</th>
+    </tr>
   </thead>
   <tbody>
-    <tr><td>${svc.name}</td><td>$${(total - clientInfo.travelCost).toFixed(2)}</td></tr>
-    ${clientInfo.travelCost > 0 ? `<tr><td>Travel (${clientInfo.travelKm}km from Kilmore)</td><td>$${clientInfo.travelCost.toFixed(2)}</td></tr>` : ''}
-    <tr class="total-row"><td>Total (inc. GST)</td><td>$${total.toFixed(2)}</td></tr>
+    ${serviceRow}
+    ${travelRow}
+    <tr class="total-row">
+      <td colspan="4" style="text-align:right;">Total (inc. GST)</td>
+      <td style="text-align:right;">$${total.toFixed(2)}</td>
+    </tr>
   </tbody>
 </table>
+
 <div class="footer">
-  This quote is valid for 30 days from the date above. Prices are inclusive of GST. 
-  To accept this quote or ask any questions, contact Simon on 0447 130 743 or ssexteriorservices@outlook.com.
+  This quote is valid for 30 days from the date above. Prices are inclusive of GST. To accept this quote or ask any questions, contact Simon on 0447 130 743 or ssexteriorservices@outlook.com.
+  <div class="social-row">
+    Connect with us: <span>&#11088; Google Review</span> <span>Facebook</span> <span>Instagram</span> <span>TikTok</span>
+  </div>
 </div>
 </body>
 </html>`;
@@ -3014,22 +3070,106 @@ async function importCallList() {
   }
 }
 
-async function toggleFollowUp(id, currentStatus) {
-  const newStatus = currentStatus === 'done' ? 'pending' : 'done';
-  try {
+function toggleFollowUp(id, currentStatus) {
+  if (currentStatus === 'done') {
+    // Unmark as done — just toggle back with no friction
+    fetch(`${SUPABASE_URL}/rest/v1/call_followups?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'pending' })
+    }).then(() => loadFollowUps()).catch(console.error);
+    return;
+  }
+  // Show outcome modal before marking done
+  showFollowUpOutcomeModal(id);
+}
+
+function showFollowUpOutcomeModal(id) {
+  // Remove existing modal if any
+  const existing = document.getElementById('fu-outcome-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'fu-outcome-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.innerHTML = `
+    <div style="background:var(--surface);border-radius:16px;padding:24px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+      <div style="font-size:18px;font-weight:700;color:var(--text1);margin-bottom:6px;">Mark Follow-up Done?</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:20px;">Was the follow-up successful?</div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px;">
+        <button onclick="completeFollowUp('${id}','booked','Booked')" style="background:#14532d;color:#fff;border:none;padding:12px 16px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;text-align:left;">
+          ✅ Yes — Booked a job
+        </button>
+        <button onclick="completeFollowUp('${id}','callback_later','Needs another follow-up')" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber);padding:12px 16px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;text-align:left;">
+          🔄 Not yet — Schedule another call
+        </button>
+        <button onclick="completeFollowUp('${id}','not_interested','Not interested')" style="background:var(--red-bg);color:var(--red);border:1px solid #7f1d1d;padding:12px 16px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;text-align:left;">
+          ❌ No — Not interested / dead lead
+        </button>
+        <button onclick="completeFollowUp('${id}','done','Completed')" style="background:var(--border);color:var(--text2);border:none;padding:12px 16px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;text-align:left;">
+          📞 Done — Other outcome
+        </button>
+      </div>
+
+      <button onclick="document.getElementById('fu-outcome-modal').remove()" style="width:100%;background:transparent;border:1px solid var(--border);color:var(--text3);padding:10px;border-radius:8px;font-size:13px;cursor:pointer;">
+        Cancel
+      </button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  // Close on backdrop click
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+}
+
+async function completeFollowUp(id, outcome, outcomeLabel) {
+  document.getElementById('fu-outcome-modal').remove();
+
+  // If they need another callback, open a new follow-up form pre-filled
+  if (outcome === 'callback_later') {
+    // First mark current as done
     await fetch(`${SUPABASE_URL}/rest/v1/call_followups?id=eq.${id}`, {
       method: 'PATCH',
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ status: newStatus })
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'done', notes: (await getCurrentFuNote(id)) + ' [Outcome: needs another call]' })
     });
+    // Find the follow-up to prefill
+    const fu = followUps.find(f => f.id === id);
+    if (fu) {
+      // Pre-fill the add follow-up form
+      const nextDate = new Date();
+      nextDate.setDate(nextDate.getDate() + 7);
+      document.getElementById('fu-date').value = nextDate.toISOString().split('T')[0];
+      document.getElementById('fu-name').value = fu.client_name || '';
+      document.getElementById('fu-phone').value = fu.phone || '';
+      document.getElementById('fu-notes').value = 'Follow-up call — previous contact: ' + fu.call_date;
+      document.getElementById('followup-modal').classList.add('open');
+      showToast('Previous call marked done — schedule the next one below');
+    }
+    loadFollowUps();
+    return;
+  }
+
+  try {
+    const currentFu = followUps.find(f => f.id === id);
+    const existingNotes = currentFu ? (currentFu.notes || '') : '';
+    const updatedNotes = existingNotes + (existingNotes ? ' | ' : '') + `[Outcome: ${outcomeLabel}]`;
+
+    await fetch(`${SUPABASE_URL}/rest/v1/call_followups?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'done', notes: updatedNotes })
+    });
+    showToast(`Follow-up marked done: ${outcomeLabel}`);
     loadFollowUps();
   } catch(e) {
     console.error(e);
   }
+}
+
+async function getCurrentFuNote(id) {
+  const fu = followUps.find(f => f.id === id);
+  return fu ? (fu.notes || '') : '';
 }
 
 // ============================================================
