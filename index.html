@@ -947,10 +947,16 @@
       <!-- ==================== FOLLOW-UPS PAGE ==================== -->
       <div class="page" id="page-followups">
         <div class="page-title">Follow-ups</div>
-        <div class="page-subtitle">Today's calls and pending actions</div>
+        <div class="page-subtitle">Browse by date &mdash; past, today, or ahead</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+          <button onclick="fuDateShift(-1)" style="border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:14px;">&#9664;</button>
+          <input type="date" id="fu-browse-date" style="font-size:14px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;cursor:pointer;" onchange="renderFollowUps()">
+          <button onclick="fuDateShift(1)" style="border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:14px;">&#9654;</button>
+          <button onclick="fuGoToday()" style="border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;color:var(--ss-green);font-weight:600;">Today</button>
+        </div>
         <div id="followups-list">
           <div class="empty-state">
-            <div class="empty-state-icon">🔔</div>
+            <div class="empty-state-icon">&#128276;</div>
             <div class="empty-state-title">No follow-ups due</div>
             <div class="empty-state-desc">All caught up</div>
           </div>
@@ -2549,18 +2555,27 @@ SS Exterior Services
 ---
 Google Review: g.page/r/ssexteriorservices | Facebook | Instagram | TikTok`;
 
+  // Outlook deeplink has a URL length limit (~2000 chars). Truncate body if needed.
+  const MAX_BODY_ENCODED = 1400;
+  let encodedBody = encodeURIComponent(body);
+  if (encodedBody.length > MAX_BODY_ENCODED) {
+    // Trim plain text then re-encode
+    let trimmed = body.substring(0, Math.floor(body.length * MAX_BODY_ENCODED / encodedBody.length));
+    encodedBody = encodeURIComponent(trimmed + '\n\n[Body truncated — see PDF for full quote]');
+  }
+
   if (email) {
     window.open(
       'https://outlook.office.com/mail/deeplink/compose?to=' + encodeURIComponent(email) +
       '&subject=' + encodeURIComponent(subject) +
-      '&body=' + encodeURIComponent(body),
+      '&body=' + encodedBody,
       '_blank'
     );
   } else {
     // No email — open blank compose with body pre-filled
     window.open(
       'https://outlook.office.com/mail/deeplink/compose?subject=' + encodeURIComponent(subject) +
-      '&body=' + encodeURIComponent(body),
+      '&body=' + encodedBody,
       '_blank'
     );
     showToast('No email on file — Outlook opened, add recipient manually');
@@ -2867,40 +2882,76 @@ function showCalDay(dateStr) {
   detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
+function fuDateShift(delta) {
+  const input = document.getElementById('fu-browse-date');
+  const d = new Date(input.value + 'T00:00:00');
+  d.setDate(d.getDate() + delta);
+  input.value = d.toISOString().split('T')[0];
+  renderFollowUps();
+}
+function fuGoToday() {
+  document.getElementById('fu-browse-date').value = new Date().toISOString().split('T')[0];
+  renderFollowUps();
+}
+
 function renderFollowUps() {
   const today = new Date().toISOString().split('T')[0];
+  const browseInput = document.getElementById('fu-browse-date');
+  // Initialise date picker to today if not set
+  if (!browseInput.value) browseInput.value = today;
+  const selectedDate = browseInput.value;
+
   const fuList = document.getElementById('followups-list');
 
   // Render visual calendar
   renderCalendar();
 
-  // Render today's follow-ups page
   if (!followUps || followUps.length === 0) {
-    fuList.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔔</div><div class="empty-state-title">No follow-ups due</div><div class="empty-state-desc">All caught up</div></div>`;
+    fuList.innerHTML = `<div class="empty-state"><div class="empty-state-icon">&#128276;</div><div class="empty-state-title">No follow-ups scheduled</div><div class="empty-state-desc">All caught up</div></div>`;
     return;
   }
 
   const renderItem = (fu) => {
-    const isToday = fu.call_date === today;
     const isPast = fu.call_date < today;
     const done = fu.status === 'done';
-    const badge = done ? `<span class="badge badge-green">Done</span>` : isToday ? `<span class="badge badge-amber">Today</span>` : isPast ? `<span class="badge" style="background:var(--red-bg);color:var(--red);border:1px solid #7f1d1d;">Overdue</span>` : `<span class="badge badge-blue">Upcoming</span>`;
-    return `<div class="follow-up-item" onclick="toggleFollowUp('${fu.id}', '${fu.status}')">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+    let badge;
+    if (done) {
+      badge = `<span class="badge badge-green">Done</span>`;
+    } else if (isPast) {
+      badge = `<span class="badge" style="background:var(--red-bg);color:var(--red);border:1px solid #7f1d1d;">Overdue</span>`;
+    } else if (fu.call_date === today) {
+      badge = `<span class="badge badge-amber">Today</span>`;
+    } else {
+      badge = `<span class="badge badge-blue">Upcoming</span>`;
+    }
+    return `<div class="follow-up-item" style="cursor:pointer;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;" onclick="toggleFollowUp('${fu.id}','${fu.status}')">
         <div class="follow-up-name">${fu.client_name}</div>
         ${badge}
       </div>
-      <div class="follow-up-service">${fu.service}</div>
-      <div class="follow-up-time">${fu.call_date} ${fu.call_time || ''} · ${fu.phone || '—'}</div>
+      <div class="follow-up-service" onclick="toggleFollowUp('${fu.id}','${fu.status}')">${fu.service}</div>
+      <div class="follow-up-time" onclick="toggleFollowUp('${fu.id}','${fu.status}')">${fu.call_time || 'Any time'} &middot; ${fu.phone || '&mdash;'}</div>
       ${fu.rep_name ? `<div style="font-size:11px;color:var(--text3);margin-top:3px;">Rep: ${fu.rep_name}</div>` : ''}
       ${fu.notes ? `<div class="follow-up-note">${fu.notes}</div>` : ''}
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button onclick="openEditFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;color:var(--text2);">&#9998; Edit</button>
+        <button onclick="deleteFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid #7f1d1d;border-radius:6px;background:var(--red-bg);cursor:pointer;color:var(--red);">&#128465; Delete</button>
+      </div>
     </div>`;
   };
 
-  const due = followUps.filter(fu => fu.status !== 'done' && fu.call_date <= today);
-  fuList.innerHTML = due.length === 0
-    ? `<div class="empty-state"><div class="empty-state-icon">🔔</div><div class="empty-state-title">No follow-ups due today</div><div class="empty-state-desc">All caught up</div></div>`
-    : `<div class="calendar-grid">${due.map(renderItem).join('')}</div>`;
+  // Show all follow-ups for the selected date
+  const items = followUps.filter(fu => fu.call_date === selectedDate);
+  // Also show overdue (past, not done) when viewing today
+  let displayItems = items;
+  if (selectedDate === today) {
+    const overdue = followUps.filter(fu => fu.call_date < today && fu.status !== 'done');
+    displayItems = [...overdue, ...items];
+  }
+
+  fuList.innerHTML = displayItems.length === 0
+    ? `<div class="empty-state"><div class="empty-state-icon">&#128276;</div><div class="empty-state-title">No follow-ups on this day</div><div class="empty-state-desc">Pick another date or add one</div></div>`
+    : displayItems.map(renderItem).join('');
 }
 
 // ============================================================
@@ -3118,8 +3169,7 @@ function showFollowUpOutcomeModal(id) {
     </div>
   `;
   document.body.appendChild(modal);
-  // Close on backdrop click
-  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+  // Do NOT close on backdrop click — force the user to pick an outcome or Cancel
 }
 
 async function completeFollowUp(id, outcome, outcomeLabel) {
@@ -3170,6 +3220,60 @@ async function completeFollowUp(id, outcome, outcomeLabel) {
 async function getCurrentFuNote(id) {
   const fu = followUps.find(f => f.id === id);
   return fu ? (fu.notes || '') : '';
+}
+
+function openEditFollowUp(id) {
+  const fu = followUps.find(f => f.id === id);
+  if (!fu) return;
+  // Pre-fill the modal with existing values
+  document.getElementById('fu-name').value = fu.client_name || '';
+  document.getElementById('fu-phone').value = fu.phone || '';
+  document.getElementById('fu-service').value = fu.service || '';
+  document.getElementById('fu-date').value = fu.call_date || '';
+  document.getElementById('fu-time').value = fu.call_time || '';
+  document.getElementById('fu-notes').value = fu.notes || '';
+  document.getElementById('followup-modal').classList.add('open');
+
+  // Override the save button to update instead of insert
+  const saveBtn = document.querySelector('#followup-modal .btn-primary');
+  if (saveBtn) {
+    saveBtn.onclick = async function() {
+      const updated = {
+        client_name: document.getElementById('fu-name').value,
+        phone: document.getElementById('fu-phone').value,
+        service: document.getElementById('fu-service').value,
+        call_date: document.getElementById('fu-date').value,
+        call_time: document.getElementById('fu-time').value,
+        notes: document.getElementById('fu-notes').value
+      };
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/call_followups?id=eq.${id}`, {
+          method: 'PATCH',
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+          body: JSON.stringify(updated)
+        });
+        showToast('Follow-up updated');
+      } catch(e) { showToast('Error updating follow-up'); }
+      closeModal();
+      // Restore save button back to default insert behaviour
+      saveBtn.onclick = saveFollowUp;
+      loadFollowUps();
+    };
+  }
+}
+
+async function deleteFollowUp(id) {
+  if (!confirm('Delete this follow-up?')) return;
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/call_followups?id=eq.${id}`, {
+      method: 'DELETE',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    showToast('Follow-up deleted');
+    loadFollowUps();
+  } catch(e) {
+    showToast('Error deleting follow-up');
+  }
 }
 
 // ============================================================
