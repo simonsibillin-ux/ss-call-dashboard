@@ -743,6 +743,12 @@
     <div class="topbar-divider"></div>
     <div class="topbar-title">Call Dashboard</div>
     <div class="topbar-right">
+      <div style="display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="changeRep()">
+        <div style="font-size:11px;color:var(--text3);">Rep:</div>
+        <div id="rep-display" style="font-size:13px;font-weight:600;color:var(--ss-green);"></div>
+        <div style="font-size:11px;color:var(--text3);">[change]</div>
+      </div>
+      <div style="width:1px;height:24px;background:var(--border);margin:0 8px;"></div>
       <div class="status-dot"></div>
       <div class="status-label">Live</div>
     </div>
@@ -767,6 +773,10 @@
       </div>
       <div class="nav-item" onclick="showPage('scripts')">
         <span class="nav-icon">💬</span> Scripts
+      </div>
+      <div class="sidebar-section">Admin</div>
+      <div class="nav-item" onclick="showPage('performance')" id="nav-performance" style="display:none;">
+        <span class="nav-icon">📊</span> Performance
       </div>
     </div>
 
@@ -981,6 +991,29 @@
         </div>
       </div>
 
+      <!-- ==================== PERFORMANCE PAGE ==================== -->
+      <div class="page" id="page-performance">
+        <div class="page-title">Rep Performance</div>
+        <div class="page-subtitle">Quote activity and conversion tracking</div>
+        <div class="form-row" style="margin-bottom:16px;">
+          <div class="form-group">
+            <label class="form-label">Date From</label>
+            <input class="form-input" type="date" id="perf-from">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Date To</label>
+            <input class="form-input" type="date" id="perf-to">
+          </div>
+        </div>
+        <button class="btn-primary" style="width:auto;margin-bottom:20px;" onclick="loadPerformance()">Load Report</button>
+        <div id="performance-content">
+          <div class="empty-state">
+            <div class="empty-state-icon">📊</div>
+            <div class="empty-state-title">Select a date range and load the report</div>
+          </div>
+        </div>
+      </div>
+
       <!-- ==================== SCRIPTS PAGE ==================== -->
       <div class="page" id="page-scripts">
         <div class="page-title">Scripts & Guidelines</div>
@@ -1090,6 +1123,62 @@
   </div>
 </div>
 
+<!-- REP LOGIN MODAL -->
+<div class="modal-overlay" id="rep-modal">
+  <div class="modal" style="width:380px;">
+    <div id="rep-login-view">
+      <div class="modal-title">Welcome Back</div>
+      <div class="modal-subtitle">Enter your PIN to start taking calls</div>
+      <div class="form-group">
+        <label class="form-label">Your PIN</label>
+        <input class="form-input" id="rep-pin-input" type="password" maxlength="4" placeholder="4-digit PIN" onkeydown="if(event.key==='Enter')loginWithPin()">
+      </div>
+      <div id="pin-error" class="alert alert-danger" style="display:none;margin-top:8px;">Incorrect PIN. Try again.</div>
+      <div class="modal-actions">
+        <button class="btn-primary" onclick="loginWithPin()">Login</button>
+        <button class="btn-secondary" onclick="showRegisterView()">New Rep? Register</button>
+      </div>
+      <div style="margin-top:12px;text-align:center;">
+        <span style="font-size:12px;color:var(--text3);cursor:pointer;" onclick="showOwnerLogin()">Owner login →</span>
+      </div>
+    </div>
+    <div id="rep-register-view" style="display:none;">
+      <div class="modal-title">Register as Rep</div>
+      <div class="modal-subtitle">Set up your profile to start taking calls</div>
+      <div class="form-group">
+        <label class="form-label">Your Name</label>
+        <input class="form-input" id="reg-name-input" placeholder="e.g. Sarah">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Choose a 4-digit PIN</label>
+        <input class="form-input" id="reg-pin-input" type="password" maxlength="4" placeholder="e.g. 1234">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Confirm PIN</label>
+        <input class="form-input" id="reg-pin-confirm" type="password" maxlength="4" placeholder="Repeat PIN">
+      </div>
+      <div id="reg-error" class="alert alert-danger" style="display:none;margin-top:8px;"></div>
+      <div class="modal-actions">
+        <button class="btn-primary" onclick="registerRep()">Create Profile</button>
+        <button class="btn-secondary" onclick="showLoginView()">Back to Login</button>
+      </div>
+    </div>
+    <div id="owner-login-view" style="display:none;">
+      <div class="modal-title">Owner Access</div>
+      <div class="modal-subtitle">Enter your owner PIN to view performance data</div>
+      <div class="form-group">
+        <label class="form-label">Owner PIN</label>
+        <input class="form-input" id="owner-pin-input" type="password" maxlength="6" placeholder="Owner PIN">
+      </div>
+      <div id="owner-error" class="alert alert-danger" style="display:none;margin-top:8px;">Incorrect PIN.</div>
+      <div class="modal-actions">
+        <button class="btn-primary" onclick="loginAsOwner()">Login as Owner</button>
+        <button class="btn-secondary" onclick="showLoginView()">Back</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -1127,7 +1216,238 @@ let currentService = null;
 let currentStep = 0;
 let answers = {};
 let clientInfo = { name: '', phone: '', suburb: '', travelKm: 0, travelCost: 0 };
-let followUps = JSON.parse(localStorage.getItem('ss_followups') || '[]');
+let followUps = [];
+let currentRep = null; // { id, name, pin }
+let isOwner = false;
+
+const OWNER_PIN = '1234SS'; // Simon's owner PIN — change this
+
+// ============================================================
+// REP AUTH
+// ============================================================
+function initRep() {
+  // Try restore session from localStorage
+  const saved = localStorage.getItem('ss_rep_session');
+  if (saved) {
+    try {
+      const data = JSON.parse(saved);
+      currentRep = data;
+      updateRepDisplay();
+      loadFollowUps();
+      return;
+    } catch(e) {}
+  }
+  showRepModal();
+}
+
+function showRepModal() {
+  showLoginView();
+  document.getElementById('rep-modal').classList.add('open');
+}
+
+function showLoginView() {
+  document.getElementById('rep-login-view').style.display = 'block';
+  document.getElementById('rep-register-view').style.display = 'none';
+  document.getElementById('owner-login-view').style.display = 'none';
+  document.getElementById('pin-error').style.display = 'none';
+  document.getElementById('rep-pin-input').value = '';
+}
+
+function showRegisterView() {
+  document.getElementById('rep-login-view').style.display = 'none';
+  document.getElementById('rep-register-view').style.display = 'block';
+  document.getElementById('owner-login-view').style.display = 'none';
+  document.getElementById('reg-error').style.display = 'none';
+  document.getElementById('reg-name-input').value = '';
+  document.getElementById('reg-pin-input').value = '';
+  document.getElementById('reg-pin-confirm').value = '';
+}
+
+function showOwnerLogin() {
+  document.getElementById('rep-login-view').style.display = 'none';
+  document.getElementById('rep-register-view').style.display = 'none';
+  document.getElementById('owner-login-view').style.display = 'block';
+  document.getElementById('owner-error').style.display = 'none';
+  document.getElementById('owner-pin-input').value = '';
+}
+
+async function loginWithPin() {
+  const pin = document.getElementById('rep-pin-input').value.trim();
+  if (!pin) return;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/call_reps?pin=eq.${pin}&active=eq.true&select=id,name,pin`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    const reps = await res.json();
+    if (reps && reps.length > 0) {
+      currentRep = reps[0];
+      isOwner = false;
+      localStorage.setItem('ss_rep_session', JSON.stringify(currentRep));
+      document.getElementById('rep-modal').classList.remove('open');
+      updateRepDisplay();
+      loadFollowUps();
+      document.getElementById('nav-performance').style.display = 'none';
+    } else {
+      document.getElementById('pin-error').style.display = 'block';
+    }
+  } catch(e) {
+    document.getElementById('pin-error').style.display = 'block';
+  }
+}
+
+async function registerRep() {
+  const name = document.getElementById('reg-name-input').value.trim();
+  const pin = document.getElementById('reg-pin-input').value.trim();
+  const confirm = document.getElementById('reg-pin-confirm').value.trim();
+  const errEl = document.getElementById('reg-error');
+  errEl.style.display = 'none';
+  if (!name) { errEl.textContent = 'Please enter your name.'; errEl.style.display = 'block'; return; }
+  if (pin.length !== 4 || !/^\d+$/.test(pin)) { errEl.textContent = 'PIN must be exactly 4 digits.'; errEl.style.display = 'block'; return; }
+  if (pin !== confirm) { errEl.textContent = 'PINs do not match.'; errEl.style.display = 'block'; return; }
+  try {
+    // Check PIN not already taken
+    const check = await fetch(`${SUPABASE_URL}/rest/v1/call_reps?pin=eq.${pin}&select=id`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    const existing = await check.json();
+    if (existing && existing.length > 0) { errEl.textContent = 'That PIN is already taken. Choose another.'; errEl.style.display = 'block'; return; }
+    const id = 'REP-' + Date.now();
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/call_reps`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
+      },
+      body: JSON.stringify({ id, name, pin, active: true })
+    });
+    if (res.ok) {
+      currentRep = { id, name, pin };
+      isOwner = false;
+      localStorage.setItem('ss_rep_session', JSON.stringify(currentRep));
+      document.getElementById('rep-modal').classList.remove('open');
+      updateRepDisplay();
+      loadFollowUps();
+      showToast('Profile created! Welcome, ' + name);
+    } else {
+      errEl.textContent = 'Error creating profile. Try again.'; errEl.style.display = 'block';
+    }
+  } catch(e) {
+    errEl.textContent = 'Network error. Try again.'; errEl.style.display = 'block';
+  }
+}
+
+function loginAsOwner() {
+  const pin = document.getElementById('owner-pin-input').value.trim();
+  if (pin === OWNER_PIN) {
+    currentRep = { id: 'OWNER', name: 'Simon (Owner)', pin: OWNER_PIN };
+    isOwner = true;
+    document.getElementById('rep-modal').classList.remove('open');
+    updateRepDisplay();
+    loadFollowUps();
+    document.getElementById('nav-performance').style.display = 'flex';
+  } else {
+    document.getElementById('owner-error').style.display = 'block';
+  }
+}
+
+function updateRepDisplay() {
+  document.getElementById('rep-display').textContent = currentRep ? currentRep.name : 'Not set';
+}
+
+function changeRep() {
+  localStorage.removeItem('ss_rep_session');
+  currentRep = null;
+  isOwner = false;
+  document.getElementById('nav-performance').style.display = 'none';
+  showRepModal();
+}
+
+// ============================================================
+// PERFORMANCE DASHBOARD
+// ============================================================
+async function loadPerformance() {
+  const from = document.getElementById('perf-from').value;
+  const to = document.getElementById('perf-to').value;
+  const el = document.getElementById('performance-content');
+  el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⏳</div><div class="empty-state-title">Loading...</div></div>';
+
+  try {
+    let url = `${SUPABASE_URL}/rest/v1/quotes?select=*`;
+    if (from) url += `&created_at=gte.${from}T00:00:00`;
+    if (to) url += `&created_at=lte.${to}T23:59:59`;
+
+    const res = await fetch(url, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    const quotes = await res.json();
+
+    // Also load reps for display
+    const repsRes = await fetch(`${SUPABASE_URL}/rest/v1/call_reps?select=id,name`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    const reps = await repsRes.json();
+    const repMap = {};
+    (reps || []).forEach(r => repMap[r.id] = r.name);
+
+    // Group by rep
+    const byRep = {};
+    (quotes || []).forEach(q => {
+      const repId = q.notes ? (q.notes.match(/RepID:([^\s.]+)/) || [])[1] : null;
+      const repName = repId ? (repMap[repId] || repId) : 'Unknown';
+      if (!byRep[repName]) byRep[repName] = { quotes: 0, value: 0, approved: 0 };
+      byRep[repName].quotes++;
+      byRep[repName].value += parseFloat(q.total || 0);
+      if (q.status === 'approved') byRep[repName].approved++;
+    });
+
+    if (Object.keys(byRep).length === 0) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📊</div><div class="empty-state-title">No quotes found in this date range</div></div>';
+      return;
+    }
+
+    const totalQuotes = quotes.length;
+    const totalValue = quotes.reduce((s, q) => s + parseFloat(q.total || 0), 0);
+    const totalApproved = quotes.filter(q => q.status === 'approved').length;
+
+    let html = `
+      <div class="stats-row" style="grid-template-columns:repeat(3,1fr);">
+        <div class="stat-card"><div class="stat-label">Total Quotes</div><div class="stat-value">${totalQuotes}</div></div>
+        <div class="stat-card"><div class="stat-label">Total Value</div><div class="stat-value">$${totalValue.toFixed(0)}</div></div>
+        <div class="stat-card"><div class="stat-label">Approved</div><div class="stat-value">${totalApproved}</div></div>
+      </div>
+      <div class="card" style="margin-top:16px;">
+        <div class="card-title" style="margin-bottom:12px;">By Rep</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="border-bottom:2px solid var(--border);">
+              <th style="text-align:left;padding:8px 4px;color:var(--text3);font-weight:600;">Rep</th>
+              <th style="text-align:right;padding:8px 4px;color:var(--text3);font-weight:600;">Quotes</th>
+              <th style="text-align:right;padding:8px 4px;color:var(--text3);font-weight:600;">Value</th>
+              <th style="text-align:right;padding:8px 4px;color:var(--text3);font-weight:600;">Approved</th>
+              <th style="text-align:right;padding:8px 4px;color:var(--text3);font-weight:600;">Conv%</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${Object.entries(byRep).sort((a,b) => b[1].value - a[1].value).map(([name, data]) => `
+              <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:10px 4px;font-weight:600;">${name}</td>
+                <td style="padding:10px 4px;text-align:right;">${data.quotes}</td>
+                <td style="padding:10px 4px;text-align:right;color:var(--ss-green);font-weight:700;">$${data.value.toFixed(0)}</td>
+                <td style="padding:10px 4px;text-align:right;">${data.approved}</td>
+                <td style="padding:10px 4px;text-align:right;">${data.quotes > 0 ? Math.round(data.approved/data.quotes*100) : 0}%</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`;
+
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div class="alert alert-danger">Error loading data. Check connection.</div>';
+  }
+}
 
 // ============================================================
 // NAVIGATION
@@ -2103,7 +2423,7 @@ async function saveQuoteToCRM(total) {
       total: total,
       status: 'pending',
       items: quoteItems,
-      notes: `Phone quote via Call Dashboard. Service: ${svc.name}. Suburb: ${clientInfo.suburb}. Travel: $${clientInfo.travelCost.toFixed(2)}.`,
+      notes: `Phone quote via Call Dashboard. Service: ${svc.name}. Suburb: ${clientInfo.suburb}. Travel: $${clientInfo.travelCost.toFixed(2)}. RepID:${currentRep ? currentRep.id : 'unknown'} Rep:${currentRep ? currentRep.name : 'unknown'}.`,
       created_at: new Date().toISOString()
     });
 
@@ -2139,70 +2459,122 @@ function openAddFollowUp() {
   document.getElementById('fu-date').value = today;
   document.getElementById('fu-name').value = clientInfo.name || '';
   document.getElementById('fu-phone').value = clientInfo.phone || '';
+  document.getElementById('fu-notes').value = '';
   document.getElementById('followup-modal').classList.add('open');
 }
 
 function closeModal() {
   document.getElementById('followup-modal').classList.remove('open');
+  document.getElementById('rep-modal').classList.remove('open');
 }
 
-function saveFollowUp() {
+async function saveFollowUp() {
   const fu = {
-    id: Date.now(),
-    name: document.getElementById('fu-name').value,
+    id: 'FU-' + Date.now(),
+    client_name: document.getElementById('fu-name').value,
     phone: document.getElementById('fu-phone').value,
     service: document.getElementById('fu-service').value,
-    date: document.getElementById('fu-date').value,
-    time: document.getElementById('fu-time').value,
+    call_date: document.getElementById('fu-date').value,
+    call_time: document.getElementById('fu-time').value,
     notes: document.getElementById('fu-notes').value,
-    done: false
+    rep_name: currentRep || 'Unknown',
+    status: 'pending',
+    created_at: new Date().toISOString()
   };
-  followUps.push(fu);
-  localStorage.setItem('ss_followups', JSON.stringify(followUps));
-  closeModal();
-  showToast('Follow-up added ✓');
-  renderFollowUps();
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/call_followups`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
+      },
+      body: JSON.stringify(fu)
+    });
+    if (res.ok) {
+      showToast('Follow-up saved ✓');
+      closeModal();
+      loadFollowUps();
+    } else {
+      showToast('Error saving — check connection');
+    }
+  } catch(e) {
+    showToast('Error saving follow-up');
+    console.error(e);
+  }
+}
+
+async function loadFollowUps() {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/call_followups?select=*&order=call_date.asc,call_time.asc`, {
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`
+      }
+    });
+    if (res.ok) {
+      followUps = await res.json();
+      renderFollowUps();
+    }
+  } catch(e) {
+    console.error('Could not load follow-ups', e);
+  }
 }
 
 function renderFollowUps() {
-  const sorted = [...followUps].sort((a,b) => new Date(a.date+' '+a.time) - new Date(b.date+' '+b.time));
   const today = new Date().toISOString().split('T')[0];
-
   const calList = document.getElementById('calendar-list');
   const fuList = document.getElementById('followups-list');
 
-  if (followUps.length === 0) {
+  if (!followUps || followUps.length === 0) {
     calList.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📅</div><div class="empty-state-title">No follow-ups scheduled</div><div class="empty-state-desc">Add a follow-up after completing a quote</div></div>`;
     fuList.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔔</div><div class="empty-state-title">No follow-ups due</div><div class="empty-state-desc">All caught up</div></div>`;
     return;
   }
 
   const renderItem = (fu) => {
-    const isToday = fu.date === today;
-    const isPast = fu.date < today;
-    const badge = fu.done ? `<span class="badge badge-green">Done</span>` : isToday ? `<span class="badge badge-amber">Today</span>` : isPast ? `<span class="badge" style="background:var(--red-bg);color:var(--red);border:1px solid #7f1d1d;">Overdue</span>` : `<span class="badge badge-blue">Upcoming</span>`;
-    return `<div class="follow-up-item" onclick="toggleFollowUp(${fu.id})">
+    const isToday = fu.call_date === today;
+    const isPast = fu.call_date < today;
+    const done = fu.status === 'done';
+    const badge = done ? `<span class="badge badge-green">Done</span>` : isToday ? `<span class="badge badge-amber">Today</span>` : isPast ? `<span class="badge" style="background:var(--red-bg);color:var(--red);border:1px solid #7f1d1d;">Overdue</span>` : `<span class="badge badge-blue">Upcoming</span>`;
+    return `<div class="follow-up-item" onclick="toggleFollowUp('${fu.id}', '${fu.status}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-        <div class="follow-up-name">${fu.name}</div>
+        <div class="follow-up-name">${fu.client_name}</div>
         ${badge}
       </div>
       <div class="follow-up-service">${fu.service}</div>
-      <div class="follow-up-time">${fu.date} ${fu.time || ''} · ${fu.phone}</div>
+      <div class="follow-up-time">${fu.call_date} ${fu.call_time || ''} · ${fu.phone}</div>
+      ${fu.rep_name ? `<div style="font-size:11px;color:var(--text3);margin-top:3px;">Rep: ${fu.rep_name}</div>` : ''}
       ${fu.notes ? `<div class="follow-up-note">${fu.notes}</div>` : ''}
     </div>`;
   };
 
-  calList.innerHTML = `<div class="calendar-grid">${sorted.map(renderItem).join('')}</div>`;
+  calList.innerHTML = `<div class="calendar-grid">${followUps.map(renderItem).join('')}</div>`;
 
-  const due = sorted.filter(fu => !fu.done && fu.date <= today);
+  const due = followUps.filter(fu => fu.status !== 'done' && fu.call_date <= today);
   fuList.innerHTML = due.length === 0
     ? `<div class="empty-state"><div class="empty-state-icon">🔔</div><div class="empty-state-title">No follow-ups due today</div><div class="empty-state-desc">All caught up</div></div>`
     : `<div class="calendar-grid">${due.map(renderItem).join('')}</div>`;
 }
 
-function toggleFollowUp(id) {
-  const fu = followUps.find(f => f.id === id);
-  if (fu) { fu.done = !fu.done; localStorage.setItem('ss_followups', JSON.stringify(followUps)); renderFollowUps(); }
+async function toggleFollowUp(id, currentStatus) {
+  const newStatus = currentStatus === 'done' ? 'pending' : 'done';
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/call_followups?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ status: newStatus })
+    });
+    loadFollowUps();
+  } catch(e) {
+    console.error(e);
+  }
 }
 
 // ============================================================
@@ -2216,8 +2588,13 @@ function showToast(msg) {
 }
 
 // Init
-renderFollowUps();
+initRep();
 document.getElementById('fu-date').valueAsDate = new Date();
+// Set default perf dates
+const today = new Date();
+const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+document.getElementById('perf-from').value = firstOfMonth.toISOString().split('T')[0];
+document.getElementById('perf-to').value = today.toISOString().split('T')[0];
 </script>
 </body>
 </html>
