@@ -1664,7 +1664,7 @@ function showPage(page) {
   event.currentTarget.classList.add('active');
   if (page === 'calendar' || page === 'followups') {
     const bd = document.getElementById('fu-browse-date');
-    if (bd && !bd.value) bd.value = new Date().toISOString().split('T')[0];
+    if (bd && !bd.value) bd.value = localToday();
     renderFollowUps();
   }
 }
@@ -2738,13 +2738,17 @@ async function saveQuoteToCRM(total) {
 // ============================================================
 
 async function getGoogleToken() {
-  // Try to refresh if we have a stored refresh token
-  if (googleRefreshToken) {
+  // Try in-memory access token first (still valid)
+  if (googleAccessToken) return googleAccessToken;
+  // Try stored refresh token via CRM endpoint (absolute URL — this dashboard has no /api/google-refresh)
+  const storedRefresh = googleRefreshToken || (() => { try { return localStorage.getItem('ss_google_refresh'); } catch(e) { return null; } })();
+  if (storedRefresh) {
+    googleRefreshToken = storedRefresh;
     try {
-      const r = await fetch('/api/google-refresh', {
+      const r = await fetch('https://ss-exterior-crm.vercel.app/api/google-refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: googleRefreshToken })
+        body: JSON.stringify({ refresh_token: storedRefresh })
       });
       const d = await r.json();
       if (d.access_token) { googleAccessToken = d.access_token; return googleAccessToken; }
@@ -2763,23 +2767,42 @@ function signInGoogleCalendar() {
       + '&response_type=code&scope=' + encodeURIComponent(_gScope)
       + '&access_type=offline&prompt=consent';
     const popup = window.open(_gUrl, 'google_auth', 'width=500,height=600');
+    let resolved = false;
+    function finish(token) {
+      if (resolved) return;
+      resolved = true;
+      clearInterval(pollInterval);
+      clearTimeout(timeoutId);
+      window.removeEventListener('message', handler);
+      resolve(token);
+    }
+    // postMessage handler — works if CRM callback sends it
     const handler = (e) => {
       if (e.data && e.data.type === 'google_tokens') {
-        window.removeEventListener('message', handler);
         googleAccessToken = e.data.access_token;
         if (e.data.refresh_token) {
           googleRefreshToken = e.data.refresh_token;
           try { localStorage.setItem('ss_google_refresh', googleRefreshToken); } catch(e2) {}
         }
-        resolve(googleAccessToken);
+        finish(googleAccessToken);
       } else if (e.data && e.data.type === 'google_error') {
-        window.removeEventListener('message', handler);
-        resolve(null);
+        finish(null);
       }
     };
     window.addEventListener('message', handler);
-    // Timeout after 3 mins
-    setTimeout(() => { window.removeEventListener('message', handler); resolve(null); }, 180000);
+    // Fallback: poll every second for up to 3 mins for popup to close, then try refresh token
+    // The CRM callback page writes the refresh token to its own localStorage — we can't read that cross-origin.
+    // Instead: detect popup closed, then try getGoogleToken() which reads our localStorage.
+    const pollInterval = setInterval(async () => {
+      if (popup && popup.closed) {
+        clearInterval(pollInterval);
+        if (resolved) return;
+        // Popup closed — try to get token via refresh (CRM callback may have stored it)
+        const token = await getGoogleToken();
+        finish(token);
+      }
+    }, 1000);
+    const timeoutId = setTimeout(() => finish(null), 180000);
   });
 }
 
@@ -3375,23 +3398,33 @@ function showCalDay(dateStr) {
   detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
+// Returns today's date in local timezone as YYYY-MM-DD (avoids UTC midnight rollback in AEST)
+function localToday() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function fuDateShift(delta) {
   const input = document.getElementById('fu-browse-date');
-  const today = new Date().toISOString().split('T')[0];
+  const today = localToday();
   if (!input.value) input.value = today;
   const d = new Date(input.value + 'T00:00:00');
   if (isNaN(d.getTime())) { input.value = today; return renderFollowUps(); }
   d.setDate(d.getDate() + delta);
-  input.value = d.toISOString().split('T')[0];
+  const shifted = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  input.value = shifted;
   renderFollowUps();
 }
 function fuGoToday() {
-  document.getElementById('fu-browse-date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('fu-browse-date').value = localToday();
   renderFollowUps();
 }
 
 function renderFollowUps() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = localToday();
   const browseInput = document.getElementById('fu-browse-date');
   // Initialise date picker to today if not set
   if (!browseInput.value) browseInput.value = today;
@@ -3781,15 +3814,19 @@ function openEditFollowUp(id) {
 
 async function deleteFollowUp(id) {
   if (!confirm('Delete this follow-up?')) return;
+  // Optimistic removal — strip from local array and re-render immediately
+  followUps = (followUps || []).filter(f => f.id !== id);
+  renderFollowUps();
   try {
-    await fetch(`${SUPABASE_URL}/rest/v1/call_followups?id=eq.${id}`, {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/call_followups?id=eq.${id}`, {
       method: 'DELETE',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
     });
+    if (!res.ok) { const e = await res.json().catch(()=>{}); console.error('Delete error', e); showToast('Error deleting — reload to resync'); loadFollowUps(); return; }
     showToast('Follow-up deleted');
-    loadFollowUps();
   } catch(e) {
     showToast('Error deleting follow-up');
+    loadFollowUps(); // resync on failure
   }
 }
 
@@ -3806,7 +3843,7 @@ function showToast(msg) {
 // Init
 initRep();
 document.getElementById('fu-date').valueAsDate = new Date();
-document.getElementById('fu-browse-date').value = new Date().toISOString().split('T')[0];
+document.getElementById('fu-browse-date').value = localToday();
 // Set default perf dates
 const today = new Date();
 const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
