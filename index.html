@@ -732,6 +732,26 @@
     font-style: italic;
     line-height: 1.5;
   }
+
+  /* CALENDAR */
+  .cal-dow { text-align:center; font-size:10px; font-weight:700; color:var(--text3); text-transform:uppercase; padding:6px 0; }
+  .cal-cell {
+    min-height: 64px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .cal-cell:hover { background: #f1f8e9; }
+  .cal-cell.today { border-color: var(--ss-green); background: #f1f8e9; }
+  .cal-cell.other-month { background: #fafafa; opacity: .5; }
+  .cal-cell.has-items { border-color: var(--ss-green); }
+  .cal-day-num { font-size: 11px; font-weight:700; color: var(--text2); margin-bottom:2px; }
+  .cal-cell.today .cal-day-num { color: var(--ss-green); }
+  .cal-dot { font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--ss-green); font-weight:600; margin-top:1px; }
+  .cal-more { font-size:9px; color:var(--text3); margin-top:1px; }
 </style>
 </head>
 <body>
@@ -817,6 +837,15 @@
                 <input class="form-input" id="travel-display" placeholder="Enter suburb first" readonly style="color:var(--ss-green);">
               </div>
             </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Email <span style="color:var(--text3);font-weight:400;">(optional)</span></label>
+                <input class="form-input" id="client-email" placeholder="client@email.com" oninput="updateClientInfo()">
+              </div>
+              <div class="form-group" style="display:flex;align-items:flex-end;">
+                <div style="font-size:11px;color:var(--text3);padding-bottom:4px;">Email needed to send quote via Outlook</div>
+              </div>
+            </div>
             <div id="client-warning" class="alert alert-info" style="display:none;">
               ⚡ Enter client name and phone before proceeding
             </div>
@@ -892,15 +921,26 @@
       <div class="page" id="page-calendar">
         <div class="page-title">Call Calendar</div>
         <div class="page-subtitle">Scheduled callbacks and follow-ups</div>
-        <div style="display:flex; justify-content:flex-end; margin-bottom:16px;">
-          <button class="btn-primary" style="width:auto;" onclick="openAddFollowUp()">+ Add Follow-up</button>
-        </div>
-        <div id="calendar-list">
-          <div class="empty-state">
-            <div class="empty-state-icon">📅</div>
-            <div class="empty-state-title">No follow-ups scheduled</div>
-            <div class="empty-state-desc">Add a follow-up after completing a quote</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button onclick="calPrev()" style="border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:14px;">◀</button>
+            <div id="cal-month-label" style="font-size:16px;font-weight:700;min-width:160px;text-align:center;"></div>
+            <button onclick="calNext()" style="border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:14px;">▶</button>
           </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn-secondary" style="width:auto;" onclick="importCallList()">📥 Import Call List</button>
+            <button class="btn-primary" style="width:auto;" onclick="openAddFollowUp()">+ Add Follow-up</button>
+          </div>
+        </div>
+        <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:16px;">
+          <!-- Rendered by JS -->
+        </div>
+        <div id="cal-day-detail" style="display:none;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div id="cal-day-title" style="font-size:15px;font-weight:700;"></div>
+            <button onclick="document.getElementById('cal-day-detail').style.display='none'" style="border:none;background:none;cursor:pointer;font-size:18px;color:var(--text3);">✕</button>
+          </div>
+          <div id="cal-day-items"></div>
         </div>
       </div>
 
@@ -1215,7 +1255,7 @@ const BEDROOM_TO_SQM = {
 let currentService = null;
 let currentStep = 0;
 let answers = {};
-let clientInfo = { name: '', phone: '', suburb: '', travelKm: 0, travelCost: 0 };
+let clientInfo = { name: '', phone: '', suburb: '', email: '', travelKm: 0, travelCost: 0 };
 let followUps = [];
 let currentRep = null; // { id, name, pin }
 let isOwner = false;
@@ -1467,6 +1507,7 @@ function updateClientInfo() {
   clientInfo.name = document.getElementById('client-name').value.trim();
   clientInfo.phone = document.getElementById('client-phone').value.trim();
   clientInfo.suburb = document.getElementById('client-suburb').value.trim();
+  clientInfo.email = document.getElementById('client-email').value.trim();
 }
 
 function calcTravel() {
@@ -2356,6 +2397,7 @@ function showQuote() {
 
       <div class="quote-actions">
         <button class="btn-primary" onclick="saveQuoteToCRM(${result.total})">Save to CRM</button>
+        <button class="btn-secondary" onclick="emailQuote(${result.total})">📧 Email Quote</button>
         <button class="btn-secondary" onclick="openAddFollowUp()">Add Follow-up</button>
         <button class="btn-secondary" onclick="backToServices()">New Quote</button>
       </div>
@@ -2452,6 +2494,140 @@ async function saveQuoteToCRM(total) {
 }
 
 // ============================================================
+// EMAIL QUOTE
+// ============================================================
+function emailQuote(total) {
+  const svc = SERVICES[currentService];
+  if (!svc) return;
+  const email = clientInfo.email;
+  const name = clientInfo.name || 'there';
+  const firstName = name.split(' ')[0];
+  const result = svc.calcQuote(answers);
+
+  const subject = `Your Quote from SS Exterior Services — ${svc.name}`;
+  const itemLines = result.breakdown ? result.breakdown.map(b => `• ${b}`).join('\n') : `• ${svc.name} — $${total.toFixed(2)}`;
+  const travelLine = clientInfo.travelCost > 0 ? `• Travel (${clientInfo.travelKm}km from Kilmore) — $${clientInfo.travelCost.toFixed(2)}\n` : '';
+  const body =
+`Hi ${firstName},
+
+Thank you for calling SS Exterior Services! Here is your quote as discussed:
+
+Service: ${svc.name}
+Address: ${clientInfo.suburb}
+
+Items:
+${itemLines}
+${travelLine}
+─────────────────────
+TOTAL: $${total.toFixed(2)}
+─────────────────────
+
+This quote is valid for 30 days. If you'd like to go ahead or have any questions, please don't hesitate to call or reply to this email.
+
+Kind regards,
+Simon Sibillin
+SS Exterior Services
+📞 0447 130 743
+📧 ssexteriorservices@outlook.com`;
+
+  if (email) {
+    window.open(
+      'https://outlook.office.com/mail/deeplink/compose?to=' + encodeURIComponent(email) +
+      '&subject=' + encodeURIComponent(subject) +
+      '&body=' + encodeURIComponent(body),
+      '_blank'
+    );
+  } else {
+    // No email — open blank compose with body pre-filled
+    window.open(
+      'https://outlook.office.com/mail/deeplink/compose?subject=' + encodeURIComponent(subject) +
+      '&body=' + encodeURIComponent(body),
+      '_blank'
+    );
+    showToast('No email on file — Outlook opened, add recipient manually');
+  }
+  // Also trigger print/PDF
+  setTimeout(() => printQuote(total), 600);
+}
+
+function printQuote(total) {
+  const svc = SERVICES[currentService];
+  if (!svc) return;
+  const result = svc.calcQuote(answers);
+  const date = new Date().toLocaleDateString('en-AU');
+  const quoteId = 'Q-' + Date.now();
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Quote — SS Exterior Services</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; padding: 40px; color: #222; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; }
+  .brand { font-size: 22px; font-weight: 800; color: #2e7d32; }
+  .brand-sub { font-size: 12px; color: #555; margin-top: 4px; }
+  .quote-meta { text-align: right; font-size: 12px; color: #555; }
+  .quote-meta strong { font-size: 18px; color: #222; display: block; }
+  .divider { border: none; border-top: 2px solid #2e7d32; margin: 20px 0; }
+  .section { margin-bottom: 20px; }
+  .section-title { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .client-name { font-size: 18px; font-weight: 700; }
+  .client-detail { font-size: 13px; color: #555; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th { text-align: left; font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; padding: 8px 4px; border-bottom: 1px solid #ddd; }
+  td { padding: 12px 4px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+  td:last-child { text-align: right; font-weight: 600; }
+  .total-row td { font-size: 16px; font-weight: 800; color: #2e7d32; border-top: 2px solid #2e7d32; border-bottom: none; padding-top: 16px; }
+  .footer { margin-top: 48px; font-size: 11px; color: #888; border-top: 1px solid #eee; padding-top: 16px; }
+  @media print { body { padding: 20px; } }
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <div class="brand">SS Exterior Services</div>
+    <div class="brand-sub">Kilmore VIC 3764 · 0447 130 743 · ssexteriorservices@outlook.com</div>
+  </div>
+  <div class="quote-meta">
+    <strong>QUOTE</strong>
+    ${quoteId}<br>
+    Date: ${date}<br>
+    Valid: 30 days
+  </div>
+</div>
+<hr class="divider">
+<div class="section">
+  <div class="section-title">Prepared For</div>
+  <div class="client-name">${clientInfo.name || '—'}</div>
+  <div class="client-detail">${clientInfo.phone || ''}</div>
+  <div class="client-detail">${clientInfo.email || ''}</div>
+  <div class="client-detail">${clientInfo.suburb || ''}</div>
+</div>
+<table>
+  <thead>
+    <tr><th>Description</th><th style="text-align:right;">Amount</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>${svc.name}</td><td>$${(total - clientInfo.travelCost).toFixed(2)}</td></tr>
+    ${clientInfo.travelCost > 0 ? `<tr><td>Travel (${clientInfo.travelKm}km from Kilmore)</td><td>$${clientInfo.travelCost.toFixed(2)}</td></tr>` : ''}
+    <tr class="total-row"><td>Total (inc. GST)</td><td>$${total.toFixed(2)}</td></tr>
+  </tbody>
+</table>
+<div class="footer">
+  This quote is valid for 30 days from the date above. Prices are inclusive of GST. 
+  To accept this quote or ask any questions, contact Simon on 0447 130 743 or ssexteriorservices@outlook.com.
+</div>
+</body>
+</html>`;
+
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
+  setTimeout(() => win.print(), 500);
+}
+
+// ============================================================
 // FOLLOW-UPS
 // ============================================================
 function openAddFollowUp() {
@@ -2523,13 +2699,127 @@ async function loadFollowUps() {
   }
 }
 
+// ============================================================
+// VISUAL CALENDAR
+// ============================================================
+let calViewDate = new Date();
+
+function renderCalendar() {
+  const grid = document.getElementById('cal-grid');
+  if (!grid) return;
+  const y = calViewDate.getFullYear();
+  const m = calViewDate.getMonth();
+  const label = calViewDate.toLocaleString('en-AU', { month: 'long', year: 'numeric' });
+  document.getElementById('cal-month-label').textContent = label;
+
+  const today = new Date().toISOString().split('T')[0];
+
+  // Group followups by date
+  const byDate = {};
+  (followUps || []).forEach(fu => {
+    if (!byDate[fu.call_date]) byDate[fu.call_date] = [];
+    byDate[fu.call_date].push(fu);
+  });
+
+  // Day-of-week headers
+  const dows = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  let html = dows.map(d => `<div class="cal-dow">${d}</div>`).join('');
+
+  // First day of month (adjust so Mon=0)
+  const firstDay = new Date(y, m, 1);
+  let startDow = firstDay.getDay(); // 0=Sun
+  startDow = startDow === 0 ? 6 : startDow - 1; // Mon=0
+
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const daysInPrevMonth = new Date(y, m, 0).getDate();
+
+  // Previous month padding
+  for (let i = startDow - 1; i >= 0; i--) {
+    const d = daysInPrevMonth - i;
+    html += `<div class="cal-cell other-month"><div class="cal-day-num">${d}</div></div>`;
+  }
+
+  // Current month
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const items = byDate[dateStr] || [];
+    const isToday = dateStr === today;
+    const hasPending = items.some(fu => fu.status !== 'done');
+    let cls = 'cal-cell';
+    if (isToday) cls += ' today';
+    if (items.length > 0) cls += ' has-items';
+
+    const dots = items.slice(0,2).map(fu =>
+      `<div class="cal-dot">${fu.status === 'done' ? '✓' : '•'} ${fu.client_name}</div>`
+    ).join('');
+    const more = items.length > 2 ? `<div class="cal-more">+${items.length-2} more</div>` : '';
+
+    html += `<div class="${cls}" onclick="showCalDay('${dateStr}')">
+      <div class="cal-day-num">${d}</div>
+      ${dots}${more}
+    </div>`;
+  }
+
+  // Fill remaining cells
+  const totalCells = startDow + daysInMonth;
+  const remaining = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+  for (let d = 1; d <= remaining; d++) {
+    html += `<div class="cal-cell other-month"><div class="cal-day-num">${d}</div></div>`;
+  }
+
+  grid.innerHTML = html;
+}
+
+function calPrev() {
+  calViewDate = new Date(calViewDate.getFullYear(), calViewDate.getMonth() - 1, 1);
+  renderCalendar();
+  document.getElementById('cal-day-detail').style.display = 'none';
+}
+function calNext() {
+  calViewDate = new Date(calViewDate.getFullYear(), calViewDate.getMonth() + 1, 1);
+  renderCalendar();
+  document.getElementById('cal-day-detail').style.display = 'none';
+}
+
+function showCalDay(dateStr) {
+  const items = (followUps || []).filter(fu => fu.call_date === dateStr);
+  const detail = document.getElementById('cal-day-detail');
+  const title = document.getElementById('cal-day-title');
+  const list = document.getElementById('cal-day-items');
+  const d = new Date(dateStr + 'T00:00:00');
+  title.textContent = d.toLocaleDateString('en-AU', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+
+  if (items.length === 0) {
+    list.innerHTML = '<div style="color:var(--text3);font-size:13px;">No follow-ups on this day.</div>';
+  } else {
+    const today = new Date().toISOString().split('T')[0];
+    list.innerHTML = items.map(fu => {
+      const done = fu.status === 'done';
+      const isPast = fu.call_date < today;
+      const badge = done ? `<span class="badge badge-green">Done</span>` : isPast ? `<span class="badge" style="background:var(--red-bg);color:var(--red);border:1px solid #7f1d1d;">Overdue</span>` : `<span class="badge badge-blue">Upcoming</span>`;
+      return `<div class="follow-up-item" onclick="toggleFollowUp('${fu.id}','${fu.status}')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div class="follow-up-name">${fu.client_name}</div>${badge}
+        </div>
+        <div class="follow-up-service">${fu.service}</div>
+        <div class="follow-up-time">${fu.call_time || 'Any time'} · ${fu.phone || '—'}</div>
+        ${fu.notes ? `<div class="follow-up-note">${fu.notes}</div>` : ''}
+      </div>`;
+    }).join('');
+  }
+  detail.style.display = 'block';
+  detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
 function renderFollowUps() {
   const today = new Date().toISOString().split('T')[0];
-  const calList = document.getElementById('calendar-list');
   const fuList = document.getElementById('followups-list');
 
+  // Render visual calendar
+  renderCalendar();
+
+  // Render today's follow-ups page
   if (!followUps || followUps.length === 0) {
-    calList.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📅</div><div class="empty-state-title">No follow-ups scheduled</div><div class="empty-state-desc">Add a follow-up after completing a quote</div></div>`;
     fuList.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔔</div><div class="empty-state-title">No follow-ups due</div><div class="empty-state-desc">All caught up</div></div>`;
     return;
   }
@@ -2545,18 +2835,183 @@ function renderFollowUps() {
         ${badge}
       </div>
       <div class="follow-up-service">${fu.service}</div>
-      <div class="follow-up-time">${fu.call_date} ${fu.call_time || ''} · ${fu.phone}</div>
+      <div class="follow-up-time">${fu.call_date} ${fu.call_time || ''} · ${fu.phone || '—'}</div>
       ${fu.rep_name ? `<div style="font-size:11px;color:var(--text3);margin-top:3px;">Rep: ${fu.rep_name}</div>` : ''}
       ${fu.notes ? `<div class="follow-up-note">${fu.notes}</div>` : ''}
     </div>`;
   };
 
-  calList.innerHTML = `<div class="calendar-grid">${followUps.map(renderItem).join('')}</div>`;
-
   const due = followUps.filter(fu => fu.status !== 'done' && fu.call_date <= today);
   fuList.innerHTML = due.length === 0
     ? `<div class="empty-state"><div class="empty-state-icon">🔔</div><div class="empty-state-title">No follow-ups due today</div><div class="empty-state-desc">All caught up</div></div>`
     : `<div class="calendar-grid">${due.map(renderItem).join('')}</div>`;
+}
+
+// ============================================================
+// CALL LIST IMPORT
+// ============================================================
+async function importCallList() {
+  const today = new Date();
+
+  // Parse the call list — assign follow-up dates based on action notes
+  const callList = [
+    { name: "Lina", notes: "Sent quote 14/5/26", action: "quote_followup" },
+    { name: "Tray Lee", notes: "Voicemail 17/5", action: "voicemail" },
+    { name: "Lifestyle Communities", notes: "Called and left message", action: "voicemail" },
+    { name: "Arvo Cafe", notes: "Voicemail 17/5", action: "voicemail" },
+    { name: "Julie Baird", notes: "Voicemail 17/5", action: "voicemail" },
+    { name: "Elen", notes: "Follow up message sent 17/5", action: "voicemail" },
+    { name: "Dianne Carol", notes: "Will call back when all leaves have fallen", action: "seasonal" },
+    { name: "Bob", notes: "Called again in future", action: "future" },
+    { name: "Brooke", notes: "End of May Early June", action: "future" },
+    { name: "Sheryl", notes: "Follow up again in July", action: "july" },
+    { name: "Heath", notes: "Voicemail 17/5", action: "voicemail" },
+    { name: "Lindy Banks", notes: "Voicemail 17/5", action: "voicemail" },
+    { name: "Grace", notes: "Voicemail 17/5", action: "voicemail" },
+    { name: "Alison", notes: "Voicemail 17/5", action: "voicemail" },
+    { name: "Luke", notes: "Voicemail 17/5", action: "voicemail" },
+    { name: "Johnny", notes: "Check in within the next couple of months", action: "future" },
+    { name: "Vladimir", notes: "Follow up after first week of June", action: "future" },
+    { name: "Megan", notes: "Voicemail 30/05", action: "voicemail" },
+    { name: "Peter", notes: "Message sent 20/5", action: "voicemail" },
+    { name: "Christina", notes: "Check in within the next couple of weeks", action: "soon" },
+    { name: "Hawdon Street", notes: "Check in a few months (July ish)", action: "july" },
+    { name: "Unknown Wallan Client", notes: "Called 23/5, follow up in a few months", action: "future" },
+    { name: "META Rhett", notes: "Follow up just before spring", action: "spring" },
+    { name: "META Jerry", notes: "Quote follow up voicemail 30/05", action: "quote_followup" },
+    { name: "META Tracy", notes: "Quote follow up voicemail 18/06", action: "quote_followup" },
+    { name: "META Daya", notes: "Quote follow up voicemail 18/06", action: "quote_followup" },
+    { name: "META Eden", notes: "Quote follow up voicemail 18/06", action: "quote_followup" },
+    { name: "META Susan", notes: "Voicemail 2/06", action: "voicemail" },
+    { name: "Jenny", notes: "Voicemail 4/06", action: "voicemail" },
+    { name: "Brendon", notes: "Will call me back when he is free 8/06", action: "voicemail" },
+    { name: "META Frank", notes: "Voicemail 08/06", action: "voicemail" },
+    { name: "META Kaylene", notes: "Quote sent 9/06", action: "quote_followup" },
+    { name: "META Annie", notes: "Voicemail 8/06", action: "voicemail" },
+    { name: "META Antoine", notes: "Message 1/06", action: "voicemail" },
+    { name: "META Rajandeep", notes: "Voicemail 8/06", action: "voicemail" },
+    { name: "Paul Coglan", notes: "Follow up on quote", action: "quote_followup" },
+    { name: "META VAL", notes: "Voicemail 2/06", action: "voicemail" },
+    { name: "META Aiya", notes: "Call back in a week. Last called 2/06", action: "soon" },
+    { name: "Peter and Rochelle", notes: "Quote sent 2/06", action: "quote_followup" },
+    { name: "META Annemarie", notes: "Voicemail 2/06", action: "voicemail" },
+    { name: "META Abbie", notes: "Voicemail 18/06", action: "voicemail" },
+    { name: "META Rosie", notes: "Voicemail 4/06", action: "voicemail" },
+    { name: "META Gifty", notes: "Voicemail 4/06", action: "voicemail" },
+    { name: "META Kerry", notes: "Voicemail 5/06", action: "voicemail" },
+    { name: "META Karen", notes: "Quote follow up 2/07, will get back after trees are cut", action: "july" },
+    { name: "LANDING PAGE Dhara", notes: "Voicemail 7/06", action: "voicemail" },
+    { name: "META Jose", notes: "Email sent 8/06", action: "voicemail" },
+    { name: "WEBSITE Amin", notes: "Quote sent 8/06", action: "quote_followup" },
+    { name: "META Harjit", notes: "Quote sent 2/07", action: "quote_followup" },
+    { name: "META Larforteza", notes: "Voicemail 12/06", action: "voicemail" },
+    { name: "META Mik", notes: "Quote sent 12/06", action: "quote_followup" },
+    { name: "META Stan", notes: "Voicemail 13/06", action: "voicemail" },
+    { name: "META Zoe", notes: "Quote sent 12/06", action: "quote_followup" },
+    { name: "META Anna", notes: "Voicemail 12/06", action: "voicemail" },
+    { name: "META Steve", notes: "Voicemail 12/06", action: "voicemail" },
+    { name: "Website Supreet", notes: "Voicemail 13/06", action: "voicemail" },
+    { name: "META Fikiri", notes: "Will call me back later", action: "future" },
+    { name: "META Cac", notes: "Voicemail 13/06", action: "voicemail" },
+    { name: "META Lisa", notes: "Voicemail 13/06", action: "voicemail" },
+    { name: "META Klaus", notes: "Text sent 13/06", action: "voicemail" },
+    { name: "META Rajwinder", notes: "Voicemail 13/06", action: "voicemail" },
+    { name: "META Ruth", notes: "Quote sent 13/06", action: "quote_followup" },
+    { name: "WEBSITE Brett", notes: "Voicemail 16/06", action: "voicemail" },
+    { name: "META Denise", notes: "Call back 15/06", action: "voicemail" },
+    { name: "META June", notes: "Quote sent 14/06", action: "quote_followup" },
+    { name: "META Gaurang", notes: "Email sent 14/06", action: "voicemail" },
+    { name: "META Milad", notes: "Quote follow up 2/07", action: "july" },
+    { name: "META Sam", notes: "Quote for solar cleaning sent 16/06", action: "quote_followup" },
+    { name: "META Mamdouh", notes: "Voicemail 16/06", action: "voicemail" },
+    { name: "META Qurram", notes: "Quote sent 16/06", action: "quote_followup" },
+    { name: "META Amira", notes: "Voicemail 16/06", action: "voicemail" },
+    { name: "META Salvador", notes: "Voicemail 16/06", action: "voicemail" },
+    { name: "META Neville", notes: "Voicemail 18/06", action: "voicemail" },
+    { name: "META Bob", notes: "Quote sent 18/06", action: "quote_followup" },
+    { name: "META Paul", notes: "Quote sent 18/06", action: "quote_followup" },
+    { name: "META Aladdin", notes: "Quote sent 18/06", action: "quote_followup" },
+    { name: "META Eva", notes: "Quote 18/06", action: "quote_followup" },
+    { name: "META G Subra", notes: "Voicemail 18/06", action: "voicemail" },
+    { name: "META Surjit", notes: "Quote sent 18/06", action: "quote_followup" },
+    { name: "META Connie", notes: "Quote sent 20/06", action: "quote_followup" },
+    { name: "META Sathi", notes: "Callback Monday 22/06", action: "voicemail" },
+    { name: "META Tran", notes: "Called 20/06, will call back later", action: "future" },
+    { name: "META Suren", notes: "Email sent 20/06", action: "voicemail" },
+    { name: "META John", notes: "Text sent 20/06", action: "voicemail" },
+    { name: "META Kaku", notes: "Voicemail 20/06", action: "voicemail" },
+    { name: "META Salv", notes: "Sent quote 20/06", action: "quote_followup" },
+    { name: "META Festim", notes: "Quote given $350-$375 21/06", action: "quote_followup" },
+    { name: "META Bobi", notes: "Voicemail 22/06", action: "voicemail" },
+    { name: "META Jenny", notes: "Called 22/06, call back later", action: "future" },
+    { name: "META George", notes: "Text sent 22/06", action: "voicemail" },
+    { name: "META Dana", notes: "Text message sent 22/06", action: "voicemail" },
+    { name: "META Michael", notes: "Voicemail 22/06", action: "voicemail" },
+    { name: "META Friday", notes: "Quote sent 22/06", action: "quote_followup" }
+  ];
+
+  // Assign follow-up dates based on action type
+  function getFollowUpDate(action) {
+    const d = new Date();
+    switch(action) {
+      case 'voicemail':       d.setDate(d.getDate() + 3); break;  // 3 days
+      case 'quote_followup':  d.setDate(d.getDate() + 7); break;  // 7 days
+      case 'soon':            d.setDate(d.getDate() + 10); break; // 10 days
+      case 'future':          d.setDate(d.getDate() + 21); break; // 3 weeks
+      case 'july':
+        d.setMonth(6); d.setDate(7); // First week of July
+        if (d < new Date()) d.setFullYear(d.getFullYear() + 1);
+        break;
+      case 'spring':
+        d.setMonth(8); d.setDate(1); // Sep 1
+        if (d < new Date()) d.setFullYear(d.getFullYear() + 1);
+        break;
+      case 'seasonal':
+        d.setMonth(5); d.setDate(1); // June 1 (leaves fallen)
+        if (d < new Date()) d.setMonth(d.getMonth() + 3);
+        break;
+      default: d.setDate(d.getDate() + 7);
+    }
+    return d.toISOString().split('T')[0];
+  }
+
+  const records = callList.map((c, i) => ({
+    id: 'FU-IMPORT-' + Date.now() + '-' + i,
+    client_name: c.name,
+    phone: '',
+    service: 'Follow-up call',
+    call_date: getFollowUpDate(c.action),
+    call_time: '09:00',
+    notes: c.notes,
+    rep_name: currentRep ? currentRep.name : 'Imported',
+    status: 'pending',
+    created_at: new Date().toISOString()
+  }));
+
+  // Batch insert — Supabase accepts arrays
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/call_followups`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
+      },
+      body: JSON.stringify(records)
+    });
+    if (res.ok) {
+      showToast(`✓ Imported ${records.length} contacts into call calendar`);
+      loadFollowUps();
+    } else {
+      const err = await res.text();
+      showToast('Import failed — check console');
+      console.error(err);
+    }
+  } catch(e) {
+    showToast('Import error — check connection');
+    console.error(e);
+  }
 }
 
 async function toggleFollowUp(id, currentStatus) {
