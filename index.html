@@ -3230,8 +3230,9 @@ async function loadCalBooking(total, jobId) {
 
   body.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text3);">Loading calendar&#8230;</div>';
 
-  // Load busy slots for next 14 days in one call
+  // Fetch all events for the 90-day window
   let busyByDay = {};
+  let allTitles = new Set();
   try {
     const start = days[0] + 'T00:00:00+10:00';
     const end = days[days.length - 1] + 'T23:59:59+10:00';
@@ -3241,17 +3242,113 @@ async function loadCalBooking(total, jobId) {
     (d.items || []).forEach(ev => {
       const date = ev.start?.date || (ev.start?.dateTime || '').split('T')[0];
       if (!busyByDay[date]) busyByDay[date] = [];
-      busyByDay[date].push(ev.summary || 'Busy');
+      const title = ev.summary || 'Busy';
+      busyByDay[date].push(title);
+      allTitles.add(title);
     });
   } catch(e) {}
+
+  // ── Proximity lookup ──────────────────────────────────────────────────────
+  // Strategy: extract all phone numbers found anywhere in event titles,
+  // then query Supabase for clients matching those phones (unique per client).
+  // Fall back to name-only match for the 1% without a phone.
+  const titleSuburbMap = {}; // title → suburb string
+
+  try {
+    const titlesArr = [...allTitles];
+    if (titlesArr.length > 0) {
+      // Extract phone numbers from all titles (Australian mobile/landline patterns)
+      const phoneRe = /(?:\+?61[-.\s]?|0)(?:\d[-.\s]?){8}\d/g;
+      const phoneToTitles = {}; // phone digits → [title, ...]
+      titlesArr.forEach(title => {
+        const matches = title.match(phoneRe) || [];
+        matches.forEach(raw => {
+          const digits = raw.replace(/\D/g, '').replace(/^61/, '0'); // normalise to 0x format
+          if (!phoneToTitles[digits]) phoneToTitles[digits] = [];
+          phoneToTitles[digits].push(title);
+        });
+      });
+
+      const uniquePhones = Object.keys(phoneToTitles);
+
+      if (uniquePhones.length > 0) {
+        // Batch fetch clients by phone — Supabase OR filter, chunked to avoid URL limits
+        const chunkSize = 30;
+        const matched = [];
+        for (let i = 0; i < uniquePhones.length; i += chunkSize) {
+          const chunk = uniquePhones.slice(i, i + chunkSize);
+          const filter = chunk.map(p => `phone.eq.${encodeURIComponent(p)}`).join(',');
+          const res = await fetch(
+            `${SUPABASE_URL}/rest/v1/clients?select=name,phone,suburb,address&or=(${filter})`,
+            { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+          );
+          if (res.ok) {
+            const rows = await res.json();
+            matched.push(...(rows || []));
+          }
+        }
+
+        // Map titles → suburb via phone match
+        matched.forEach(client => {
+          const normPhone = (client.phone || '').replace(/\D/g, '').replace(/^61/, '0');
+          const suburb = (client.suburb || '').toLowerCase() ||
+            (client.address || '').split(',').pop().trim().toLowerCase();
+          if (normPhone && suburb && phoneToTitles[normPhone]) {
+            phoneToTitles[normPhone].forEach(title => {
+              titleSuburbMap[title] = suburb;
+            });
+          }
+        });
+      }
+
+      // Fallback: name-only match for titles that still have no suburb resolved
+      const unresolved = titlesArr.filter(t => !titleSuburbMap[t]);
+      if (unresolved.length > 0) {
+        // Extract first 2–3 words as candidate name from each unresolved title
+        const nameCandidates = [...new Set(unresolved.map(t => t.split(/[\|\-·,]/)[0].trim()))];
+        const chunkSize = 20;
+        for (let i = 0; i < nameCandidates.length; i += chunkSize) {
+          const chunk = nameCandidates.slice(i, i + chunkSize);
+          const filter = chunk.map(n => `name.ilike.*${encodeURIComponent(n)}*`).join(',');
+          const res = await fetch(
+            `${SUPABASE_URL}/rest/v1/clients?select=name,suburb,address&or=(${filter})`,
+            { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+          );
+          if (res.ok) {
+            const rows = await res.json() || [];
+            rows.forEach(client => {
+              const suburb = (client.suburb || '').toLowerCase() ||
+                (client.address || '').split(',').pop().trim().toLowerCase();
+              if (!suburb) return;
+              // Only map if this name uniquely identifies one client (avoid duplicate-name ambiguity)
+              const nameMatches = rows.filter(r => r.name === client.name);
+              if (nameMatches.length === 1) {
+                unresolved.forEach(title => {
+                  if (title.toLowerCase().includes(client.name.toLowerCase())) {
+                    titleSuburbMap[title] = suburb;
+                  }
+                });
+              }
+            });
+          }
+        }
+      }
+    }
+  } catch(e) { /* degrade gracefully — proximity badges just won't show */ }
+
+  const targetSuburb = (clientInfo.suburb || (clientInfo.address || '').split(',').pop().trim()).toLowerCase();
+  // ─────────────────────────────────────────────────────────────────────────
 
   const dayCards = days.map(dateStr => {
     const evts = busyByDay[dateStr] || [];
     const d = new Date(dateStr + 'T12:00:00');
     const label = d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
     const isFree = evts.length === 0;
-    // Check if any job in same suburb
-    const sameArea = evts.some(e => e.toLowerCase().includes((clientInfo.suburb || '').toLowerCase()));
+    // Same area: resolved suburb of any event on this day matches current client's suburb
+    const sameArea = targetSuburb && evts.some(title => {
+      const evtSuburb = titleSuburbMap[title] || '';
+      return evtSuburb && evtSuburb.includes(targetSuburb);
+    });
     const badge = isFree
       ? '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:2px 6px;border-radius:10px;font-weight:700;">FREE</span>'
       : sameArea
