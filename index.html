@@ -852,7 +852,7 @@
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label class="form-label">Lead Source <span style="color:var(--text3);font-weight:400;">(ask the client)</span></label>
+                <label class="form-label">Lead Source <span style="color:var(--text3);font-weight:400;">(if known)</span></label>
                 <select class="form-input" id="client-source" onchange="updateClientInfo()" style="background:#fff;">
                   <option value="phone-call">📞 Inbound phone call</option>
                   <option value="meta-ad">📘 Meta / Facebook Ad</option>
@@ -864,9 +864,7 @@
                 </select>
               </div>
               <div class="form-group" style="display:flex;align-items:flex-end;">
-                <div style="font-size:11px;color:#1a56cc;padding-bottom:4px;background:#e8f0fe;border-radius:6px;padding:8px 10px;line-height:1.4;">
-                  💬 <strong>Script:</strong> "Before we wrap up — just out of curiosity, how did you hear about us today?"
-                </div>
+                <div style="font-size:11px;color:var(--text3);padding-bottom:4px;">Select if source is already known. Ask the client at end of call if unsure.</div>
               </div>
             </div>
             <div id="client-warning" class="alert alert-info" style="display:none;">
@@ -1173,7 +1171,7 @@
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Call Date</label>
+        <label class="form-label">Next Follow-up</label>
         <input class="form-input" id="fu-date" type="date">
       </div>
       <div class="form-group">
@@ -2831,6 +2829,21 @@ function showQuote() {
 
       <div id="multi-svc-combined-summary"></div>
 
+      <div style="background:#e8f0fe;border:1px solid #bfdbfe;border-radius:10px;padding:12px 14px;margin:12px 0;">
+        <div style="font-size:12px;font-weight:700;color:#1a56cc;margin-bottom:4px;">💬 Lead Source — Ask Before Closing</div>
+        <div style="font-size:12px;color:#1e3a5f;margin-bottom:8px;">"Just out of curiosity — how did you hear about us today?"</div>
+        <select id="quote-end-source" onchange="(function(){const v=document.getElementById('quote-end-source').value;if(v){const s=document.getElementById('client-source');if(s){s.value=v;updateClientInfo();}}})()" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #bfdbfe;background:#fff;font-size:12px;font-family:inherit;">
+          <option value="">— Select source after asking —</option>
+          <option value="phone-call">📞 Inbound phone call</option>
+          <option value="meta-ad">📘 Meta / Facebook Ad</option>
+          <option value="google-ad">🔍 Google Ad</option>
+          <option value="website">🌐 Website</option>
+          <option value="referral">🤝 Referral / word of mouth</option>
+          <option value="repeat">🔁 Repeat customer</option>
+          <option value="other">❓ Other</option>
+        </select>
+      </div>
+
       <div class="closing-script">
         <div class="closing-script-title">💬 Closing Script</div>
         <div class="closing-script-text" id="closing-script-dynamic">
@@ -3206,10 +3219,10 @@ async function loadCalBooking(total, jobId) {
     return;
   }
 
-  // Show next 14 days with availability
+  // Show next 90 days with availability
   const today = new Date();
   const days = [];
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 90; i++) {
     const d = new Date(today);
     d.setDate(today.getDate() + i);
     days.push(d.toISOString().split('T')[0]);
