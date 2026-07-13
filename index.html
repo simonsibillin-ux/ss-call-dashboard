@@ -2469,8 +2469,19 @@ function removeMultiServiceItem(index) {
 function renderCombinedSummary(currentResult) {
   const el = document.getElementById('multi-svc-combined-summary');
   if (!el) return;
+
+  // Always update closing script with the correct total
+  const allItems = getMultiItems();
+  const grandTotal = allItems.reduce((s, i) => s + i.total, 0);
+  const combinedLabel = allItems.length > 1 ? allItems.map(i => i.name).join(' + ') : (SERVICES[currentService] ? SERVICES[currentService].name : '');
+  const closingEl = document.getElementById('closing-script-dynamic');
+  if (closingEl) {
+    const displayTotal = grandTotal > 0 ? grandTotal : currentResult.total;
+    const svcLabel = combinedLabel || (clientInfo.suburb || '[suburb]');
+    closingEl.innerHTML = `"So we're all good to go — that's <strong>$${displayTotal.toFixed(2)}</strong> all up${combinedLabel ? ` for the ${combinedLabel}` : ''} in ${clientInfo.suburb || '[suburb]'}. To lock it in I just need to grab a date that works for you. Are you flexible on timing, or is there a particular day or week that would suit best?"`;
+  }
+
   if (!multiServiceItems.length) { el.innerHTML = ''; return; }
-  const grandTotal = multiServiceItems.reduce((s, i) => s + i.total, 0) + currentResult.total;
   el.innerHTML = `
     <div style="background:#f0fdf4;border:1px solid var(--ss-green);border-radius:10px;padding:12px 14px;margin:12px 0;">
       <div style="font-size:12px;font-weight:700;color:var(--ss-green);margin-bottom:8px;">🧾 Combined Quote Total</div>
@@ -2822,7 +2833,7 @@ function showQuote() {
 
       <div class="closing-script">
         <div class="closing-script-title">💬 Closing Script</div>
-        <div class="closing-script-text">
+        <div class="closing-script-text" id="closing-script-dynamic">
           "So we're all good to go — that's <strong>$${result.total.toFixed(2)}</strong> all up for ${clientInfo.suburb || '[suburb]'}. To lock it in I just need to grab a date that works for you. Are you flexible on timing, or is there a particular day or week that would suit best?"
         </div>
       </div>
@@ -3086,6 +3097,15 @@ async function _doAcceptQuote(total) {
   const svc = SERVICES[currentService];
   if (!svc) return;
 
+  // Build combined service label and line items (handles both single and multi-service)
+  const allItems = getMultiItems(); // includes current service
+  const combinedLabel = allItems.length > 1
+    ? allItems.map(i => i.name).join(' + ')
+    : svc.name;
+  const lineItems = allItems.length > 1
+    ? allItems.map(i => ({ description: i.name, total: i.total }))
+    : [{ description: svc.name, total }];
+
   // Step 1: Save quote as accepted + create job in CRM
   const quoteId = 'Q-' + Date.now();
   const jobId = 'J-' + Date.now();
@@ -3111,7 +3131,7 @@ async function _doAcceptQuote(total) {
       const nc = await fetch(`${SUPABASE_URL}/rest/v1/clients`, {
         method: 'POST',
         headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
-        body: JSON.stringify({ id: 'C-' + Date.now(), name: clientInfo.name, phone: clientInfo.phone, email: clientInfo.email || null, address: clientInfo.address || null, suburb: clientInfo.suburb, status: 'customer', source: 'phone-call', created_at: new Date().toISOString() })
+        body: JSON.stringify({ id: 'C-' + Date.now(), name: clientInfo.name, phone: clientInfo.phone, email: clientInfo.email || null, address: clientInfo.address || null, suburb: clientInfo.suburb, status: 'active', source: clientInfo.source || 'phone-call', created_at: new Date().toISOString() })
       });
       const ncData = await nc.json();
       if (ncData && ncData[0]) clientId = ncData[0].id;
@@ -3121,14 +3141,14 @@ async function _doAcceptQuote(total) {
     await fetch(`${SUPABASE_URL}/rest/v1/quotes`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ id: quoteId, client: clientInfo.name, date: localToday(), total, status: 'approved', items: [{ description: svc.name, total }], notes: `Accepted on call. Service: ${svc.name}. Address: ${clientInfo.address || clientInfo.suburb}. Source: ${clientInfo.source || 'phone-call'}. Travel: $${clientInfo.travelCost.toFixed(2)}.`, created_at: new Date().toISOString() })
+      body: JSON.stringify({ id: quoteId, client: clientInfo.name, date: localToday(), total, status: 'approved', items: lineItems, notes: `Accepted on call. Service: ${combinedLabel}. Address: ${clientInfo.address || clientInfo.suburb}. Source: ${clientInfo.source || 'phone-call'}. Travel: $${clientInfo.travelCost.toFixed(2)}.`, created_at: new Date().toISOString() })
     });
 
-    // Create job (status Active, no date yet — date set after calendar booking)
+    // Create job
     await fetch(`${SUPABASE_URL}/rest/v1/jobs`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ id: jobId, client: clientInfo.name, service: svc.name, description: `Phone-quoted job. Address: ${clientInfo.address || clientInfo.suburb}.`, status: 'Active', revenue: total, hours: 0, completion_date: null, notes: `Booked via Call Dashboard. Rep: ${currentRep ? currentRep.name : 'unknown'}. Quote: ${quoteId}.`, created_at: new Date().toISOString() })
+      body: JSON.stringify({ id: jobId, client: clientInfo.name, service: combinedLabel, description: `Phone-quoted job. Address: ${clientInfo.address || clientInfo.suburb}.`, status: 'Active', revenue: total, hours: 0, completion_date: null, notes: `Booked via Call Dashboard. Rep: ${currentRep ? currentRep.name : 'unknown'}. Quote: ${quoteId}.`, created_at: new Date().toISOString() })
     });
 
     showToast('Quote accepted ✓ — Job created in CRM');
@@ -3642,12 +3662,12 @@ function showCalDay(dateStr) {
       const isQuote = fu._isQuote;
       const badge = isQuote ? `<span class="badge" style="background:#e8f0fe;color:#1a56cc;border:1px solid #bfdbfe;">📄 Quote</span>` : done ? `<span class="badge badge-green">Done</span>` : isPast ? `<span class="badge" style="background:var(--red-bg);color:var(--red);border:1px solid #7f1d1d;">Overdue</span>` : `<span class="badge badge-blue">Upcoming</span>`;
       const calActions = isQuote
-        ? `<div style="font-size:11px;color:#1a56cc;margin-top:6px;">Auto-removed when quote is updated in CRM</div>`
+        ? `<div style="font-size:11px;color:#1a56cc;margin-top:6px;" onclick="event.stopPropagation()">Tap card to mark called &amp; dismiss · Auto-clears when quote is updated in CRM</div>`
         : `<div style="display:flex;gap:8px;margin-top:8px;" onclick="event.stopPropagation()">
             <button onclick="openEditFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;color:var(--text2);">&#9998; Edit</button>
             <button onclick="deleteFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid #7f1d1d;border-radius:6px;background:var(--red-bg);cursor:pointer;color:var(--red);">&#128465; Delete</button>
           </div>`;
-      return `<div class="follow-up-item" style="${isQuote ? 'border-left:3px solid #1a56cc;' : ''}" ${!isQuote ? `onclick="toggleFollowUp('${fu.id}','${fu.status || 'pending'}')"` : ''}>
+      return `<div class="follow-up-item" style="${isQuote ? 'border-left:3px solid #1a56cc;' : ''}" onclick="${isQuote ? `dismissQuoteFollowUp('${fu.id}')` : `toggleFollowUp('${fu.id}','${fu.status || 'pending'}')`}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
           <div class="follow-up-name">${fu.client_name}</div>${badge}
         </div>
@@ -3721,12 +3741,12 @@ function renderFollowUps() {
       badge = `<span class="badge badge-blue">Upcoming</span>`;
     }
     const actions = isQuote
-      ? `<div style="font-size:11px;color:#1a56cc;margin-top:6px;">Auto-removed when quote is accepted or declined in CRM</div>`
+      ? `<div style="font-size:11px;color:#1a56cc;margin-top:6px;" onclick="event.stopPropagation()">Tap card to mark called &amp; dismiss · Auto-clears when quote is updated in CRM</div>`
       : `<div style="display:flex;gap:8px;margin-top:8px;" onclick="event.stopPropagation()">
           <button onclick="openEditFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;color:var(--text2);">&#9998; Edit</button>
           <button onclick="deleteFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid #7f1d1d;border-radius:6px;background:var(--red-bg);cursor:pointer;color:var(--red);">&#128465; Delete</button>
         </div>`;
-    return `<div class="follow-up-item" style="cursor:${isQuote ? 'default' : 'pointer'};${isQuote ? 'border-left:3px solid #1a56cc;' : ''}" ${!isQuote ? `onclick="toggleFollowUp('${fu.id}','${fu.status || 'pending'}')"` : ''}>
+    return `<div class="follow-up-item" style="cursor:pointer;${isQuote ? 'border-left:3px solid #1a56cc;' : ''}" onclick="${isQuote ? `dismissQuoteFollowUp('${fu.id}')` : `toggleFollowUp('${fu.id}','${fu.status || 'pending'}')`}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
         <div class="follow-up-name">${fu.client_name}</div>
         ${badge}
@@ -4082,6 +4102,51 @@ function openEditFollowUp(id) {
   }
 }
 
+function dismissQuoteFollowUp(id) {
+  // Show a quick outcome modal for quote follow-ups
+  const fu = (followUps || []).find(f => f.id === id);
+  const existing = document.getElementById('fu-outcome-modal');
+  if (existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'fu-outcome-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.innerHTML = `
+    <div style="background:var(--surface);border-radius:16px;padding:24px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+      <div style="font-size:18px;font-weight:700;color:var(--text1);margin-bottom:4px;">📄 Quote Follow-up</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:20px;">${fu ? fu.client_name : ''} — pending quote</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">
+        <button onclick="handleQuoteFuOutcome('${id}','accepted')" style="background:#14532d;color:#fff;border:none;padding:12px 16px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;text-align:left;">✅ Quote accepted — proceed to booking</button>
+        <button onclick="handleQuoteFuOutcome('${id}','called')" style="background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber);padding:12px 16px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;text-align:left;">📞 Called — still thinking, follow up later</button>
+        <button onclick="handleQuoteFuOutcome('${id}','declined')" style="background:var(--red-bg);color:var(--red);border:1px solid #7f1d1d;padding:12px 16px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;text-align:left;">❌ Not interested — remove from list</button>
+      </div>
+      <button onclick="document.getElementById('fu-outcome-modal').remove()" style="width:100%;background:transparent;border:1px solid var(--border);color:var(--text3);padding:10px;border-radius:8px;font-size:13px;cursor:pointer;">Cancel</button>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+function handleQuoteFuOutcome(id, outcome) {
+  document.getElementById('fu-outcome-modal')?.remove();
+  if (outcome === 'accepted') {
+    // Just dismiss — rep handles booking separately
+    followUps = (followUps || []).filter(f => f.id !== id);
+    renderFollowUps();
+    showToast('Dismissed — process booking in CRM');
+    return;
+  }
+  if (outcome === 'declined') {
+    // Remove from local list for this session
+    followUps = (followUps || []).filter(f => f.id !== id);
+    renderFollowUps();
+    showToast('Removed — update quote status in CRM to keep it gone');
+    return;
+  }
+  // 'called' — schedule another follow-up in 3 days
+  const fu = (followUps || []).find(f => f.id === id);
+  followUps = (followUps || []).filter(f => f.id !== id);
+  renderFollowUps();
+  showToast('Dismissed for now — will reappear next load until quote is updated');
+}
+
 async function deleteFollowUp(id) {
   // Quote follow-ups are synthetic — they can't be deleted here
   if (String(id).startsWith('q-')) { showToast('Update the quote in CRM to remove this'); return; }
@@ -4155,10 +4220,16 @@ async function loadPendingQuoteFollowUps() {
     });
     if (!res.ok) return;
     const quotes = await res.json();
-    if (!quotes || !quotes.length) return;
+    if (!quotes || !quotes.length) {
+      // Remove any stale quote synthetics (e.g. previously pending, now accepted)
+      followUps = (followUps || []).filter(f => !f._isQuote);
+      renderFollowUps();
+      return;
+    }
 
     const today = localToday();
-    // Merge pending quotes into followUps as synthetic entries (prefix id with 'q-' to distinguish)
+    // Strip stale quote synthetics before rebuilding
+    followUps = (followUps || []).filter(f => !f._isQuote);
     const syntheticFUs = quotes.map(q => {
       // Follow-up due 3 days after quote date, or today if already past
       const quoteDate = q.date || today;
@@ -4179,10 +4250,8 @@ async function loadPendingQuoteFollowUps() {
       };
     });
 
-    // Add synthetics that aren't already represented (avoid dupes if called multiple times)
-    const existingQuoteIds = new Set((followUps || []).filter(f => f._isQuote).map(f => f._quoteId));
-    const toAdd = syntheticFUs.filter(f => !existingQuoteIds.has(f._quoteId));
-    followUps = [...(followUps || []), ...toAdd];
+    // Add all fresh synthetics (old ones already stripped above)
+    followUps = [...(followUps || []), ...syntheticFUs];
     renderFollowUps();
   } catch(e) {
     console.error('Could not load pending quote follow-ups', e);
