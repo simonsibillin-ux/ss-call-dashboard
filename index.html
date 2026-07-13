@@ -850,6 +850,25 @@
               <label class="form-label">Full Property Address <span style="color:var(--text3);font-weight:400;">(street number + street + suburb)</span></label>
               <input class="form-input" id="client-address" placeholder="e.g. 12 Smith St, Kilmore" oninput="updateClientInfo()">
             </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Lead Source <span style="color:var(--text3);font-weight:400;">(ask the client)</span></label>
+                <select class="form-input" id="client-source" onchange="updateClientInfo()" style="background:#fff;">
+                  <option value="phone-call">📞 Inbound phone call</option>
+                  <option value="meta-ad">📘 Meta / Facebook Ad</option>
+                  <option value="google-ad">🔍 Google Ad</option>
+                  <option value="website">🌐 Website</option>
+                  <option value="referral">🤝 Referral / word of mouth</option>
+                  <option value="repeat">🔁 Repeat customer</option>
+                  <option value="other">❓ Other</option>
+                </select>
+              </div>
+              <div class="form-group" style="display:flex;align-items:flex-end;">
+                <div style="font-size:11px;color:#1a56cc;padding-bottom:4px;background:#e8f0fe;border-radius:6px;padding:8px 10px;line-height:1.4;">
+                  💬 <strong>Script:</strong> "Before we wrap up — just out of curiosity, how did you hear about us today?"
+                </div>
+              </div>
+            </div>
             <div id="client-warning" class="alert alert-info" style="display:none;">
               ⚡ Enter client name and phone before proceeding
             </div>
@@ -1424,7 +1443,8 @@ const BEDROOM_TO_SQM = {
 let currentService = null;
 let currentStep = 0;
 let answers = {};
-let clientInfo = { name: '', phone: '', suburb: '', email: '', address: '', travelKm: 0, travelCost: 0 };
+let multiServiceItems = []; // accumulated line items for multi-service quotes
+let clientInfo = { name: '', phone: '', suburb: '', email: '', address: '', source: '', travelKm: 0, travelCost: 0 };
 let followUps = [];
 let currentRep = null; // { id, name, pin }
 let isOwner = false;
@@ -1682,6 +1702,7 @@ function updateClientInfo() {
   clientInfo.suburb = document.getElementById('client-suburb').value.trim();
   clientInfo.email = document.getElementById('client-email').value.trim();
   clientInfo.address = (document.getElementById('client-address') || {}).value?.trim() || '';
+  clientInfo.source = (document.getElementById('client-source') || {}).value || 'phone-call';
 }
 
 function calcTravel() {
@@ -2386,6 +2407,171 @@ function backToServices() {
   currentStep = 0;
 }
 
+function addAnotherService() {
+  // Save current service result to multiServiceItems before going back
+  const svc = SERVICES[currentService];
+  if (svc) {
+    const result = svc.calcQuote(answers);
+    if (result && result.total && !result.inPerson && !result.customQuote) {
+      // Check not already added (avoid dupes)
+      const alreadyAdded = multiServiceItems.some(i => i.serviceKey === currentService);
+      if (!alreadyAdded) {
+        multiServiceItems.push({
+          serviceKey: currentService,
+          name: svc.name,
+          lines: result.lines,
+          total: result.total,
+          note: result.note || null
+        });
+      }
+    }
+  }
+  // Go back to service selector (without clearing multiServiceItems)
+  document.getElementById('service-select-view').style.display = 'block';
+  document.getElementById('call-flow-view').style.display = 'none';
+  currentService = null;
+  answers = {};
+  currentStep = 0;
+  // Show accumulated items banner
+  renderMultiServiceBanner();
+}
+
+function renderMultiServiceBanner() {
+  const existing = document.getElementById('multi-svc-banner');
+  if (existing) existing.remove();
+  if (!multiServiceItems.length) return;
+  const runningTotal = multiServiceItems.reduce((s, i) => s + i.total, 0);
+  const banner = document.createElement('div');
+  banner.id = 'multi-svc-banner';
+  banner.style.cssText = 'background:#f0fdf4;border:1px solid var(--ss-green);border-radius:10px;padding:12px 14px;margin-bottom:12px;';
+  banner.innerHTML = `
+    <div style="font-size:12px;font-weight:700;color:var(--ss-green);margin-bottom:6px;">🧾 Multi-Service Quote — Items Added</div>
+    ${multiServiceItems.map((item, i) => `
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#333;padding:3px 0;border-bottom:1px solid #d1fae5;">
+        <span>${item.name}</span>
+        <span style="display:flex;align-items:center;gap:8px;"><strong>$${item.total.toFixed(2)}</strong>
+          <button onclick="removeMultiServiceItem(${i})" style="font-size:10px;border:none;background:var(--red-bg);color:var(--red);border-radius:4px;padding:1px 5px;cursor:pointer;">✕</button>
+        </span>
+      </div>`).join('')}
+    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:800;color:var(--ss-green);margin-top:6px;">
+      <span>Running Total</span><span>$${runningTotal.toFixed(2)}</span>
+    </div>
+    <div style="font-size:11px;color:#666;margin-top:4px;">Select another service below to add it, or use the buttons above to finalise.</div>`;
+  const serviceGrid = document.querySelector('#service-select-view .service-grid');
+  if (serviceGrid) serviceGrid.parentNode.insertBefore(banner, serviceGrid);
+}
+
+function removeMultiServiceItem(index) {
+  multiServiceItems.splice(index, 1);
+  renderMultiServiceBanner();
+}
+
+function renderCombinedSummary(currentResult) {
+  const el = document.getElementById('multi-svc-combined-summary');
+  if (!el) return;
+  if (!multiServiceItems.length) { el.innerHTML = ''; return; }
+  const grandTotal = multiServiceItems.reduce((s, i) => s + i.total, 0) + currentResult.total;
+  el.innerHTML = `
+    <div style="background:#f0fdf4;border:1px solid var(--ss-green);border-radius:10px;padding:12px 14px;margin:12px 0;">
+      <div style="font-size:12px;font-weight:700;color:var(--ss-green);margin-bottom:8px;">🧾 Combined Quote Total</div>
+      ${multiServiceItems.map(item => `
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:#555;padding:2px 0;">
+          <span>${item.name}</span><span>$${item.total.toFixed(2)}</span>
+        </div>`).join('')}
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#555;padding:2px 0;">
+        <span>${SERVICES[currentService] ? SERVICES[currentService].name : 'Current service'}</span><span>$${currentResult.total.toFixed(2)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:800;color:var(--ss-green);margin-top:8px;padding-top:8px;border-top:1px solid #d1fae5;">
+        <span>Grand Total</span><span>$${grandTotal.toFixed(2)}</span>
+      </div>
+    </div>`;
+}
+
+function getMultiTotal() {
+  const svc = SERVICES[currentService];
+  const currentResult = svc ? svc.calcQuote(answers) : null;
+  const prevTotal = multiServiceItems.reduce((s, i) => s + i.total, 0);
+  return prevTotal + (currentResult ? currentResult.total : 0);
+}
+
+function getMultiItems() {
+  const svc = SERVICES[currentService];
+  const currentResult = svc ? svc.calcQuote(answers) : null;
+  const items = [...multiServiceItems];
+  if (currentResult && !currentResult.inPerson && !currentResult.customQuote) {
+    items.push({ name: svc.name, total: currentResult.total, lines: currentResult.lines });
+  }
+  return items;
+}
+
+function finaliseQuote() {
+  const total = getMultiTotal();
+  acceptQuote(total);
+}
+
+async function saveMultiQuoteToCRM() {
+  const items = getMultiItems();
+  const total = items.reduce((s, i) => s + i.total, 0);
+  // Build combined notes
+  const svcNames = items.map(i => i.name).join(' + ');
+  await saveQuoteToCRMWithOverride(total, svcNames, items.map(i => ({ description: i.name, total: i.total })));
+}
+
+async function saveQuoteToCRMWithOverride(total, svcLabel, lineItems) {
+  try {
+    const quoteId = 'Q-' + Date.now();
+    let clientId = null;
+    const existingRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/clients?phone=eq.${encodeURIComponent(clientInfo.phone)}&select=id`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    const existing = await existingRes.json();
+    if (existing && existing.length > 0) {
+      clientId = existing[0].id;
+      if (clientInfo.address || clientInfo.email) {
+        await fetch(`${SUPABASE_URL}/rest/v1/clients?id=eq.${clientId}`, {
+          method: 'PATCH',
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...(clientInfo.address && { address: clientInfo.address }), ...(clientInfo.email && { email: clientInfo.email }) })
+        });
+      }
+    } else {
+      const nc = await fetch(`${SUPABASE_URL}/rest/v1/clients`, {
+        method: 'POST',
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+        body: JSON.stringify({ id: 'C-' + Date.now(), name: clientInfo.name, phone: clientInfo.phone, email: clientInfo.email || null, address: clientInfo.address || null, suburb: clientInfo.suburb, status: 'lead', source: clientInfo.source || 'phone-call', created_at: new Date().toISOString() })
+      });
+      const ncData = await nc.json();
+      if (ncData && ncData[0]) clientId = ncData[0].id;
+    }
+
+    const quoteRes = await fetch(`${SUPABASE_URL}/rest/v1/quotes`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+      body: JSON.stringify({
+        id: quoteId, client: clientInfo.name, date: localToday(), total,
+        status: 'pending', items: lineItems,
+        notes: `Phone quote via Call Dashboard. Services: ${svcLabel}. Address: ${clientInfo.address || clientInfo.suburb}. Travel included. Source: ${clientInfo.source || 'phone-call'}. Rep: ${currentRep ? currentRep.name : 'unknown'}.`,
+        created_at: new Date().toISOString()
+      })
+    });
+
+    if (!quoteRes.ok) { const e = await quoteRes.text(); console.error('Quote save error:', e); throw new Error(e); }
+    showToast('Quote saved to CRM ✓');
+    showMarketingHubPrompt(clientInfo.name, 'pending');
+  } catch(e) {
+    showToast('Saved locally — check CRM connection');
+    console.error(e);
+  }
+}
+
+function clearAndNewQuote() {
+  multiServiceItems = [];
+  const banner = document.getElementById('multi-svc-banner');
+  if (banner) banner.remove();
+  backToServices();
+}
+
 function getVisibleSteps() {
   const svc = SERVICES[currentService];
   return svc.steps.filter(step => !step.showIf || step.showIf(answers));
@@ -2621,7 +2807,7 @@ function showQuote() {
       <div class="quote-panel-title">📋 Quote Summary</div>
       ${lines}
       <div class="quote-total">
-        <span class="quote-total-label">Total (inc. travel)</span>
+        <span class="quote-total-label">Subtotal (inc. travel)</span>
         <span class="quote-total-value">$${result.total.toFixed(2)}</span>
       </div>
       ${result.note ? `<div class="quote-disclaimer">⚠️ ${result.note}</div>` : ''}
@@ -2632,6 +2818,8 @@ function showQuote() {
         ${inclusions}
       </div>
 
+      <div id="multi-svc-combined-summary"></div>
+
       <div class="closing-script">
         <div class="closing-script-title">💬 Closing Script</div>
         <div class="closing-script-text">
@@ -2640,13 +2828,17 @@ function showQuote() {
       </div>
 
       <div class="quote-actions">
-        <button class="btn-primary" onclick="acceptQuote(${result.total})" style="background:#14532d;">&#10003; Quote Accepted — Book Job</button>
-        <button class="btn-primary" onclick="saveQuoteToCRM(${result.total})">Save to CRM</button>
+        <button class="btn-secondary" onclick="addAnotherService()" style="border:1px solid var(--ss-green);color:var(--ss-green);font-weight:700;">＋ Add Another Service</button>
+        <button class="btn-primary" onclick="finaliseQuote()" style="background:#14532d;">&#10003; Quote Accepted — Book Job</button>
+        <button class="btn-primary" onclick="saveMultiQuoteToCRM()">Save to CRM</button>
         <button class="btn-secondary" onclick="emailQuote(${result.total})">&#128231; Email Quote</button>
         <button class="btn-secondary" onclick="openAddFollowUp()">Add Follow-up</button>
-        <button class="btn-secondary" onclick="backToServices()">New Quote</button>
+        <button class="btn-secondary" onclick="clearAndNewQuote()">New Quote</button>
       </div>
     </div>`;
+
+  // Render combined multi-service summary if items exist
+  renderCombinedSummary(result);
 
   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -2714,12 +2906,11 @@ async function saveQuoteToCRM(total) {
     const quotePayload = JSON.stringify({
       id: quoteId,
       client: clientInfo.name,
-      client_id: clientId,
       date: localToday(),
       total: total,
       status: 'pending',
       items: quoteItems,
-      notes: `Phone quote via Call Dashboard. Service: ${svc.name}. Address: ${clientInfo.address || clientInfo.suburb}. Travel: $${clientInfo.travelCost.toFixed(2)}. RepID:${currentRep ? currentRep.id : 'unknown'} Rep:${currentRep ? currentRep.name : 'unknown'}.`,
+      notes: `Phone quote via Call Dashboard. Service: ${svc.name}. Address: ${clientInfo.address || clientInfo.suburb}. Travel: $${clientInfo.travelCost.toFixed(2)}. Source: ${clientInfo.source || 'phone-call'}. RepID:${currentRep ? currentRep.id : 'unknown'} Rep:${currentRep ? currentRep.name : 'unknown'}.`,
       created_at: new Date().toISOString()
     });
 
@@ -2930,7 +3121,7 @@ async function _doAcceptQuote(total) {
     await fetch(`${SUPABASE_URL}/rest/v1/quotes`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ id: quoteId, client: clientInfo.name, client_id: clientId, date: localToday(), total, status: 'approved', items: [{ description: svc.name, total }], notes: `Accepted on call. Service: ${svc.name}. Address: ${clientInfo.address || clientInfo.suburb}. Travel: $${clientInfo.travelCost.toFixed(2)}.`, created_at: new Date().toISOString() })
+      body: JSON.stringify({ id: quoteId, client: clientInfo.name, date: localToday(), total, status: 'approved', items: [{ description: svc.name, total }], notes: `Accepted on call. Service: ${svc.name}. Address: ${clientInfo.address || clientInfo.suburb}. Source: ${clientInfo.source || 'phone-call'}. Travel: $${clientInfo.travelCost.toFixed(2)}.`, created_at: new Date().toISOString() })
     });
 
     // Create job (status Active, no date yet — date set after calendar booking)
@@ -3452,12 +3643,12 @@ function showCalDay(dateStr) {
       const badge = isQuote ? `<span class="badge" style="background:#e8f0fe;color:#1a56cc;border:1px solid #bfdbfe;">📄 Quote</span>` : done ? `<span class="badge badge-green">Done</span>` : isPast ? `<span class="badge" style="background:var(--red-bg);color:var(--red);border:1px solid #7f1d1d;">Overdue</span>` : `<span class="badge badge-blue">Upcoming</span>`;
       const calActions = isQuote
         ? `<div style="font-size:11px;color:#1a56cc;margin-top:6px;">Auto-removed when quote is updated in CRM</div>`
-        : `<div style="display:flex;gap:8px;margin-top:8px;">
+        : `<div style="display:flex;gap:8px;margin-top:8px;" onclick="event.stopPropagation()">
             <button onclick="openEditFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;color:var(--text2);">&#9998; Edit</button>
             <button onclick="deleteFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid #7f1d1d;border-radius:6px;background:var(--red-bg);cursor:pointer;color:var(--red);">&#128465; Delete</button>
           </div>`;
-      return `<div class="follow-up-item" style="${isQuote ? 'border-left:3px solid #1a56cc;' : ''}">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;" ${!isQuote ? `onclick="toggleFollowUp('${fu.id}','${fu.status}')"` : ''}>
+      return `<div class="follow-up-item" style="${isQuote ? 'border-left:3px solid #1a56cc;' : ''}" ${!isQuote ? `onclick="toggleFollowUp('${fu.id}','${fu.status || 'pending'}')"` : ''}>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
           <div class="follow-up-name">${fu.client_name}</div>${badge}
         </div>
         ${fu.service ? `<div class="follow-up-service">${fu.service}</div>` : ''}
@@ -3531,12 +3722,12 @@ function renderFollowUps() {
     }
     const actions = isQuote
       ? `<div style="font-size:11px;color:#1a56cc;margin-top:6px;">Auto-removed when quote is accepted or declined in CRM</div>`
-      : `<div style="display:flex;gap:8px;margin-top:8px;">
+      : `<div style="display:flex;gap:8px;margin-top:8px;" onclick="event.stopPropagation()">
           <button onclick="openEditFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;color:var(--text2);">&#9998; Edit</button>
           <button onclick="deleteFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid #7f1d1d;border-radius:6px;background:var(--red-bg);cursor:pointer;color:var(--red);">&#128465; Delete</button>
         </div>`;
-    return `<div class="follow-up-item" style="cursor:pointer;${isQuote ? 'border-left:3px solid #1a56cc;' : ''}">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;" ${!isQuote ? `onclick="toggleFollowUp('${fu.id}','${fu.status}')"` : ''}>
+    return `<div class="follow-up-item" style="cursor:${isQuote ? 'default' : 'pointer'};${isQuote ? 'border-left:3px solid #1a56cc;' : ''}" ${!isQuote ? `onclick="toggleFollowUp('${fu.id}','${fu.status || 'pending'}')"` : ''}>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
         <div class="follow-up-name">${fu.client_name}</div>
         ${badge}
       </div>
@@ -3918,7 +4109,21 @@ function showMarketingHubPrompt(clientName, quoteStatus) {
   const existing = document.getElementById('mkt-hub-modal');
   if (existing) existing.remove();
   const isAccepted = quoteStatus === 'accepted';
+  const source = clientInfo.source || 'phone-call';
+  const isMetaAd = source === 'meta-ad';
   const CRM_URL = 'https://ss-exterior-crm.vercel.app';
+
+  const metaSection = isMetaAd ? `
+    <div style="background:#e8f0fe;border:1px solid #bfdbfe;border-radius:10px;padding:12px;margin-top:12px;">
+      <div style="font-size:12px;font-weight:800;color:#1a56cc;margin-bottom:6px;">📘 Meta Ad Lead — Action Required</div>
+      <div style="font-size:12px;color:#1e3a5f;line-height:1.5;">
+        This lead came from a <strong>Meta/Facebook Ad</strong>. In Meta Ads Manager:<br>
+        ${isAccepted
+          ? '✅ Mark this lead as <strong>Converted</strong> (quote accepted &amp; job booked)'
+          : '🎯 Mark this lead as <strong>Qualified</strong> (quote sent)'}
+      </div>
+    </div>` : '';
+
   const m = document.createElement('div');
   m.id = 'mkt-hub-modal';
   m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px;';
@@ -3926,16 +4131,14 @@ function showMarketingHubPrompt(clientName, quoteStatus) {
     <div style="background:#fff;border-radius:16px;padding:24px;max-width:400px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.35);">
       <div style="font-size:22px;margin-bottom:8px;">📋</div>
       <div style="font-size:16px;font-weight:800;margin-bottom:8px;">Action Required — Marketing Hub</div>
-      <div style="font-size:13px;color:#555;line-height:1.6;margin-bottom:16px;">
-        <strong>${clientName}</strong> needs to be updated in the CRM Marketing Hub:
-        <ul style="margin:10px 0 0 16px;padding:0;display:flex;flex-direction:column;gap:6px;">
-          <li>Add <strong>${clientName}</strong> as a <strong>Lead</strong> in the Marketing Hub for tracking</li>
-          ${isAccepted ? `<li>Quote was <strong>accepted</strong> — mark the lead as <strong>Converted</strong> in Meta Ads</li>` : `<li>Quote sent — if this was a Meta Ad lead, mark as <strong>Qualified</strong> in Meta Ads</li>`}
-        </ul>
+      <div style="font-size:13px;color:#555;line-height:1.6;margin-bottom:4px;">
+        Add <strong>${clientName}</strong> as a <strong>Lead</strong> in the CRM Marketing Hub for tracking purposes.<br>
+        <span style="font-size:11px;color:#888;">Source logged: ${source.replace(/-/g,' ')}</span>
       </div>
-      <div style="display:flex;flex-direction:column;gap:8px;">
+      ${metaSection}
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px;">
         <a href="${CRM_URL}" target="_blank" style="display:block;text-align:center;background:var(--ss-green);color:#fff;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;">Open CRM Marketing Hub</a>
-        ${isAccepted ? `<a href="https://business.facebook.com/latest/ads_manager" target="_blank" style="display:block;text-align:center;background:#1877f2;color:#fff;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;">Open Meta Ads Manager</a>` : ''}
+        ${isMetaAd ? `<a href="https://business.facebook.com/latest/ads_manager" target="_blank" style="display:block;text-align:center;background:#1877f2;color:#fff;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;">Open Meta Ads Manager</a>` : ''}
         <button onclick="document.getElementById('mkt-hub-modal').remove()" style="background:#f3f4f6;border:none;border-radius:10px;padding:10px;font-size:13px;cursor:pointer;color:#666;">Done — I'll handle it</button>
       </div>
     </div>`;
