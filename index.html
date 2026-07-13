@@ -846,6 +846,10 @@
                 <div style="font-size:11px;color:var(--text3);padding-bottom:4px;">Email needed to send quote via Outlook</div>
               </div>
             </div>
+            <div class="form-group">
+              <label class="form-label">Full Property Address <span style="color:var(--text3);font-weight:400;">(street number + street + suburb)</span></label>
+              <input class="form-input" id="client-address" placeholder="e.g. 12 Smith St, Kilmore" oninput="updateClientInfo()">
+            </div>
             <div id="client-warning" class="alert alert-info" style="display:none;">
               ⚡ Enter client name and phone before proceeding
             </div>
@@ -1420,7 +1424,7 @@ const BEDROOM_TO_SQM = {
 let currentService = null;
 let currentStep = 0;
 let answers = {};
-let clientInfo = { name: '', phone: '', suburb: '', email: '', travelKm: 0, travelCost: 0 };
+let clientInfo = { name: '', phone: '', suburb: '', email: '', address: '', travelKm: 0, travelCost: 0 };
 let followUps = [];
 let currentRep = null; // { id, name, pin }
 let isOwner = false;
@@ -1677,6 +1681,7 @@ function updateClientInfo() {
   clientInfo.phone = document.getElementById('client-phone').value.trim();
   clientInfo.suburb = document.getElementById('client-suburb').value.trim();
   clientInfo.email = document.getElementById('client-email').value.trim();
+  clientInfo.address = (document.getElementById('client-address') || {}).value?.trim() || '';
 }
 
 function calcTravel() {
@@ -2680,11 +2685,20 @@ async function saveQuoteToCRM(total) {
 
     if (existing && existing.length > 0) {
       clientId = existing[0].id;
+      if (clientInfo.address || clientInfo.email) {
+        await fetch(`${SUPABASE_URL}/rest/v1/clients?id=eq.${clientId}`, {
+          method: 'PATCH',
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...(clientInfo.address && { address: clientInfo.address }), ...(clientInfo.email && { email: clientInfo.email }) })
+        });
+      }
     } else {
       const newClient = await supabase('clients', 'POST', {
         id: 'C-' + Date.now(),
         name: clientInfo.name,
         phone: clientInfo.phone,
+        email: clientInfo.email || null,
+        address: clientInfo.address || null,
         suburb: clientInfo.suburb,
         status: 'lead',
         source: 'phone-call',
@@ -2694,18 +2708,18 @@ async function saveQuoteToCRM(total) {
     }
 
     // Single line item: just the service name and total
-    const result = svc.calcQuote(answers);
     const quoteItems = [{ description: svc.name, total: total }];
 
     // POST directly — bypasses supabase() helper to guarantee items is a native array
     const quotePayload = JSON.stringify({
       id: quoteId,
       client: clientInfo.name,
-      date: new Date().toISOString().split('T')[0],
+      client_id: clientId,
+      date: localToday(),
       total: total,
       status: 'pending',
       items: quoteItems,
-      notes: `Phone quote via Call Dashboard. Service: ${svc.name}. Suburb: ${clientInfo.suburb}. Travel: $${clientInfo.travelCost.toFixed(2)}. RepID:${currentRep ? currentRep.id : 'unknown'} Rep:${currentRep ? currentRep.name : 'unknown'}.`,
+      notes: `Phone quote via Call Dashboard. Service: ${svc.name}. Address: ${clientInfo.address || clientInfo.suburb}. Travel: $${clientInfo.travelCost.toFixed(2)}. RepID:${currentRep ? currentRep.id : 'unknown'} Rep:${currentRep ? currentRep.name : 'unknown'}.`,
       created_at: new Date().toISOString()
     });
 
@@ -2727,6 +2741,7 @@ async function saveQuoteToCRM(total) {
     }
 
     showToast('Quote saved to CRM ✓');
+    showMarketingHubPrompt(clientInfo.name, 'pending');
   } catch(e) {
     showToast('Saved locally — check CRM connection');
     console.error(e);
@@ -2839,6 +2854,47 @@ async function acceptQuote(total) {
   const svc = SERVICES[currentService];
   if (!svc) return;
 
+  // Require full property address before proceeding
+  if (!clientInfo.address || clientInfo.address.length < 5) {
+    showAddressModal(total);
+    return;
+  }
+  await _doAcceptQuote(total);
+}
+
+function showAddressModal(total) {
+  const existing = document.getElementById('address-required-modal');
+  if (existing) existing.remove();
+  const m = document.createElement('div');
+  m.id = 'address-required-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+      <div style="font-size:22px;margin-bottom:8px;">📍</div>
+      <div style="font-size:17px;font-weight:800;margin-bottom:6px;">Full Property Address Required</div>
+      <div style="font-size:13px;color:#666;margin-bottom:16px;">This is needed to book the job correctly and locate the property. Get it from the client before continuing.</div>
+      <label style="font-size:12px;font-weight:600;color:#333;display:block;margin-bottom:6px;">Property Address *</label>
+      <input id="address-modal-input" class="form-input" placeholder="e.g. 12 Smith St, Kilmore" value="${clientInfo.address || ''}" style="width:100%;box-sizing:border-box;margin-bottom:16px;font-size:14px;padding:10px 12px;border:2px solid var(--ss-green);border-radius:8px;outline:none;">
+      <div style="display:flex;gap:8px;">
+        <button onclick="
+          const v = document.getElementById('address-modal-input').value.trim();
+          if (!v || v.length < 5) { document.getElementById('address-modal-input').style.borderColor='#dc2626'; return; }
+          clientInfo.address = v;
+          document.getElementById('client-address') && (document.getElementById('client-address').value = v);
+          document.getElementById('address-required-modal').remove();
+          _doAcceptQuote(${total});
+        " style="flex:1;background:var(--ss-green);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;">Confirm & Book Job</button>
+        <button onclick="document.getElementById('address-required-modal').remove()" style="background:#f3f4f6;border:none;border-radius:10px;padding:12px 16px;font-size:13px;cursor:pointer;color:#666;">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  setTimeout(() => { const i = document.getElementById('address-modal-input'); if(i) i.focus(); }, 100);
+}
+
+async function _doAcceptQuote(total) {
+  const svc = SERVICES[currentService];
+  if (!svc) return;
+
   // Step 1: Save quote as accepted + create job in CRM
   const quoteId = 'Q-' + Date.now();
   const jobId = 'J-' + Date.now();
@@ -2852,11 +2908,19 @@ async function acceptQuote(total) {
     const existing = await existingRes.json();
     if (existing && existing.length > 0) {
       clientId = existing[0].id;
+      // Update address/email if we now have them and they didn't before
+      if (clientInfo.address || clientInfo.email) {
+        await fetch(`${SUPABASE_URL}/rest/v1/clients?id=eq.${clientId}`, {
+          method: 'PATCH',
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...(clientInfo.address && { address: clientInfo.address }), ...(clientInfo.email && { email: clientInfo.email }) })
+        });
+      }
     } else {
       const nc = await fetch(`${SUPABASE_URL}/rest/v1/clients`, {
         method: 'POST',
         headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
-        body: JSON.stringify({ id: 'C-' + Date.now(), name: clientInfo.name, phone: clientInfo.phone, suburb: clientInfo.suburb, status: 'customer', source: 'phone-call', created_at: new Date().toISOString() })
+        body: JSON.stringify({ id: 'C-' + Date.now(), name: clientInfo.name, phone: clientInfo.phone, email: clientInfo.email || null, address: clientInfo.address || null, suburb: clientInfo.suburb, status: 'customer', source: 'phone-call', created_at: new Date().toISOString() })
       });
       const ncData = await nc.json();
       if (ncData && ncData[0]) clientId = ncData[0].id;
@@ -2866,14 +2930,14 @@ async function acceptQuote(total) {
     await fetch(`${SUPABASE_URL}/rest/v1/quotes`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ id: quoteId, client: clientInfo.name, date: new Date().toISOString().split('T')[0], total, status: 'approved', items: [{ description: svc.name, total }], notes: `Accepted on call. Service: ${svc.name}. Suburb: ${clientInfo.suburb}. Travel: $${clientInfo.travelCost.toFixed(2)}.`, created_at: new Date().toISOString() })
+      body: JSON.stringify({ id: quoteId, client: clientInfo.name, client_id: clientId, date: localToday(), total, status: 'approved', items: [{ description: svc.name, total }], notes: `Accepted on call. Service: ${svc.name}. Address: ${clientInfo.address || clientInfo.suburb}. Travel: $${clientInfo.travelCost.toFixed(2)}.`, created_at: new Date().toISOString() })
     });
 
     // Create job (status Active, no date yet — date set after calendar booking)
     await fetch(`${SUPABASE_URL}/rest/v1/jobs`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ id: jobId, client: clientInfo.name, service: svc.name, description: `Phone-quoted job. Suburb: ${clientInfo.suburb}.`, status: 'Active', revenue: total, hours: 0, completion_date: null, notes: `Booked via Call Dashboard. Rep: ${currentRep ? currentRep.name : 'unknown'}. Quote: ${quoteId}.`, created_at: new Date().toISOString() })
+      body: JSON.stringify({ id: jobId, client: clientInfo.name, service: svc.name, description: `Phone-quoted job. Address: ${clientInfo.address || clientInfo.suburb}.`, status: 'Active', revenue: total, hours: 0, completion_date: null, notes: `Booked via Call Dashboard. Rep: ${currentRep ? currentRep.name : 'unknown'}. Quote: ${quoteId}.`, created_at: new Date().toISOString() })
     });
 
     showToast('Quote accepted ✓ — Job created in CRM');
@@ -2882,7 +2946,10 @@ async function acceptQuote(total) {
     console.error(e);
   }
 
-  // Step 2: Google Calendar booking modal
+  // Step 2: Marketing hub prompt
+  showMarketingHubPrompt(clientInfo.name, 'accepted');
+
+  // Step 3: Google Calendar booking modal
   showCalendarBookingModal(total, jobId);
 }
 
@@ -3276,6 +3343,8 @@ async function loadFollowUps() {
     if (res.ok) {
       followUps = await res.json();
       renderFollowUps();
+      // Layer in pending quotes as synthetic follow-ups
+      loadPendingQuoteFollowUps();
     }
   } catch(e) {
     console.error('Could not load follow-ups', e);
@@ -3379,18 +3448,22 @@ function showCalDay(dateStr) {
     list.innerHTML = items.map(fu => {
       const done = fu.status === 'done';
       const isPast = fu.call_date < today;
-      const badge = done ? `<span class="badge badge-green">Done</span>` : isPast ? `<span class="badge" style="background:var(--red-bg);color:var(--red);border:1px solid #7f1d1d;">Overdue</span>` : `<span class="badge badge-blue">Upcoming</span>`;
-      return `<div class="follow-up-item">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;" onclick="toggleFollowUp('${fu.id}','${fu.status}')">
+      const isQuote = fu._isQuote;
+      const badge = isQuote ? `<span class="badge" style="background:#e8f0fe;color:#1a56cc;border:1px solid #bfdbfe;">📄 Quote</span>` : done ? `<span class="badge badge-green">Done</span>` : isPast ? `<span class="badge" style="background:var(--red-bg);color:var(--red);border:1px solid #7f1d1d;">Overdue</span>` : `<span class="badge badge-blue">Upcoming</span>`;
+      const calActions = isQuote
+        ? `<div style="font-size:11px;color:#1a56cc;margin-top:6px;">Auto-removed when quote is updated in CRM</div>`
+        : `<div style="display:flex;gap:8px;margin-top:8px;">
+            <button onclick="openEditFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;color:var(--text2);">&#9998; Edit</button>
+            <button onclick="deleteFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid #7f1d1d;border-radius:6px;background:var(--red-bg);cursor:pointer;color:var(--red);">&#128465; Delete</button>
+          </div>`;
+      return `<div class="follow-up-item" style="${isQuote ? 'border-left:3px solid #1a56cc;' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;" ${!isQuote ? `onclick="toggleFollowUp('${fu.id}','${fu.status}')"` : ''}>
           <div class="follow-up-name">${fu.client_name}</div>${badge}
         </div>
-        <div class="follow-up-service" onclick="toggleFollowUp('${fu.id}','${fu.status}')">${fu.service}</div>
-        <div class="follow-up-time" onclick="toggleFollowUp('${fu.id}','${fu.status}')">${fu.call_time || 'Any time'} · ${fu.phone || '—'}</div>
+        ${fu.service ? `<div class="follow-up-service">${fu.service}</div>` : ''}
+        <div class="follow-up-time">${fu.call_time || 'Any time'} · ${fu.phone || '—'}</div>
         ${fu.notes ? `<div class="follow-up-note">${fu.notes}</div>` : ''}
-        <div style="display:flex;gap:8px;margin-top:8px;">
-          <button onclick="openEditFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;color:var(--text2);">&#9998; Edit</button>
-          <button onclick="deleteFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid #7f1d1d;border-radius:6px;background:var(--red-bg);cursor:pointer;color:var(--red);">&#128465; Delete</button>
-        </div>
+        ${calActions}
       </div>`;
     }).join('');
   }
@@ -3443,8 +3516,11 @@ function renderFollowUps() {
   const renderItem = (fu) => {
     const isPast = fu.call_date < today;
     const done = fu.status === 'done';
+    const isQuote = fu._isQuote;
     let badge;
-    if (done) {
+    if (isQuote) {
+      badge = `<span class="badge" style="background:#e8f0fe;color:#1a56cc;border:1px solid #bfdbfe;">📄 Quote Follow-up</span>`;
+    } else if (done) {
       badge = `<span class="badge badge-green">Done</span>`;
     } else if (isPast) {
       badge = `<span class="badge" style="background:var(--red-bg);color:var(--red);border:1px solid #7f1d1d;">Overdue</span>`;
@@ -3453,19 +3529,22 @@ function renderFollowUps() {
     } else {
       badge = `<span class="badge badge-blue">Upcoming</span>`;
     }
-    return `<div class="follow-up-item" style="cursor:pointer;">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;" onclick="toggleFollowUp('${fu.id}','${fu.status}')">
+    const actions = isQuote
+      ? `<div style="font-size:11px;color:#1a56cc;margin-top:6px;">Auto-removed when quote is accepted or declined in CRM</div>`
+      : `<div style="display:flex;gap:8px;margin-top:8px;">
+          <button onclick="openEditFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;color:var(--text2);">&#9998; Edit</button>
+          <button onclick="deleteFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid #7f1d1d;border-radius:6px;background:var(--red-bg);cursor:pointer;color:var(--red);">&#128465; Delete</button>
+        </div>`;
+    return `<div class="follow-up-item" style="cursor:pointer;${isQuote ? 'border-left:3px solid #1a56cc;' : ''}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;" ${!isQuote ? `onclick="toggleFollowUp('${fu.id}','${fu.status}')"` : ''}>
         <div class="follow-up-name">${fu.client_name}</div>
         ${badge}
       </div>
-      <div class="follow-up-service" onclick="toggleFollowUp('${fu.id}','${fu.status}')">${fu.service}</div>
-      <div class="follow-up-time" onclick="toggleFollowUp('${fu.id}','${fu.status}')">${fu.call_time || 'Any time'} &middot; ${fu.phone || '&mdash;'}</div>
+      ${fu.service ? `<div class="follow-up-service">${fu.service}</div>` : ''}
+      <div class="follow-up-time">${fu.call_time || 'Any time'} &middot; ${fu.phone || '&mdash;'}</div>
       ${fu.rep_name ? `<div style="font-size:11px;color:var(--text3);margin-top:3px;">Rep: ${fu.rep_name}</div>` : ''}
       ${fu.notes ? `<div class="follow-up-note">${fu.notes}</div>` : ''}
-      <div style="display:flex;gap:8px;margin-top:8px;">
-        <button onclick="openEditFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;color:var(--text2);">&#9998; Edit</button>
-        <button onclick="deleteFollowUp('${fu.id}')" style="font-size:11px;padding:3px 8px;border:1px solid #7f1d1d;border-radius:6px;background:var(--red-bg);cursor:pointer;color:var(--red);">&#128465; Delete</button>
-      </div>
+      ${actions}
     </div>`;
   };
 
@@ -3813,6 +3892,8 @@ function openEditFollowUp(id) {
 }
 
 async function deleteFollowUp(id) {
+  // Quote follow-ups are synthetic — they can't be deleted here
+  if (String(id).startsWith('q-')) { showToast('Update the quote in CRM to remove this'); return; }
   if (!confirm('Delete this follow-up?')) return;
   // Optimistic removal — strip from local array and re-render immediately
   followUps = (followUps || []).filter(f => f.id !== id);
@@ -3827,6 +3908,81 @@ async function deleteFollowUp(id) {
   } catch(e) {
     showToast('Error deleting follow-up');
     loadFollowUps(); // resync on failure
+  }
+}
+
+// ============================================================
+// MARKETING HUB PROMPT
+// ============================================================
+function showMarketingHubPrompt(clientName, quoteStatus) {
+  const existing = document.getElementById('mkt-hub-modal');
+  if (existing) existing.remove();
+  const isAccepted = quoteStatus === 'accepted';
+  const CRM_URL = 'https://ss-exterior-crm.vercel.app';
+  const m = document.createElement('div');
+  m.id = 'mkt-hub-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px;';
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:24px;max-width:400px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.35);">
+      <div style="font-size:22px;margin-bottom:8px;">📋</div>
+      <div style="font-size:16px;font-weight:800;margin-bottom:8px;">Action Required — Marketing Hub</div>
+      <div style="font-size:13px;color:#555;line-height:1.6;margin-bottom:16px;">
+        <strong>${clientName}</strong> needs to be updated in the CRM Marketing Hub:
+        <ul style="margin:10px 0 0 16px;padding:0;display:flex;flex-direction:column;gap:6px;">
+          <li>Add <strong>${clientName}</strong> as a <strong>Lead</strong> in the Marketing Hub for tracking</li>
+          ${isAccepted ? `<li>Quote was <strong>accepted</strong> — mark the lead as <strong>Converted</strong> in Meta Ads</li>` : `<li>Quote sent — if this was a Meta Ad lead, mark as <strong>Qualified</strong> in Meta Ads</li>`}
+        </ul>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <a href="${CRM_URL}" target="_blank" style="display:block;text-align:center;background:var(--ss-green);color:#fff;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;">Open CRM Marketing Hub</a>
+        ${isAccepted ? `<a href="https://business.facebook.com/latest/ads_manager" target="_blank" style="display:block;text-align:center;background:#1877f2;color:#fff;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;">Open Meta Ads Manager</a>` : ''}
+        <button onclick="document.getElementById('mkt-hub-modal').remove()" style="background:#f3f4f6;border:none;border-radius:10px;padding:10px;font-size:13px;cursor:pointer;color:#666;">Done — I'll handle it</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+}
+
+// ============================================================
+// PENDING QUOTES → AUTO FOLLOW-UPS
+// ============================================================
+async function loadPendingQuoteFollowUps() {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/quotes?status=eq.pending&select=id,client,date,total,notes`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    if (!res.ok) return;
+    const quotes = await res.json();
+    if (!quotes || !quotes.length) return;
+
+    const today = localToday();
+    // Merge pending quotes into followUps as synthetic entries (prefix id with 'q-' to distinguish)
+    const syntheticFUs = quotes.map(q => {
+      // Follow-up due 3 days after quote date, or today if already past
+      const quoteDate = q.date || today;
+      const dueDate = new Date(quoteDate + 'T00:00:00');
+      dueDate.setDate(dueDate.getDate() + 3);
+      const dueDateStr = dueDate.getFullYear() + '-' + String(dueDate.getMonth()+1).padStart(2,'0') + '-' + String(dueDate.getDate()).padStart(2,'0');
+      const effectiveDue = dueDateStr < today ? today : dueDateStr;
+      return {
+        id: 'q-' + q.id,
+        client_name: q.client,
+        call_date: effectiveDue,
+        call_time: '09:00',
+        notes: `📄 Pending quote — $${(q.total||0).toFixed(2)} — follow up to convert. ${q.notes ? q.notes.split('.')[0] : ''}`.trim(),
+        status: 'pending',
+        action: 'quote_followup',
+        _isQuote: true,
+        _quoteId: q.id
+      };
+    });
+
+    // Add synthetics that aren't already represented (avoid dupes if called multiple times)
+    const existingQuoteIds = new Set((followUps || []).filter(f => f._isQuote).map(f => f._quoteId));
+    const toAdd = syntheticFUs.filter(f => !existingQuoteIds.has(f._quoteId));
+    followUps = [...(followUps || []), ...toAdd];
+    renderFollowUps();
+  } catch(e) {
+    console.error('Could not load pending quote follow-ups', e);
   }
 }
 
