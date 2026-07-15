@@ -1735,9 +1735,9 @@ const SERVICES = {
         label: 'How many storeys is the property?',
         script: '"How many storeys is the property?"',
         type: 'options',
-        options: ['Single storey', 'Double storey', '3+ storeys'],
+        options: ['Single storey', 'Double storey', '3+ storeys', 'Commercial / Industrial'],
         onSelect: (val) => {
-          if (val === '3+ storeys') return 'custom';
+          if (val === '3+ storeys' || val === 'Commercial / Industrial') return 'custom';
         }
       },
       {
@@ -1767,6 +1767,29 @@ const SERVICES = {
         script: '"Is there anything that might make roof access difficult — for example, a steep pitch, large trees close to the roofline, or extensions?"',
         type: 'options',
         options: ['No', 'Yes — difficult access']
+      },
+      {
+        id: 'add_structures',
+        label: 'Are there additional structures that also need gutters cleaned?',
+        script: '"Are there any additional structures on the property that also need their gutters cleaned — for example, a shed, bungalow, or granny flat?"',
+        type: 'options',
+        options: ['No additional structures', 'Yes — add structure(s)']
+      },
+      {
+        id: 'structure_type',
+        label: 'What type of additional structure?',
+        script: '"What type of structure is it?"',
+        type: 'options',
+        options: ['Small shed (~20m guttering)', 'Medium shed (~28m guttering)', 'Large shed (~40m guttering)', 'Bungalow / Granny flat (~50m guttering)'],
+        showIf: (a) => a.add_structures === 'Yes — add structure(s)'
+      },
+      {
+        id: 'structure_qty',
+        label: 'How many of these structures?',
+        script: '"How many of these structures are there?"',
+        type: 'options',
+        options: ['1', '2', '3', '4+'],
+        showIf: (a) => a.add_structures === 'Yes — add structure(s)'
       }
     ],
     inclusions: [
@@ -1774,7 +1797,8 @@ const SERVICES = {
       'All downpipes flushed',
       'Before and after photos provided',
       'Debris disposed of on client\'s property (bin or designated spot)',
-      'Off-site removal available at additional $100'
+      'Off-site removal available at additional $100',
+      'Additional structures included if selected'
     ],
     calcQuote: (a) => {
       const bedroomKey = a.bedrooms === '5+ bed' ? '5+' : a.bedrooms.replace(' bed','');
@@ -1784,6 +1808,18 @@ const SERVICES = {
       const debrisMult = a.debris === '1–3 years ago' ? 1.5 : a.debris === '3+ years ago / never' ? 2 : 1;
       const accessMult = a.access === 'Yes — difficult access' ? 1.5 : 1;
       const base = metres * storeyRate * guardMult * debrisMult * accessMult;
+      // Additional structures (single storey rate for sheds/bungalows)
+      const STRUCTURE_METRES = { 'Small shed (~20m guttering)': 20, 'Medium shed (~28m guttering)': 28, 'Large shed (~40m guttering)': 40, 'Bungalow / Granny flat (~50m guttering)': 50 };
+      let structureLines = [];
+      let structureTotal = 0;
+      if (a.add_structures === 'Yes — add structure(s)' && a.structure_type) {
+        const sMetres = STRUCTURE_METRES[a.structure_type] || 20;
+        const sQty = a.structure_qty === '4+' ? 4 : parseInt(a.structure_qty) || 1;
+        const sRate = 3.00; // single storey rate for outbuildings
+        const sTotal = sMetres * sQty * sRate * guardMult * debrisMult;
+        structureTotal = sTotal;
+        structureLines.push({ label: `${a.structure_type} × ${sQty} (~${sMetres * sQty}m @ $3/m)`, value: `$${sTotal.toFixed(2)}` });
+      }
       return {
         lines: [
           { label: `Est. linear metres (${bedroomKey} bed avg)`, value: `${metres}m` },
@@ -1791,10 +1827,11 @@ const SERVICES = {
           a.gutter_guard === 'Yes' ? { label: 'Gutter guard multiplier', value: '×2' } : null,
           debrisMult > 1 ? { label: 'Debris multiplier', value: `×${debrisMult}` } : null,
           accessMult > 1 ? { label: 'Difficult access', value: '×1.5' } : null,
-          { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
+          { label: 'Main structure subtotal', value: `$${base.toFixed(2)}` },
+          ...structureLines,
           { label: 'Travel', value: `$${clientInfo.travelCost.toFixed(2)}` },
         ].filter(Boolean),
-        total: Math.max(150, base + clientInfo.travelCost)
+        total: Math.max(150, base + structureTotal + clientInfo.travelCost)
       };
     }
   },
@@ -1815,8 +1852,8 @@ const SERVICES = {
         label: 'How many storeys is the property?',
         script: '"And how many storeys is the property?"',
         type: 'options',
-        options: ['Single storey', 'Double storey', '3+ storeys'],
-        onSelect: (val) => { if (val === '3+ storeys') return 'custom'; }
+        options: ['Single storey', 'Double storey', '3+ storeys', 'Commercial / Industrial'],
+        onSelect: (val) => { if (val === '3+ storeys' || val === 'Commercial / Industrial') return 'custom'; }
       },
       {
         id: 'last_clean',
@@ -1873,8 +1910,8 @@ const SERVICES = {
         label: 'How many storeys is the property?',
         script: '"How many storeys is the property?"',
         type: 'options',
-        options: ['Single storey', 'Double storey', '3+ storeys'],
-        onSelect: (val) => { if (val === '3+ storeys') return 'custom'; }
+        options: ['Single storey', 'Double storey', '3+ storeys', 'Commercial / Industrial'],
+        onSelect: (val) => { if (val === '3+ storeys' || val === 'Commercial / Industrial') return 'custom'; }
       },
       {
         id: 'windows',
@@ -1960,8 +1997,8 @@ const SERVICES = {
         label: 'How many storeys is the property?',
         script: '"How many storeys is the property?"',
         type: 'options',
-        options: ['Single storey', 'Double storey', '3+ storeys'],
-        onSelect: (val) => { if (val === '3+ storeys') return 'custom'; },
+        options: ['Single storey', 'Double storey', '3+ storeys', 'Commercial / Industrial'],
+        onSelect: (val) => { if (val === '3+ storeys' || val === 'Commercial / Industrial') return 'custom'; },
         showIf: (a) => a.suburb_check === 'Beyond 30km → Phone quote'
       },
       {
@@ -2017,8 +2054,8 @@ const SERVICES = {
         label: 'How many storeys is the property?',
         script: '"How many storeys is the property?"',
         type: 'options',
-        options: ['Single storey', 'Double storey', '3+ storeys'],
-        onSelect: (val) => { if (val === '3+ storeys') return 'custom'; }
+        options: ['Single storey', 'Double storey', '3+ storeys', 'Commercial / Industrial'],
+        onSelect: (val) => { if (val === '3+ storeys' || val === 'Commercial / Industrial') return 'custom'; }
       },
       {
         id: 'roof_type',
@@ -2069,6 +2106,16 @@ const SERVICES = {
       const base = sqm * rate;
       const biocideRate = isDouble ? 3.25 : 2.00;
       const biocide = a.biocide === 'Yes — add biocide treatment' ? sqm * biocideRate : 0;
+      const dynamicInclusions = [
+        'Complete killing and removal of lichen, moss, algae, and organic material',
+        'Softwash method — safe for all roof types',
+        'All methods comply with manufacturer specifications',
+        'Terra cotta roofs: biocide treatment only (no pressure wash)',
+        'Before and after photos',
+      ];
+      if (biocide > 0) {
+        dynamicInclusions.push('Long-term lichen preventative biocide treatment (2–4 years protection) — INCLUDED');
+      }
       return {
         lines: [
           { label: `Est. roof sqm (${bedroomKey} bed avg)`, value: `${sqm}sqm` },
@@ -2077,6 +2124,7 @@ const SERVICES = {
           biocide > 0 ? { label: `Biocide treatment (${sqm}sqm × $${biocideRate})`, value: `$${biocide.toFixed(2)}` } : null,
           { label: 'Travel', value: `$${clientInfo.travelCost.toFixed(2)}` },
         ].filter(Boolean),
+        inclusions: dynamicInclusions,
         total: Math.max(150, base + biocide + clientInfo.travelCost)
       };
     }
@@ -2097,8 +2145,8 @@ const SERVICES = {
         label: 'How many storeys is the property?',
         script: '"How many storeys is the property?"',
         type: 'options',
-        options: ['Single storey', 'Double storey', '3+ storeys'],
-        onSelect: (val) => { if (val === '3+ storeys') return 'custom'; }
+        options: ['Single storey', 'Double storey', '3+ storeys', 'Commercial / Industrial'],
+        onSelect: (val) => { if (val === '3+ storeys' || val === 'Commercial / Industrial') return 'custom'; }
       },
       {
         id: 'bedrooms',
@@ -2233,8 +2281,8 @@ const SERVICES = {
         label: 'How many storeys is the property?',
         script: '"How many storeys is the property?"',
         type: 'options',
-        options: ['Single storey', 'Double storey', '3+ storeys'],
-        onSelect: (val) => { if (val === '3+ storeys') return 'custom'; }
+        options: ['Single storey', 'Double storey', '3+ storeys', 'Commercial / Industrial'],
+        onSelect: (val) => { if (val === '3+ storeys' || val === 'Commercial / Industrial') return 'custom'; }
       },
       {
         id: 'bedrooms',
@@ -2295,8 +2343,8 @@ const SERVICES = {
         label: 'How many storeys is the property?',
         script: '"How many storeys is the property?"',
         type: 'options',
-        options: ['Single storey', 'Double storey', '3+ storeys'],
-        onSelect: (val) => { if (val === '3+ storeys') return 'custom'; }
+        options: ['Single storey', 'Double storey', '3+ storeys', 'Commercial / Industrial'],
+        onSelect: (val) => { if (val === '3+ storeys' || val === 'Commercial / Industrial') return 'custom'; }
       },
       {
         id: 'address',
@@ -2419,7 +2467,8 @@ function addAnotherService() {
           name: svc.name,
           lines: result.lines,
           total: result.total,
-          note: result.note || null
+          note: result.note || null,
+          savedAnswers: { ...answers }
         });
       }
     }
@@ -2447,7 +2496,8 @@ function renderMultiServiceBanner() {
     ${multiServiceItems.map((item, i) => `
       <div style="display:flex;justify-content:space-between;font-size:12px;color:#333;padding:3px 0;border-bottom:1px solid #d1fae5;">
         <span>${item.name}</span>
-        <span style="display:flex;align-items:center;gap:8px;"><strong>$${item.total.toFixed(2)}</strong>
+        <span style="display:flex;align-items:center;gap:6px;"><strong>$${item.total.toFixed(2)}</strong>
+          <button onclick="editMultiServiceItem(${i})" style="font-size:10px;border:none;background:#dbeafe;color:#1e40af;border-radius:4px;padding:1px 5px;cursor:pointer;">✏️</button>
           <button onclick="removeMultiServiceItem(${i})" style="font-size:10px;border:none;background:var(--red-bg);color:var(--red);border-radius:4px;padding:1px 5px;cursor:pointer;">✕</button>
         </span>
       </div>`).join('')}
@@ -2462,6 +2512,24 @@ function renderMultiServiceBanner() {
 function removeMultiServiceItem(index) {
   multiServiceItems.splice(index, 1);
   renderMultiServiceBanner();
+}
+
+function editMultiServiceItem(index) {
+  const item = multiServiceItems[index];
+  if (!item) return;
+  // Remove from list so it can be re-added after editing
+  multiServiceItems.splice(index, 1);
+  // Re-enter that service flow with saved answers
+  currentService = item.serviceKey;
+  answers = item.savedAnswers ? { ...item.savedAnswers } : {};
+  currentStep = 0;
+  document.getElementById('service-select-view').style.display = 'none';
+  document.getElementById('call-flow-view').style.display = 'block';
+  document.getElementById('flow-service-name').textContent = item.name;
+  document.getElementById('quote-output').style.display = 'none';
+  renderSteps();
+  renderMultiServiceBanner();
+  showToast('Editing ' + item.name + ' — re-answer questions to update the quote');
 }
 
 function renderCombinedSummary(currentResult) {
@@ -2493,7 +2561,44 @@ function renderCombinedSummary(currentResult) {
       <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:800;color:var(--ss-green);margin-top:8px;padding-top:8px;border-top:1px solid #d1fae5;">
         <span>Grand Total</span><span>$${grandTotal.toFixed(2)}</span>
       </div>
+      <button onclick="showFullQuoteModal()" style="margin-top:10px;width:100%;padding:8px;background:#f0fdf4;border:1px solid var(--ss-green);border-radius:8px;color:var(--ss-green);font-size:12px;font-weight:700;cursor:pointer;">🔍 View Full Quote Breakdown</button>
     </div>`;
+}
+
+function showFullQuoteModal() {
+  const allItems = getMultiItems();
+  if (!allItems.length) return;
+  let html = `<div style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto;" onclick="this.remove()">
+    <div style="background:#fff;border-radius:12px;padding:20px;max-width:500px;width:100%;max-height:90vh;overflow-y:auto;" onclick="event.stopPropagation()">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <strong style="font-size:15px;color:#111;">Full Quote Breakdown</strong>
+        <button onclick="this.closest('[onclick]').remove()" style="border:none;background:none;font-size:18px;cursor:pointer;">✕</button>
+      </div>
+      <div style="font-size:12px;color:#555;margin-bottom:12px;">Client: <strong>${clientInfo.name || '—'}</strong> | ${clientInfo.suburb || ''}</div>`;
+  let grandTotal = 0;
+  allItems.forEach(item => {
+    html += `<div style="margin-bottom:14px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+      <div style="background:#f0fdf4;padding:8px 12px;font-weight:700;font-size:13px;color:var(--ss-green);">${item.name}</div>
+      <div style="padding:8px 12px;">`;
+    (item.lines || []).forEach(line => {
+      html += `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;border-bottom:1px solid #f3f4f6;">
+        <span style="color:#555;">${line.label}</span>
+        <span style="font-weight:600;">${line.value}</span>
+      </div>`;
+    });
+    html += `<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:800;margin-top:6px;padding-top:6px;border-top:2px solid #d1fae5;">
+        <span>Subtotal</span><span style="color:var(--ss-green);">$${item.total.toFixed(2)}</span>
+      </div></div></div>`;
+    grandTotal += item.total;
+  });
+  html += `<div style="display:flex;justify-content:space-between;font-size:16px;font-weight:900;padding:12px;background:#f0fdf4;border-radius:8px;color:var(--ss-green);">
+    <span>GRAND TOTAL</span><span>$${grandTotal.toFixed(2)}</span>
+  </div>
+  <div style="font-size:11px;color:#888;margin-top:8px;text-align:center;">Tap outside to close</div>
+  </div></div>`;
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  document.body.appendChild(div.firstElementChild);
 }
 
 function getMultiTotal() {
@@ -2804,7 +2909,8 @@ function showQuote() {
     return;
   }
 
-  const inclusions = svc.inclusions.map(i => `<div class="inclusion-item">${i}</div>`).join('');
+  const inclusionSource = result.inclusions || svc.inclusions || [];
+  const inclusions = inclusionSource.map(i => `<div class="inclusion-item">${i}</div>`).join('');
   const lines = result.lines.map(l => `
     <div class="quote-line">
       <span class="quote-line-label">${l.label}</span>
@@ -3403,38 +3509,65 @@ async function confirmCalBooking(dateStr, label, total, jobId) {
 // EMAIL QUOTE
 // ============================================================
 function emailQuote(total) {
-  const svc = SERVICES[currentService];
-  if (!svc) return;
+  // Gather all services (multi-service aware)
+  const allItems = getMultiItems();
+  const grandTotal = allItems.length > 0 ? allItems.reduce((s, i) => s + i.total, 0) : total;
   const email = clientInfo.email;
   const name = clientInfo.name || 'there';
   const firstName = name.split(' ')[0];
-  const result = svc.calcQuote(answers);
 
-  const subject = `Your Quote from SS Exterior Services — ${svc.name}`;
-  const itemLines = result.breakdown ? result.breakdown.map(b => `• ${b}`).join('\n') : `• ${svc.name} — $${total.toFixed(2)}`;
-  const travelLine = clientInfo.travelCost > 0 ? `• Travel (${clientInfo.travelKm}km from Kilmore) — $${clientInfo.travelCost.toFixed(2)}\n` : '';
-  const inclusionsList = svc.inclusions && svc.inclusions.length > 0
-    ? svc.inclusions.map(i => `  • ${i}`).join('\n')
-    : '';
+  const isMulti = allItems.length > 1;
+  const serviceLabel = allItems.length > 0 ? allItems.map(i => i.name).join(' + ') : (SERVICES[currentService] ? SERVICES[currentService].name : 'Service');
+  const subject = `Your Quote from SS Exterior Services — ${serviceLabel}`;
+
+  // Build per-service breakdown sections
+  let servicesSections = '';
+  if (allItems.length > 0) {
+    allItems.forEach(item => {
+      const svc = SERVICES[item.serviceKey] || null;
+      const lines = (item.lines || []).map(l => `  • ${l.label}: ${l.value}`).join('\n');
+      const inclusions = (svc && svc.inclusions && svc.inclusions.length > 0)
+        ? svc.inclusions.map(i => `  • ${i}`).join('\n')
+        : '';
+      servicesSections += `\n─────────────────────────────────────────
+SERVICE: ${item.name}
+─────────────────────────────────────────
+PRICE BREAKDOWN:
+${lines}
+  ─────────────────────
+  Subtotal: $${item.total.toFixed(2)}
+${inclusions ? `\nWHAT'S INCLUDED:\n${inclusions}\n` : ''}`;
+    });
+  } else {
+    // Fallback: single service from current state
+    const svc = SERVICES[currentService];
+    if (svc) {
+      const result = svc.calcQuote(answers);
+      const lines = (result.lines || []).map(l => `  • ${l.label}: ${l.value}`).join('\n');
+      const inclusions = svc.inclusions && svc.inclusions.length > 0
+        ? svc.inclusions.map(i => `  • ${i}`).join('\n')
+        : '';
+      servicesSections += `\n─────────────────────────────────────────
+SERVICE: ${svc.name}
+─────────────────────────────────────────
+PRICE BREAKDOWN:
+${lines}
+${inclusions ? `\nWHAT'S INCLUDED:\n${inclusions}\n` : ''}`;
+    }
+  }
 
   const body =
 `Hi ${firstName},
 
 Thank you for calling SS Exterior Services! Here is your quote as discussed:
 
-─────────────────────────────────────────
-SERVICE: ${svc.name}
 ADDRESS: ${clientInfo.suburb || 'As discussed'}
-─────────────────────────────────────────
+${servicesSections}
+═════════════════════════════════════════
+TOTAL (inc. GST): $${grandTotal.toFixed(2)}
+═════════════════════════════════════════
 
-PRICE BREAKDOWN:
-${itemLines}
-${travelLine}
-─────────────────────
-TOTAL (inc. GST): $${total.toFixed(2)}
-─────────────────────
-
-${inclusionsList ? `WHAT'S INCLUDED:\n${inclusionsList}\n\n` : ''}IMPORTANT NOTES:
+IMPORTANT NOTES:
   • Please ensure clear access to all areas to be serviced on the day
   • A responsible adult must be present or access arrangements confirmed in advance
   • Prices may vary if site conditions differ materially from what was described
@@ -3455,50 +3588,61 @@ SS Exterior Services
 ---
 Google Review: g.page/r/ssexteriorservices | Facebook | Instagram | TikTok`;
 
-  // Outlook deeplink has a URL length limit (~2000 chars). Truncate body if needed.
-  const MAX_BODY_ENCODED = 1400;
-  let encodedBody = encodeURIComponent(body);
-  if (encodedBody.length > MAX_BODY_ENCODED) {
-    // Trim plain text then re-encode
-    let trimmed = body.substring(0, Math.floor(body.length * MAX_BODY_ENCODED / encodedBody.length));
-    encodedBody = encodeURIComponent(trimmed + '\n\n[Body truncated — see PDF for full quote]');
-  }
+  // Use mailto: — no URL length limit via native mail client
+  const mailtoLink = 'mailto:' + (email ? encodeURIComponent(email) : '') +
+    '?subject=' + encodeURIComponent(subject) +
+    '&body=' + encodeURIComponent(body);
 
-  if (email) {
-    window.open(
-      'https://outlook.office.com/mail/deeplink/compose?to=' + encodeURIComponent(email) +
-      '&subject=' + encodeURIComponent(subject) +
-      '&body=' + encodedBody,
-      '_blank'
-    );
-  } else {
-    // No email — open blank compose with body pre-filled
-    window.open(
-      'https://outlook.office.com/mail/deeplink/compose?subject=' + encodeURIComponent(subject) +
-      '&body=' + encodedBody,
-      '_blank'
-    );
-    showToast('No email on file — Outlook opened, add recipient manually');
-  }
+  const a = document.createElement('a');
+  a.href = mailtoLink;
+  a.click();
+
+  if (!email) showToast('No email on file — add recipient manually in your mail client');
+
   // Also trigger print/PDF
-  setTimeout(() => printQuote(total), 600);
+  setTimeout(() => printQuote(grandTotal), 600);
 }
 
-function printQuote(total) {
-  const svc = SERVICES[currentService];
-  if (!svc) return;
-  const result = svc.calcQuote(answers);
+function printQuote(grandTotal) {
+  const allItems = getMultiItems();
+  const totalToPrint = grandTotal || (allItems.length > 0 ? allItems.reduce((s, i) => s + i.total, 0) : 0);
   const date = new Date().toLocaleDateString('en-AU', { day:'2-digit', month:'2-digit', year:'numeric' });
   const quoteId = 'Q-' + Date.now();
-  const serviceTotal = total - clientInfo.travelCost;
 
-  const serviceRow = `<tr>
-    <td>${svc.name}</td>
-    <td style="text-align:center;">1</td>
-    <td style="text-align:center;"></td>
-    <td style="text-align:right;">$${serviceTotal.toFixed(2)}</td>
-    <td style="text-align:right;">$${serviceTotal.toFixed(2)}</td>
-  </tr>`;
+  // Build rows for all services
+  let serviceRows = '';
+  if (allItems.length > 0) {
+    allItems.forEach(item => {
+      const lines = item.lines || [];
+      lines.forEach(line => {
+        serviceRows += `<tr>
+          <td style="padding-left:16px;">${line.label}</td>
+          <td style="text-align:center;"></td>
+          <td style="text-align:center;"></td>
+          <td style="text-align:right;"></td>
+          <td style="text-align:right;">${line.value}</td>
+        </tr>`;
+      });
+      serviceRows += `<tr style="font-weight:700;background:#f0fdf4;">
+        <td>${item.name} Subtotal</td>
+        <td></td><td></td><td></td>
+        <td style="text-align:right;">$${item.total.toFixed(2)}</td>
+      </tr>`;
+    });
+  } else {
+    const svc = SERVICES[currentService];
+    if (svc) {
+      const result = svc.calcQuote(answers);
+      (result.lines || []).forEach(line => {
+        serviceRows += `<tr>
+          <td style="padding-left:16px;">${line.label}</td>
+          <td></td><td></td><td></td>
+          <td style="text-align:right;">${line.value}</td>
+        </tr>`;
+      });
+    }
+  }
+
   const travelRow = clientInfo.travelCost > 0 ? `<tr>
     <td>Travel (${clientInfo.travelKm}km from Kilmore)</td>
     <td style="text-align:center;">1</td>
@@ -3506,6 +3650,7 @@ function printQuote(total) {
     <td style="text-align:right;">$${clientInfo.travelCost.toFixed(2)}</td>
     <td style="text-align:right;">$${clientInfo.travelCost.toFixed(2)}</td>
   </tr>` : '';
+  const total = totalToPrint;
 
   const html = `<!DOCTYPE html>
 <html>
@@ -3574,7 +3719,7 @@ function printQuote(total) {
     </tr>
   </thead>
   <tbody>
-    ${serviceRow}
+    ${serviceRows}
     ${travelRow}
     <tr class="total-row">
       <td colspan="4" style="text-align:right;">Total (inc. GST)</td>
