@@ -787,6 +787,9 @@
       <div class="nav-item" onclick="showPage('followups')">
         <span class="nav-icon">🔔</span> Follow-ups
       </div>
+      <div class="nav-item" onclick="showPage('pendingquotes'); loadPendingQuotesTab();">
+        <span class="nav-icon">📝</span> Pending Quotes
+      </div>
       <div class="sidebar-section">Reference</div>
       <div class="nav-item" onclick="showPage('pricing')">
         <span class="nav-icon">💲</span> Price Sheet
@@ -1133,6 +1136,23 @@
           <div class="question-script" style="margin:0;">
             "So just to confirm, we'll be doing [SERVICE] at [SUBURB] for a total of $[PRICE] including travel. That includes [KEY INCLUSIONS]. When works best for you — are you flexible on dates or is there a particular time that suits?"
           </div>
+        </div>
+      </div>
+
+      <!-- ==================== PENDING QUOTES PAGE ==================== -->
+      <div class="page" id="page-pendingquotes">
+        <div class="page-title">Pending Quotes</div>
+        <div class="page-subtitle">Select a quote to review and close with the customer</div>
+        <div id="pq-list-view">
+          <div id="pq-list-container">
+            <div class="empty-state">
+              <div class="empty-state-icon">📝</div>
+              <div class="empty-state-title">Loading quotes…</div>
+            </div>
+          </div>
+        </div>
+        <div id="pq-detail-view" style="display:none;">
+          <!-- Injected by JS -->
         </div>
       </div>
 
@@ -1688,6 +1708,9 @@ function showPage(page) {
     const bd = document.getElementById('fu-browse-date');
     if (bd && !bd.value) bd.value = localToday();
     renderFollowUps();
+  }
+  if (page === 'pendingquotes') {
+    loadPendingQuotesTab();
   }
 }
 
@@ -4648,8 +4671,10 @@ async function deleteFollowUp(id) {
 function showMarketingHubPrompt(clientName, quoteStatus) {
   const existing = document.getElementById('mkt-hub-modal');
   if (existing) existing.remove();
+  const source = clientInfo.source || '';
+  // Only trigger for paid ad sources
+  if (source !== 'meta-ad' && source !== 'google-ad') return;
   const isAccepted = quoteStatus === 'accepted';
-  const source = clientInfo.source || 'phone-call';
   const isMetaAd = source === 'meta-ad';
   const CRM_URL = 'https://ss-exterior-crm.vercel.app';
 
@@ -4752,6 +4777,470 @@ const today = new Date();
 const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 document.getElementById('perf-from').value = firstOfMonth.toISOString().split('T')[0];
 document.getElementById('perf-to').value = today.toISOString().split('T')[0];
+
+// ============================================================
+// PENDING QUOTES TAB
+// ============================================================
+
+let _pqQuotes = [];
+let _pqSelectedQuote = null;
+
+async function loadPendingQuotesTab() {
+  const container = document.getElementById('pq-list-container');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text3);">Loading quotes…</div>';
+
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/quotes?status=eq.pending&select=id,client,date,total,items,notes,created_at&order=created_at.desc`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    if (!res.ok) throw new Error('Fetch failed');
+    _pqQuotes = await res.json();
+  } catch(e) {
+    container.innerHTML = '<div style="text-align:center;padding:32px;color:#dc2626;">Failed to load quotes. Check connection.</div>';
+    return;
+  }
+
+  if (!_pqQuotes || _pqQuotes.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">📝</div>
+        <div class="empty-state-title">No pending quotes</div>
+        <div class="empty-state-desc">All quotes have been actioned</div>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = _pqQuotes.map(q => {
+    const dateStr = q.date ? new Date(q.date + 'T00:00:00').toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' }) : '—';
+    return `
+      <div onclick="pqOpenDetail('${q.id}')" style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;cursor:pointer;transition:box-shadow 0.15s;" onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,0.1)'" onmouseout="this.style.boxShadow='none'">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+          <div>
+            <div style="font-weight:700;font-size:15px;color:var(--text1);">${q.client || 'Unknown'}</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px;">${dateStr}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <div style="font-size:16px;font-weight:800;color:var(--ss-green);">$${(q.total||0).toFixed(2)}</div>
+            <div style="font-size:11px;color:#f59e0b;font-weight:600;background:#fef3c7;border-radius:6px;padding:2px 7px;display:inline-block;margin-top:4px;">Pending</div>
+          </div>
+        </div>
+        ${(q.items && q.items.length > 0) ? `<div style="font-size:12px;color:var(--text2);margin-top:8px;">${(q.items||[]).map(i=>i.description).filter(d=>d!=='TOTAL').join(' + ')}</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+async function pqOpenDetail(quoteId) {
+  _pqSelectedQuote = _pqQuotes.find(q => q.id === quoteId);
+  if (!_pqSelectedQuote) return;
+
+  // Fetch client info for this quote
+  let client = null;
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/clients?name=eq.${encodeURIComponent(_pqSelectedQuote.client)}&select=id,name,phone,email,address,suburb,source&limit=1`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    if (res.ok) { const data = await res.json(); client = data && data[0] ? data[0] : null; }
+  } catch(e) {}
+
+  const q = _pqSelectedQuote;
+  const items = (q.items || []).filter(i => i.description !== 'TOTAL');
+  const dateStr = q.date ? new Date(q.date + 'T00:00:00').toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' }) : '—';
+
+  // Build line items display
+  const lineItemsHtml = items.length > 0
+    ? items.map(i => `
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f3f4f6;">
+          <span style="font-size:13px;color:var(--text2);">${i.description}</span>
+          <span style="font-size:13px;font-weight:600;color:var(--text1);">${i.total !== undefined ? '$' + Number(i.total).toFixed(2) : ''}</span>
+        </div>`).join('')
+    : '<div style="font-size:13px;color:var(--text3);padding:8px 0;">No line items recorded</div>';
+
+  // Extract service name from items for closing script
+  const serviceNames = items.map(i => i.description).filter(d => d && d !== 'TOTAL');
+  const serviceLabel = serviceNames.join(' + ') || 'Service';
+
+  // Closing script
+  const closingScript = `"So just to confirm — we quoted you for ${serviceLabel} at${client && client.suburb ? ' ' + client.suburb : ' your property'} for a total of $${(q.total||0).toFixed(2)} including GST. Does that all still sound right to you? Are you happy to go ahead and lock in a date?"`;
+
+  const listView = document.getElementById('pq-list-view');
+  const detailView = document.getElementById('pq-detail-view');
+  listView.style.display = 'none';
+  detailView.style.display = 'block';
+
+  detailView.innerHTML = `
+    <div style="margin-bottom:16px;">
+      <button onclick="pqBackToList()" style="background:none;border:none;color:var(--ss-green);font-size:14px;font-weight:600;cursor:pointer;padding:0;">← Back to Quotes</button>
+    </div>
+
+    <!-- Client Contact -->
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-title" style="margin-bottom:12px;">👤 Client</div>
+      <div style="font-size:17px;font-weight:700;color:var(--text1);margin-bottom:6px;">${q.client || '—'}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">
+        ${client && client.phone ? `<a href="tel:${client.phone}" style="display:inline-flex;align-items:center;gap:6px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;color:var(--ss-green);text-decoration:none;">📞 ${client.phone}</a>` : '<span style="font-size:13px;color:var(--text3);">No phone on file</span>'}
+        ${client && client.email ? `<span style="display:inline-flex;align-items:center;gap:6px;background:#f0f4ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 14px;font-size:13px;color:#1a56cc;">✉️ ${client.email}</span>` : ''}
+      </div>
+      ${client && (client.address || client.suburb) ? `<div style="font-size:12px;color:var(--text3);margin-top:8px;">📍 ${client.address || client.suburb}</div>` : ''}
+    </div>
+
+    <!-- Quote Summary -->
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div class="card-title">📄 Quote #${q.id}</div>
+        <div style="font-size:11px;color:var(--text3);">${dateStr}</div>
+      </div>
+      ${lineItemsHtml}
+      <div style="display:flex;justify-content:space-between;padding:12px 0 0;margin-top:4px;">
+        <span style="font-size:14px;font-weight:800;color:var(--text1);">TOTAL (inc. GST)</span>
+        <span style="font-size:18px;font-weight:800;color:var(--ss-green);">$${(q.total||0).toFixed(2)}</span>
+      </div>
+    </div>
+
+    <!-- What's Included -->
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-title" style="margin-bottom:10px;">✅ What's Included</div>
+      <div style="font-size:13px;color:var(--text2);line-height:1.7;">
+        ${serviceNames.map(sn => {
+          const svcEntry = Object.values(SERVICES).find(s => s.name === sn);
+          if (svcEntry && svcEntry.inclusions && svcEntry.inclusions.length > 0) {
+            return `<div style="font-weight:700;margin-bottom:4px;margin-top:8px;">${sn}</div>` +
+              svcEntry.inclusions.map(inc => `<div>• ${inc}</div>`).join('');
+          }
+          return `<div style="font-weight:700;margin-bottom:4px;">${sn}</div>`;
+        }).join('') || '<div style="color:var(--text3);">See original quote for inclusions</div>'}
+      </div>
+    </div>
+
+    <!-- Closing Script -->
+    <div class="card" style="margin-bottom:16px;background:#f0fdf4;border:1px solid #86efac;">
+      <div class="card-title" style="margin-bottom:10px;color:var(--ss-green);">💬 Closing Script</div>
+      <div class="question-script" style="margin:0;font-size:13px;">${closingScript}</div>
+      <div style="margin-top:10px;font-size:12px;color:var(--text3);">
+        Reiterate: what's included · total price · valid for 30 days · easy to book — just say yes.
+      </div>
+    </div>
+
+    <!-- Notes -->
+    ${q.notes ? `<div class="card" style="margin-bottom:16px;">
+      <div class="card-title" style="margin-bottom:8px;">🗒 Notes</div>
+      <div style="font-size:12px;color:var(--text2);line-height:1.6;">${q.notes}</div>
+    </div>` : ''}
+
+    <!-- Action Buttons -->
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;padding-bottom:40px;">
+      <button onclick="pqAcceptAndBook()" style="width:100%;background:var(--ss-green);color:#fff;border:none;border-radius:12px;padding:16px;font-size:15px;font-weight:800;cursor:pointer;">✅ Quote Accepted — Book the Job</button>
+      <button onclick="pqEmailQuote()" style="width:100%;background:#0078d4;color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:700;cursor:pointer;">📧 Resend Quote Email</button>
+      <button onclick="pqAddFollowUp()" style="width:100%;background:#fff;border:1px solid var(--border);color:var(--text1);border-radius:12px;padding:14px;font-size:14px;font-weight:600;cursor:pointer;">🔔 Add Follow-up</button>
+    </div>
+  `;
+}
+
+function pqBackToList() {
+  document.getElementById('pq-list-view').style.display = 'block';
+  document.getElementById('pq-detail-view').style.display = 'none';
+  _pqSelectedQuote = null;
+}
+
+async function pqAcceptAndBook() {
+  const q = _pqSelectedQuote;
+  if (!q) return;
+
+  // Require address — fetch from client record
+  let clientAddress = '';
+  let clientId = null;
+  let clientEmail = '';
+  let clientPhone = '';
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/clients?name=eq.${encodeURIComponent(q.client)}&select=id,address,suburb,email,phone&limit=1`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data[0]) {
+        clientId = data[0].id;
+        clientAddress = data[0].address || data[0].suburb || '';
+        clientEmail = data[0].email || '';
+        clientPhone = data[0].phone || '';
+      }
+    }
+  } catch(e) {}
+
+  // If no address, prompt
+  if (!clientAddress || clientAddress.length < 5) {
+    pqPromptAddress(async (addr) => {
+      // Patch client record with address
+      if (clientId && addr) {
+        await fetch(`${SUPABASE_URL}/rest/v1/clients?id=eq.${clientId}`, {
+          method: 'PATCH',
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address: addr })
+        });
+      }
+      await _pqDoAccept(q, addr, clientEmail);
+    });
+    return;
+  }
+
+  await _pqDoAccept(q, clientAddress, clientEmail);
+}
+
+function pqPromptAddress(callback) {
+  const existing = document.getElementById('pq-address-modal');
+  if (existing) existing.remove();
+  const m = document.createElement('div');
+  m.id = 'pq-address-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+      <div style="font-size:22px;margin-bottom:8px;">📍</div>
+      <div style="font-size:17px;font-weight:800;margin-bottom:6px;">Full Property Address Required</div>
+      <div style="font-size:13px;color:#666;margin-bottom:16px;">Get the full address from the client before booking.</div>
+      <input id="pq-address-input" class="form-input" placeholder="e.g. 12 Smith St, Kilmore" style="width:100%;box-sizing:border-box;margin-bottom:16px;font-size:14px;padding:10px 12px;border:2px solid var(--ss-green);border-radius:8px;outline:none;">
+      <div style="display:flex;gap:8px;">
+        <button onclick="(()=>{ const v=document.getElementById('pq-address-input').value.trim(); if(!v||v.length<5){document.getElementById('pq-address-input').style.borderColor='#dc2626';return;} document.getElementById('pq-address-modal').remove(); window._pqAddrCallback(v); })()" style="flex:1;background:var(--ss-green);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;">Confirm & Book</button>
+        <button onclick="document.getElementById('pq-address-modal').remove()" style="background:#f3f4f6;border:none;border-radius:10px;padding:12px 16px;font-size:13px;cursor:pointer;color:#666;">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  window._pqAddrCallback = callback;
+  setTimeout(() => { const i = document.getElementById('pq-address-input'); if(i) i.focus(); }, 100);
+}
+
+async function _pqDoAccept(q, address, clientEmail) {
+  const items = (q.items || []).filter(i => i.description !== 'TOTAL');
+  const serviceLabel = items.map(i => i.description).join(' + ') || 'Service';
+  const jobId = 'J-' + Date.now();
+
+  try {
+    // 1. Mark quote as approved
+    await fetch(`${SUPABASE_URL}/rest/v1/quotes?id=eq.${q.id}`, {
+      method: 'PATCH',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'approved' })
+    });
+
+    // 2. Create job in CRM
+    await fetch(`${SUPABASE_URL}/rest/v1/jobs`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify({
+        id: jobId,
+        client: q.client,
+        service: serviceLabel,
+        description: `Accepted via Call Dashboard (Pending Quotes). Address: ${address}.`,
+        status: 'Active',
+        revenue: q.total || 0,
+        hours: 0,
+        completion_date: null,
+        notes: `Accepted from pending quote ${q.id}. Rep: ${currentRep ? currentRep.name : 'unknown'}.`,
+        created_at: new Date().toISOString()
+      })
+    });
+
+    // 3. Booking record (same as new quote flow)
+    const clientSource = q.notes && (q.notes.includes('meta-ad') || q.notes.includes('Meta')) ? 'meta-ad'
+      : q.notes && (q.notes.includes('google-ad') || q.notes.includes('Google')) ? 'google-ad' : 'phone-call';
+    await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify({
+        client_name: q.client,
+        service: serviceLabel,
+        status: 'confirmed',
+        portal_token: null,
+        ad_source: clientSource !== 'phone-call' ? clientSource : null,
+        client_id: null,
+        created_at: new Date().toISOString()
+      })
+    });
+
+    showToast('Quote accepted ✓ — Job created in CRM');
+  } catch(e) {
+    showToast('CRM save error — check connection', 'error');
+    console.error(e);
+    return;
+  }
+
+  // Marketing hub prompt (uses clientInfo-style check — build a temp object)
+  const origSource = clientInfo.source;
+  const origName = clientInfo.name;
+  // Temporarily set clientInfo so showMarketingHubPrompt can read source
+  // (We detect source from notes since this is an existing quote)
+  clientInfo.source = q.notes && q.notes.toLowerCase().includes('meta') ? 'meta-ad'
+    : q.notes && q.notes.toLowerCase().includes('google') ? 'google-ad' : 'phone-call';
+  clientInfo.name = q.client;
+  showMarketingHubPrompt(q.client, 'accepted');
+  clientInfo.source = origSource;
+  clientInfo.name = origName;
+
+  // Show success screen overlay
+  pqShowSuccess(q, jobId, address, clientEmail);
+}
+
+function pqShowSuccess(q, jobId, address, clientEmail) {
+  const existing = document.getElementById('pq-success-screen');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'pq-success-screen';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(255,255,255,0.97);z-index:9990;display:flex;align-items:center;justify-content:center;padding:24px;';
+  overlay.innerHTML = `
+    <div style="max-width:400px;width:100%;text-align:center;">
+      <div style="font-size:52px;margin-bottom:16px;">✅</div>
+      <div style="font-size:22px;font-weight:800;color:var(--text1);margin-bottom:8px;">Quote Accepted!</div>
+      <div style="font-size:14px;color:var(--text2);margin-bottom:24px;">Job created for <strong>${q.client}</strong>. The quote has been marked as accepted in the CRM.</div>
+      <button onclick="document.getElementById('pq-success-screen').remove(); pqShowCalendarModal(${q.total||0}, '${jobId}');" style="width:100%;background:var(--ss-green);color:#fff;border:none;border-radius:12px;padding:16px;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:10px;">📅 Book the Job — Pick a Date</button>
+      <button onclick="document.getElementById('pq-success-screen').remove(); pqBackToList(); loadPendingQuotesTab();" style="width:100%;background:#f3f4f6;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:600;cursor:pointer;color:var(--text2);">Back to Pending Quotes</button>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function pqShowCalendarModal(total, jobId) {
+  // Reuse the existing calendar booking modal — temporarily populate clientInfo
+  const q = _pqSelectedQuote;
+  if (!q) { showPage('pendingquotes'); return; }
+
+  // Store original clientInfo and populate with quote's client
+  const orig = { ...clientInfo };
+  clientInfo.name = q.client;
+  clientInfo.travelCost = clientInfo.travelCost || 0;
+
+  // Fetch client details
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/clients?name=eq.${encodeURIComponent(q.client)}&select=phone,email,address,suburb&limit=1`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data[0]) {
+        clientInfo.phone = data[0].phone || '';
+        clientInfo.email = data[0].email || '';
+        clientInfo.address = data[0].address || '';
+        clientInfo.suburb = data[0].suburb || '';
+      }
+    }
+  } catch(e) {}
+
+  // Show calendar booking modal — when it closes, restore clientInfo and go back to list
+  await showCalendarBookingModal(total, jobId);
+
+  // After modal is shown, patch the close/skip button to restore state
+  const modal = document.getElementById('cal-booking-modal');
+  if (modal) {
+    const skipBtn = modal.querySelector('button:last-child');
+    if (skipBtn) {
+      skipBtn.onclick = () => {
+        modal.remove();
+        Object.assign(clientInfo, orig);
+        pqBackToList();
+        loadPendingQuotesTab();
+      };
+    }
+  }
+}
+
+function pqEmailQuote() {
+  const q = _pqSelectedQuote;
+  if (!q) return;
+
+  const items = (q.items || []).filter(i => i.description !== 'TOTAL');
+  const serviceLabel = items.map(i => i.description).join(' + ') || 'Service';
+
+  // Fetch client email then build email using same template as emailQuote()
+  fetch(
+    `${SUPABASE_URL}/rest/v1/clients?name=eq.${encodeURIComponent(q.client)}&select=email,name,suburb,address&limit=1`,
+    { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+  ).then(r => r.json()).then(data => {
+    const client = data && data[0] ? data[0] : {};
+    const email = client.email || '';
+    const firstName = (q.client || 'there').split(' ')[0];
+    const suburb = client.suburb || client.address || 'As discussed';
+
+    // Build breakdown same format as emailQuote()
+    let servicesSections = '';
+    items.forEach(item => {
+      servicesSections += `\n─────────────────────────────────────────\nSERVICE: ${item.description}\n─────────────────────────────────────────\n  Subtotal: $${Number(item.total||0).toFixed(2)}\n`;
+      // Try to find matching service for inclusions
+      const svcEntry = Object.values(SERVICES).find(s => s.name === item.description);
+      if (svcEntry && svcEntry.inclusions && svcEntry.inclusions.length > 0) {
+        servicesSections += `\nWHAT'S INCLUDED:\n${svcEntry.inclusions.map(i => `  • ${i}`).join('\n')}\n`;
+      }
+    });
+
+    const subject = `Your Quote from SS Exterior Services — ${serviceLabel}`;
+    const body =
+`Hi ${firstName},
+
+Thank you for your interest in SS Exterior Services! Here is your quote as discussed:
+
+ADDRESS: ${suburb}
+${servicesSections}
+═════════════════════════════════════════
+TOTAL (inc. GST): $${(q.total||0).toFixed(2)}
+═════════════════════════════════════════
+
+IMPORTANT NOTES:
+  • Please ensure clear access to all areas to be serviced on the day
+  • A responsible adult must be present or access arrangements confirmed in advance
+  • Prices may vary if site conditions differ materially from what was described
+  • This quote is valid for 30 days from today's date
+  • All prices are inclusive of GST
+
+To accept this quote, simply reply to this email or call/text Simon directly. We'll then lock in a suitable date and time.
+
+If you have any questions at all, don't hesitate to get in touch — we're happy to help!
+
+Kind regards,
+Simon Sibillin
+SS Exterior Services
+📞 0447 130 743
+📧 ssexteriorservices@outlook.com
+🌐 ssexteriorservices.com.au
+
+---
+Google Review: g.page/r/ssexteriorservices | Facebook | Instagram | TikTok`;
+
+    window._lastQuoteEmailBody = body;
+
+    if (navigator.share && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
+      navigator.share({ title: subject, text: body }).catch(() => showEmailModal(email, subject, false));
+    } else {
+      navigator.clipboard.writeText(body).then(() => {
+        showEmailModal(email, subject, true);
+      }).catch(() => {
+        showEmailModal(email, subject, false);
+      });
+    }
+  }).catch(() => {
+    showToast('Could not fetch client email — check connection', 'error');
+  });
+}
+
+function pqAddFollowUp() {
+  const q = _pqSelectedQuote;
+  if (!q) return;
+  // Pre-fill the existing Add Follow-up modal with the quote client's details
+  const fuName = document.getElementById('fu-name');
+  const fuPhone = document.getElementById('fu-phone');
+  const fuService = document.getElementById('fu-service');
+  const fuNotes = document.getElementById('fu-notes');
+  if (fuName) fuName.value = q.client || '';
+  if (fuService) fuService.value = (q.items||[]).filter(i=>i.description!=='TOTAL').map(i=>i.description).join(' + ') || '';
+  if (fuNotes) fuNotes.value = `Follow up re: pending quote $${(q.total||0).toFixed(2)} — ref ${q.id}`;
+  // Try to get phone
+  fetch(
+    `${SUPABASE_URL}/rest/v1/clients?name=eq.${encodeURIComponent(q.client)}&select=phone&limit=1`,
+    { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+  ).then(r=>r.json()).then(data => {
+    if (data && data[0] && fuPhone) fuPhone.value = data[0].phone || '';
+  }).catch(()=>{});
+  openAddFollowUp();
+}
 </script>
 </body>
 </html>
