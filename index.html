@@ -3732,42 +3732,27 @@ Google Review: g.page/r/ssexteriorservices | Facebook | Instagram | TikTok`;
   setTimeout(() => printQuote(grandTotal), 400);
 
   // --- Email dispatch ---
-  // mailto: silently fails on iOS when body > ~2000 encoded chars.
-  // Strategy: try Web Share API (native iOS/Android share sheet, no length limit),
-  // then fallback to clipboard copy + open Outlook compose.
+  // mailto: with full body silently fails on iOS (>2000 encoded chars) and
+  // navigator.share is not available on Mac/Windows desktop.
+  // Solution: copy body to clipboard, show modal with Outlook links.
 
-  const tryWebShare = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: subject, text: body });
-        return true;
-      } catch(e) {
-        // User cancelled or share failed — fall through
-        if (e.name === 'AbortError') return true; // cancelled by user, not an error
-        return false;
-      }
-    }
-    return false;
-  };
-
-  const fallbackEmail = async () => {
-    // Try short mailto with just subject+recipient (body excluded to avoid length limit)
-    // Copy body to clipboard so rep can paste
-    try {
-      await navigator.clipboard.writeText(body);
+  if (navigator.share && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
+    // Mobile: use native share sheet (no length limit)
+    navigator.share({ title: subject, text: body }).catch(() => {
+      showEmailModal(email, subject, false);
+    });
+  } else {
+    // Desktop: copy to clipboard and show modal
+    window._lastQuoteEmailBody = body;
+    navigator.clipboard.writeText(body).then(() => {
       showEmailModal(email, subject, true);
-    } catch(e) {
-      // Clipboard also failed — show the body in a copyable modal
-      showEmailModal(email, subject, false, body);
-    }
-  };
-
-  tryWebShare().then(shared => {
-    if (!shared) fallbackEmail();
-  });
+    }).catch(() => {
+      showEmailModal(email, subject, false);
+    });
+  }
 }
 
-function showEmailModal(email, subject, bodyCopied, bodyText) {
+function showEmailModal(email, subject, bodyCopied) {
   const existing = document.getElementById('email-dispatch-modal');
   if (existing) existing.remove();
 
@@ -3778,29 +3763,45 @@ function showEmailModal(email, subject, bodyCopied, bodyText) {
 
   const div = document.createElement('div');
   div.id = 'email-dispatch-modal';
-  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:flex-end;justify-content:center;padding:16px;';
-  div.innerHTML = `<div style="background:#fff;border-radius:16px;padding:22px;max-width:440px;width:100%;box-shadow:0 24px 80px rgba(0,0,0,0.4);">
-    <div style="font-size:16px;font-weight:800;margin-bottom:4px;">📧 Send Quote Email</div>
-    <div style="font-size:12px;color:#555;margin-bottom:14px;">${email ? 'To: ' + email : 'No email on file — add recipient manually'}</div>
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  div.innerHTML = `<div style="background:#fff;border-radius:16px;padding:22px;max-width:460px;width:100%;box-shadow:0 24px 80px rgba(0,0,0,0.4);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div style="font-size:16px;font-weight:800;">📧 Send Quote Email</div>
+      <button onclick="document.getElementById('email-dispatch-modal').remove();" style="border:none;background:none;font-size:20px;cursor:pointer;color:#888;">✕</button>
+    </div>
+    <div style="font-size:12px;color:#555;margin-bottom:14px;">${email ? '<strong>To:</strong> ' + email : '⚠️ No email on file — add recipient in Outlook'}</div>
 
-    ${bodyCopied ? `<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 12px;font-size:12px;color:#14532d;font-weight:600;margin-bottom:12px;">
-      ✓ Quote body copied to clipboard — paste it into the email body
-    </div>` : ''}
+    <div id="email-modal-status" style="background:${bodyCopied ? '#f0fdf4' : '#fff7ed'};border:1px solid ${bodyCopied ? '#86efac' : '#fed7aa'};border-radius:8px;padding:10px 12px;font-size:12px;color:${bodyCopied ? '#14532d' : '#9a3412'};font-weight:600;margin-bottom:12px;">
+      ${bodyCopied ? '✅ Quote body copied to clipboard — open Outlook and paste into the email body (Ctrl+V)' : '⚠️ Clipboard blocked — click "Copy Quote Body" below first'}
+    </div>
 
-    ${!bodyCopied && bodyText ? `<div style="margin-bottom:12px;">
-      <div style="font-size:11px;color:#888;margin-bottom:4px;">Copy this quote body manually:</div>
-      <textarea readonly style="width:100%;height:120px;font-size:11px;border:1px solid #ddd;border-radius:6px;padding:8px;box-sizing:border-box;resize:none;" onclick="this.select()">${bodyText}</textarea>
-    </div>` : ''}
+    <button onclick="(()=>{
+      const b = window._lastQuoteEmailBody || '';
+      navigator.clipboard.writeText(b).then(()=>{
+        document.getElementById('email-modal-status').style.background='#f0fdf4';
+        document.getElementById('email-modal-status').style.borderColor='#86efac';
+        document.getElementById('email-modal-status').style.color='#14532d';
+        document.getElementById('email-modal-status').textContent='✅ Copied! Now open Outlook and paste (Ctrl+V)';
+      }).catch(()=>{
+        document.getElementById('email-modal-textarea').style.display='block';
+        document.getElementById('email-modal-textarea').select();
+      });
+    })()" style="width:100%;background:#f3f4f6;border:1px solid #ddd;border-radius:8px;padding:9px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px;">📋 Copy Quote Body</button>
+
+    <textarea id="email-modal-textarea" readonly style="display:none;width:100%;height:80px;font-size:11px;border:1px solid #ddd;border-radius:6px;padding:8px;box-sizing:border-box;resize:none;margin-bottom:8px;" onclick="this.select()"></textarea>
 
     <div style="display:flex;flex-direction:column;gap:8px;">
-      <a href="${outlookLink}" target="_blank" style="display:block;background:#0078d4;color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;text-align:center;text-decoration:none;">Open in Outlook Web</a>
-      <a href="${shortMailto}" style="display:block;background:#f3f4f6;color:#333;border:none;border-radius:10px;padding:12px;font-size:13px;font-weight:600;cursor:pointer;text-align:center;text-decoration:none;">Open in Mail App</a>
-      <button onclick="document.getElementById('email-dispatch-modal').remove();" style="background:none;border:none;color:#888;padding:8px;font-size:12px;cursor:pointer;">Close</button>
+      <a href="${outlookLink}" target="_blank" onclick="document.getElementById('email-dispatch-modal').remove();" style="display:block;background:#0078d4;color:#fff;border-radius:10px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;text-align:center;text-decoration:none;">Open Outlook → paste body → send</a>
+      <a href="${shortMailto}" style="display:block;background:#f3f4f6;color:#333;border-radius:10px;padding:11px;font-size:13px;font-weight:600;cursor:pointer;text-align:center;text-decoration:none;">Open Default Mail App</a>
     </div>
+    <div style="font-size:11px;color:#aaa;margin-top:10px;text-align:center;">PDF also downloading separately</div>
   </div>`;
   document.body.appendChild(div);
-  // Tap outside closes
   div.addEventListener('click', e => { if (e.target === div) div.remove(); });
+
+  // Populate hidden textarea with body for manual copy fallback
+  const ta = div.querySelector('#email-modal-textarea');
+  if (ta && window._lastQuoteEmailBody) ta.value = window._lastQuoteEmailBody;
 }
 
 function printQuote(grandTotal) {
@@ -3937,10 +3938,29 @@ function printQuote(grandTotal) {
 <\/body>
 <\/html>`;
 
-  const win = window.open('', '_blank');
-  win.document.write(html);
-  win.document.close();
-  setTimeout(() => win.print(), 500);
+  // Generate downloadable PDF via Blob URL
+  const blob = new Blob([html], { type: 'text/html' });
+  const blobUrl = URL.createObjectURL(blob);
+
+  // Open in new tab with a download button visible, and auto-trigger print-to-PDF
+  const win = window.open(blobUrl, '_blank');
+  if (win) {
+    win.addEventListener('load', () => {
+      setTimeout(() => {
+        win.print();
+        // Revoke blob URL after a delay to free memory
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+      }, 300);
+    });
+  } else {
+    // Popup blocked — fall back to direct download as .html file
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = `SS-Quote-${clientInfo.name || 'Client'}-${quoteId}.html`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(blobUrl); }, 1000);
+  }
 }
 
 // ============================================================
