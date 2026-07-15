@@ -5207,6 +5207,9 @@ Google Review: g.page/r/ssexteriorservices | Facebook | Instagram | TikTok`;
 
     window._lastQuoteEmailBody = body;
 
+    // Trigger PDF download same as emailQuote()
+    setTimeout(() => pqPrintQuote(q), 400);
+
     if (navigator.share && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
       navigator.share({ title: subject, text: body }).catch(() => showEmailModal(email, subject, false));
     } else {
@@ -5219,6 +5222,58 @@ Google Review: g.page/r/ssexteriorservices | Facebook | Instagram | TikTok`;
   }).catch(() => {
     showToast('Could not fetch client email — check connection', 'error');
   });
+}
+
+function pqPrintQuote(q) {
+  const items = (q.items || []).filter(i => i.description !== 'TOTAL');
+  const total = q.total || 0;
+  const date = new Date().toLocaleDateString('en-AU', { day:'2-digit', month:'2-digit', year:'numeric' });
+
+  let serviceRows = '';
+  items.forEach(item => {
+    serviceRows += `<tr style="font-weight:700;background:#f0fdf4;">
+      <td>${item.description}</td><td></td><td></td><td></td>
+      <td style="text-align:right;">$${Number(item.total||0).toFixed(2)}</td>
+    </tr>`;
+  });
+
+  const win = window.open('', '_blank');
+  if (!win) return;
+  win.document.write(`<!DOCTYPE html><html><head><title>Quote — ${q.client}</title>
+  <style>
+    body{font-family:Arial,sans-serif;margin:0;padding:32px;color:#111;font-size:13px;}
+    h1{font-size:22px;margin:0 0 4px;}
+    table{width:100%;border-collapse:collapse;margin-top:16px;}
+    th{background:#166534;color:#fff;padding:8px 10px;text-align:left;font-size:12px;}
+    td{padding:7px 10px;border-bottom:1px solid #e5e7eb;}
+    .total-row td{font-weight:700;font-size:14px;background:#f0fdf4;}
+    .footer{margin-top:32px;font-size:11px;color:#666;border-top:1px solid #e5e7eb;padding-top:16px;}
+    @media print{button{display:none;}}
+  </style></head><body>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;">
+    <div><h1>SS Exterior Services</h1><div style="color:#166534;font-weight:700;">Professional Exterior Cleaning</div></div>
+    <div style="text-align:right;font-size:12px;color:#666;">
+      <div>Date: ${date}</div><div>Quote Ref: ${q.id}</div>
+    </div>
+  </div>
+  <div style="background:#f9fafb;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-weight:700;font-size:15px;">${q.client}</div>
+  </div>
+  <table>
+    <thead><tr><th>Description</th><th>Details</th><th></th><th></th><th style="text-align:right;">Amount</th></tr></thead>
+    <tbody>
+      ${serviceRows}
+      <tr class="total-row"><td colspan="4" style="text-align:right;font-size:13px;">TOTAL (inc. GST)</td><td style="text-align:right;font-size:15px;">$${total.toFixed(2)}</td></tr>
+    </tbody>
+  </table>
+  <div class="footer">
+    <p>• Please ensure clear access to all areas on the day&nbsp;&nbsp;•&nbsp;&nbsp;A responsible adult must be present or access arranged in advance</p>
+    <p>• This quote is valid for 30 days&nbsp;&nbsp;•&nbsp;&nbsp;All prices inclusive of GST</p>
+    <p style="margin-top:12px;"><strong>Simon Sibillin</strong> &nbsp;|&nbsp; 📞 0447 130 743 &nbsp;|&nbsp; ssexteriorservices@outlook.com &nbsp;|&nbsp; ssexteriorservices.com.au</p>
+  </div>
+  <button onclick="window.print()" style="margin-top:20px;background:#166534;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">🖨️ Print / Save as PDF</button>
+  </body></html>`);
+  win.document.close();
 }
 
 function pqAddFollowUp() {
