@@ -3728,24 +3728,79 @@ SS Exterior Services
 ---
 Google Review: g.page/r/ssexteriorservices | Facebook | Instagram | TikTok`;
 
-  // Use mailto: — no URL length limit via native mail client
-  const mailtoLink = 'mailto:' + (email || '') +
-    '?subject=' + encodeURIComponent(subject) +
-    '&body=' + encodeURIComponent(body);
+  // Trigger print/PDF first (doesn't block)
+  setTimeout(() => printQuote(grandTotal), 400);
 
-  // Must append to DOM for Firefox/Safari compatibility
-  const a = document.createElement('a');
-  a.href = mailtoLink;
-  a.target = '_blank';
-  a.rel = 'noopener';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => document.body.removeChild(a), 100);
+  // --- Email dispatch ---
+  // mailto: silently fails on iOS when body > ~2000 encoded chars.
+  // Strategy: try Web Share API (native iOS/Android share sheet, no length limit),
+  // then fallback to clipboard copy + open Outlook compose.
 
-  if (!email) showToast('No email on file — add recipient manually in your mail client');
+  const tryWebShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: subject, text: body });
+        return true;
+      } catch(e) {
+        // User cancelled or share failed — fall through
+        if (e.name === 'AbortError') return true; // cancelled by user, not an error
+        return false;
+      }
+    }
+    return false;
+  };
 
-  // Also trigger print/PDF
-  setTimeout(() => printQuote(grandTotal), 600);
+  const fallbackEmail = async () => {
+    // Try short mailto with just subject+recipient (body excluded to avoid length limit)
+    // Copy body to clipboard so rep can paste
+    try {
+      await navigator.clipboard.writeText(body);
+      showEmailModal(email, subject, true);
+    } catch(e) {
+      // Clipboard also failed — show the body in a copyable modal
+      showEmailModal(email, subject, false, body);
+    }
+  };
+
+  tryWebShare().then(shared => {
+    if (!shared) fallbackEmail();
+  });
+}
+
+function showEmailModal(email, subject, bodyCopied, bodyText) {
+  const existing = document.getElementById('email-dispatch-modal');
+  if (existing) existing.remove();
+
+  const shortMailto = 'mailto:' + (email || '') + '?subject=' + encodeURIComponent(subject);
+  const outlookLink = 'https://outlook.office.com/mail/deeplink/compose' +
+    '?to=' + encodeURIComponent(email || '') +
+    '&subject=' + encodeURIComponent(subject);
+
+  const div = document.createElement('div');
+  div.id = 'email-dispatch-modal';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:flex-end;justify-content:center;padding:16px;';
+  div.innerHTML = `<div style="background:#fff;border-radius:16px;padding:22px;max-width:440px;width:100%;box-shadow:0 24px 80px rgba(0,0,0,0.4);">
+    <div style="font-size:16px;font-weight:800;margin-bottom:4px;">📧 Send Quote Email</div>
+    <div style="font-size:12px;color:#555;margin-bottom:14px;">${email ? 'To: ' + email : 'No email on file — add recipient manually'}</div>
+
+    ${bodyCopied ? `<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 12px;font-size:12px;color:#14532d;font-weight:600;margin-bottom:12px;">
+      ✓ Quote body copied to clipboard — paste it into the email body
+    </div>` : ''}
+
+    ${!bodyCopied && bodyText ? `<div style="margin-bottom:12px;">
+      <div style="font-size:11px;color:#888;margin-bottom:4px;">Copy this quote body manually:</div>
+      <textarea readonly style="width:100%;height:120px;font-size:11px;border:1px solid #ddd;border-radius:6px;padding:8px;box-sizing:border-box;resize:none;" onclick="this.select()">${bodyText}</textarea>
+    </div>` : ''}
+
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <a href="${outlookLink}" target="_blank" style="display:block;background:#0078d4;color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;text-align:center;text-decoration:none;">Open in Outlook Web</a>
+      <a href="${shortMailto}" style="display:block;background:#f3f4f6;color:#333;border:none;border-radius:10px;padding:12px;font-size:13px;font-weight:600;cursor:pointer;text-align:center;text-decoration:none;">Open in Mail App</a>
+      <button onclick="document.getElementById('email-dispatch-modal').remove();" style="background:none;border:none;color:#888;padding:8px;font-size:12px;cursor:pointer;">Close</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  // Tap outside closes
+  div.addEventListener('click', e => { if (e.target === div) div.remove(); });
 }
 
 function printQuote(grandTotal) {
