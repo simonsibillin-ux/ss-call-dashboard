@@ -1769,27 +1769,12 @@ const SERVICES = {
         options: ['No', 'Yes — difficult access']
       },
       {
-        id: 'add_structures',
-        label: 'Are there additional structures that also need gutters cleaned?',
+        id: 'structures',
+        label: 'Additional structures to clean?',
         script: '"Are there any additional structures on the property that also need their gutters cleaned — for example, a shed, bungalow, or granny flat?"',
-        type: 'options',
-        options: ['No additional structures', 'Yes — add structure(s)']
-      },
-      {
-        id: 'structure_type',
-        label: 'What type of additional structure?',
-        script: '"What type of structure is it?"',
-        type: 'options',
-        options: ['Small shed (~20m guttering)', 'Medium shed (~28m guttering)', 'Large shed (~40m guttering)', 'Bungalow / Granny flat (~50m guttering)'],
-        showIf: (a) => a.add_structures === 'Yes — add structure(s)'
-      },
-      {
-        id: 'structure_qty',
-        label: 'How many of these structures?',
-        script: '"How many of these structures are there?"',
-        type: 'options',
-        options: ['1', '2', '3', '4+'],
-        showIf: (a) => a.add_structures === 'Yes — add structure(s)'
+        type: 'structures',
+        structureOptions: ['Small shed (~20m guttering)', 'Medium shed (~28m guttering)', 'Large shed (~40m guttering)', 'Bungalow / Granny flat (~50m guttering)'],
+        rateKey: 'gutter'
       }
     ],
     inclusions: [
@@ -1808,18 +1793,19 @@ const SERVICES = {
       const debrisMult = a.debris === '1–3 years ago' ? 1.5 : a.debris === '3+ years ago / never' ? 2 : 1;
       const accessMult = a.access === 'Yes — difficult access' ? 1.5 : 1;
       const base = metres * storeyRate * guardMult * debrisMult * accessMult;
-      // Additional structures (single storey rate for sheds/bungalows)
+      // Additional structures from looping collector
       const STRUCTURE_METRES = { 'Small shed (~20m guttering)': 20, 'Medium shed (~28m guttering)': 28, 'Large shed (~40m guttering)': 40, 'Bungalow / Granny flat (~50m guttering)': 50 };
+      const structures = Array.isArray(a.structures) ? a.structures : [];
       let structureLines = [];
       let structureTotal = 0;
-      if (a.add_structures === 'Yes — add structure(s)' && a.structure_type) {
-        const sMetres = STRUCTURE_METRES[a.structure_type] || 20;
-        const sQty = a.structure_qty === '4+' ? 4 : parseInt(a.structure_qty) || 1;
-        const sRate = 3.00; // single storey rate for outbuildings
-        const sTotal = sMetres * sQty * sRate * guardMult * debrisMult;
-        structureTotal = sTotal;
-        structureLines.push({ label: `${a.structure_type} × ${sQty} (~${sMetres * sQty}m @ $3/m)`, value: `$${sTotal.toFixed(2)}` });
-      }
+      structures.forEach(s => {
+        const sMetres = STRUCTURE_METRES[s.type] || 20;
+        const sGuardMult = s.gutter_guard === 'Yes' ? 2 : guardMult;
+        const sDebrisMult = s.debris === '1–3 years ago' ? 1.5 : s.debris === '3+ years ago / never' ? 2 : debrisMult;
+        const sTotal = sMetres * 3.00 * sGuardMult * sDebrisMult;
+        structureTotal += sTotal;
+        structureLines.push({ label: `${s.type} (~${sMetres}m${s.gutter_guard === 'Yes' ? ', guard ×2' : ''})`, value: `$${sTotal.toFixed(2)}` });
+      });
       return {
         lines: [
           { label: `Est. linear metres (${bedroomKey} bed avg)`, value: `${metres}m` },
@@ -2565,6 +2551,38 @@ function renderCombinedSummary(currentResult) {
     </div>`;
 }
 
+function showInclusionsReference() {
+  const allItems = getMultiItems();
+  if (!allItems.length) {
+    const svc = SERVICES[currentService];
+    if (!svc) return;
+    allItems.push({ name: svc.name, serviceKey: currentService });
+  }
+  let html = `<div style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto;" onclick="this.remove()">
+    <div style="background:#fff;border-radius:12px;padding:20px;max-width:500px;width:100%;max-height:92vh;overflow-y:auto;" onclick="event.stopPropagation()">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <strong style="font-size:15px;color:#111;">📋 What's Included — Quick Reference</strong>
+        <button onclick="this.closest('[onclick]').remove()" style="border:none;background:none;font-size:18px;cursor:pointer;">✕</button>
+      </div>`;
+  allItems.forEach(item => {
+    const svc = SERVICES[item.serviceKey || currentService];
+    if (!svc) return;
+    // Get dynamic inclusions from result if available, fallback to svc.inclusions
+    const svcResult = svc.calcQuote ? svc.calcQuote(item.serviceKey === currentService ? answers : (item.savedAnswers || {})) : null;
+    const inclusions = (svcResult && svcResult.inclusions) || svc.inclusions || [];
+    html += `<div style="margin-bottom:14px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+      <div style="background:#f0fdf4;padding:8px 12px;font-weight:700;font-size:13px;color:var(--ss-green);">${item.name}</div>
+      <div style="padding:8px 12px;">
+        ${inclusions.map(i => `<div style="font-size:12px;padding:3px 0;border-bottom:1px solid #f3f4f6;color:#333;">✓ ${i}</div>`).join('')}
+      </div>
+    </div>`;
+  });
+  html += `<div style="font-size:11px;color:#888;text-align:center;margin-top:4px;">Tap outside to close</div></div></div>`;
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  document.body.appendChild(div.firstElementChild);
+}
+
 function showFullQuoteModal() {
   const allItems = getMultiItems();
   if (!allItems.length) return;
@@ -2673,10 +2691,33 @@ async function saveQuoteToCRMWithOverride(total, svcLabel, lineItems) {
     if (!quoteRes.ok) { const e = await quoteRes.text(); console.error('Quote save error:', e); throw new Error(e); }
     showToast('Quote saved to CRM ✓');
     showMarketingHubPrompt(clientInfo.name, 'pending');
+    showQuoteSuccessScreen('saved');
   } catch(e) {
     showToast('Saved locally — check CRM connection');
     console.error(e);
   }
+}
+
+function showQuoteSuccessScreen(mode) {
+  const existing = document.getElementById('quote-success-screen');
+  if (existing) existing.remove();
+  const allItems = getMultiItems();
+  const grandTotal = allItems.reduce((s, i) => s + i.total, 0);
+  const serviceLabel = allItems.map(i => i.name).join(' + ') || (SERVICES[currentService] ? SERVICES[currentService].name : 'Service');
+  const isAccepted = mode === 'accepted';
+  const div = document.createElement('div');
+  div.id = 'quote-success-screen';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:9990;display:flex;align-items:center;justify-content:center;padding:20px;';
+  div.innerHTML = `<div style="background:#fff;border-radius:16px;padding:28px;max-width:400px;width:100%;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,0.5);">
+    <div style="font-size:48px;margin-bottom:8px;">${isAccepted ? '🎉' : '✅'}</div>
+    <div style="font-size:20px;font-weight:900;color:#14532d;margin-bottom:6px;">${isAccepted ? 'Quote Accepted!' : 'Quote Saved!'}</div>
+    <div style="font-size:13px;color:#555;margin-bottom:4px;">${clientInfo.name} — ${serviceLabel}</div>
+    <div style="font-size:22px;font-weight:800;color:var(--ss-green);margin-bottom:20px;">$${grandTotal.toFixed(2)}</div>
+    <div style="font-size:12px;color:#888;margin-bottom:20px;">${isAccepted ? 'Job created in CRM. Book a date with the client then send the email quote.' : 'Quote saved as pending. Follow up in 7 days if no response.'}</div>
+    <button onclick="document.getElementById('quote-success-screen').remove(); clearAndNewQuote();" style="width:100%;background:var(--ss-green);color:#fff;border:none;border-radius:10px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px;">➕ Start New Quote</button>
+    <button onclick="document.getElementById('quote-success-screen').remove();" style="width:100%;background:#f3f4f6;border:none;border-radius:10px;padding:12px;font-size:13px;cursor:pointer;color:#555;">Stay on this quote</button>
+  </div>`;
+  document.body.appendChild(div);
 }
 
 function clearAndNewQuote() {
@@ -2708,6 +2749,11 @@ function renderSteps() {
     div.id = 'step-' + idx;
 
     const answered = answers[step.id] !== undefined;
+    const answerDisplay = step.type === 'structures'
+      ? (Array.isArray(answers[step.id]) && answers[step.id].length > 0
+          ? answers[step.id].map(s => s.type).join(', ')
+          : 'None added')
+      : answers[step.id];
 
     div.innerHTML = `
       <div class="step-number">Step ${idx + 1}</div>
@@ -2715,7 +2761,7 @@ function renderSteps() {
       <div class="question-script">${step.script}</div>
       ${answered && idx < currentStep ? `
         <div class="step-answer-display">
-          <span class="step-answer-value">✓ ${answers[step.id]}</span>
+          <span class="step-answer-value">✓ ${answerDisplay}</span>
           <span class="step-edit-btn" onclick="editStep(${idx})">Edit</span>
         </div>
       ` : ''}
@@ -2748,7 +2794,98 @@ function renderStepInput(step, idx) {
       <button class="btn-next" onclick="selectAnswer('${step.id}', 'confirmed', ${idx})">${step.confirmLabel}</button>
     </div>`;
   }
+  if (step.type === 'structures') {
+    return renderStructuresStep(step, idx);
+  }
   return '';
+}
+
+function renderStructuresStep(step, idx) {
+  const structures = Array.isArray(answers[step.id]) ? answers[step.id] : [];
+  const opts = step.structureOptions || [];
+  const total = structures.length;
+
+  let addedHTML = '';
+  structures.forEach((s, i) => {
+    addedHTML += `<div style="display:flex;justify-content:space-between;align-items:center;background:#f0fdf4;border:1px solid #d1fae5;border-radius:6px;padding:6px 10px;margin-bottom:4px;font-size:12px;">
+      <span>${s.type}${s.gutter_guard === 'Yes' ? ' (guard)' : ''}${s.debris && s.debris !== answers.debris ? ' / ' + s.debris : ''}</span>
+      <button onclick="removeStructure(${idx}, '${step.id}', ${i})" style="border:none;background:var(--red-bg);color:var(--red);border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;">✕</button>
+    </div>`;
+  });
+
+  // Sub-form for adding next structure
+  const subFormId = `struct-subform-${idx}`;
+  return `<div id="struct-step-${idx}">
+    <div style="font-size:12px;color:#666;margin-bottom:8px;">📦 Additional structures (each gets its own rate questions)</div>
+    ${addedHTML}
+    <div id="${subFormId}">
+      <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:#333;">Structure type:</div>
+      <div class="answer-options" style="flex-wrap:wrap;">
+        ${opts.map(o => `<div class="answer-btn" style="font-size:12px;padding:8px 10px;" onclick="addStructureType(${idx}, '${step.id}', '${o}')">${o}</div>`).join('')}
+      </div>
+    </div>
+    <div id="struct-guard-${idx}" style="display:none;margin-top:8px;">
+      <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:#333;">Gutter guard on this structure?</div>
+      <div class="answer-options">
+        <div class="answer-btn" style="font-size:12px;" onclick="addStructureGuard(${idx}, '${step.id}', 'No')">No</div>
+        <div class="answer-btn" style="font-size:12px;" onclick="addStructureGuard(${idx}, '${step.id}', 'Yes')">Yes</div>
+      </div>
+    </div>
+    <div id="struct-debris-${idx}" style="display:none;margin-top:8px;">
+      <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:#333;">When last cleaned?</div>
+      <div class="answer-options">
+        <div class="answer-btn" style="font-size:12px;" onclick="addStructureDebris(${idx}, '${step.id}', 'Less than 12 months')">< 12 months</div>
+        <div class="answer-btn" style="font-size:12px;" onclick="addStructureDebris(${idx}, '${step.id}', '1–3 years ago')">1–3 years</div>
+        <div class="answer-btn" style="font-size:12px;" onclick="addStructureDebris(${idx}, '${step.id}', '3+ years ago / never')">3+ yrs / never</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button onclick="finishStructures(${idx}, '${step.id}')" style="flex:1;background:var(--ss-green);color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;">✓ No more structures — continue</button>
+    </div>
+  </div>`;
+}
+
+// Temp storage during structure building
+let _pendingStructure = {};
+
+function addStructureType(idx, stepId, type) {
+  _pendingStructure = { type };
+  document.getElementById(`struct-subform-${idx}`).style.display = 'none';
+  document.getElementById(`struct-guard-${idx}`).style.display = 'block';
+}
+
+function addStructureGuard(idx, stepId, val) {
+  _pendingStructure.gutter_guard = val;
+  document.getElementById(`struct-guard-${idx}`).style.display = 'none';
+  document.getElementById(`struct-debris-${idx}`).style.display = 'block';
+}
+
+function addStructureDebris(idx, stepId, val) {
+  _pendingStructure.debris = val;
+  // Save to answers
+  if (!Array.isArray(answers[stepId])) answers[stepId] = [];
+  answers[stepId].push({ ..._pendingStructure });
+  _pendingStructure = {};
+  renderSteps();
+}
+
+function removeStructure(idx, stepId, structIdx) {
+  if (Array.isArray(answers[stepId])) {
+    answers[stepId].splice(structIdx, 1);
+  }
+  renderSteps();
+}
+
+function finishStructures(idx, stepId) {
+  if (!Array.isArray(answers[stepId])) answers[stepId] = [];
+  currentStep = idx + 1;
+  const steps = getVisibleSteps();
+  if (currentStep >= steps.length) {
+    renderSteps();
+    showQuote();
+  } else {
+    renderSteps();
+  }
 }
 
 function selectAnswer(stepId, value, idx) {
@@ -2962,6 +3099,7 @@ function showQuote() {
         <button class="btn-primary" onclick="finaliseQuote()" style="background:#14532d;">&#10003; Quote Accepted — Book Job</button>
         <button class="btn-primary" onclick="saveMultiQuoteToCRM()">Save to CRM</button>
         <button class="btn-secondary" onclick="emailQuote(${result.total})">&#128231; Email Quote</button>
+        <button class="btn-secondary" onclick="showInclusionsReference()">📋 What's Included</button>
         <button class="btn-secondary" onclick="openAddFollowUp()">Add Follow-up</button>
         <button class="btn-secondary" onclick="clearAndNewQuote()">New Quote</button>
       </div>
@@ -3063,6 +3201,7 @@ async function saveQuoteToCRM(total) {
 
     showToast('Quote saved to CRM ✓');
     showMarketingHubPrompt(clientInfo.name, 'pending');
+    showQuoteSuccessScreen('saved');
   } catch(e) {
     showToast('Saved locally — check CRM connection');
     console.error(e);
@@ -3279,7 +3418,8 @@ async function _doAcceptQuote(total) {
   // Step 2: Marketing hub prompt
   showMarketingHubPrompt(clientInfo.name, 'accepted');
 
-  // Step 3: Google Calendar booking modal
+  // Step 3: Success screen + calendar booking
+  showQuoteSuccessScreen('accepted');
   showCalendarBookingModal(total, jobId);
 }
 
@@ -3589,13 +3729,18 @@ SS Exterior Services
 Google Review: g.page/r/ssexteriorservices | Facebook | Instagram | TikTok`;
 
   // Use mailto: — no URL length limit via native mail client
-  const mailtoLink = 'mailto:' + (email ? encodeURIComponent(email) : '') +
+  const mailtoLink = 'mailto:' + (email || '') +
     '?subject=' + encodeURIComponent(subject) +
     '&body=' + encodeURIComponent(body);
 
+  // Must append to DOM for Firefox/Safari compatibility
   const a = document.createElement('a');
   a.href = mailtoLink;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  document.body.appendChild(a);
   a.click();
+  setTimeout(() => document.body.removeChild(a), 100);
 
   if (!email) showToast('No email on file — add recipient manually in your mail client');
 
