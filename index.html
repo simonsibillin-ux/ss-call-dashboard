@@ -4863,7 +4863,10 @@ async function pqOpenDetail(quoteId) {
   const serviceLabel = serviceNames.join(' + ') || 'Service';
 
   // Closing script
-  const closingScript = `"So just to confirm — we quoted you for ${serviceLabel} at${client && client.suburb ? ' ' + client.suburb : ' your property'} for a total of $${(q.total||0).toFixed(2)} including GST. Does that all still sound right to you? Are you happy to go ahead and lock in a date?"`;
+  const locationLabel = (client && (client.suburb || client.address))
+    ? ' ' + (client.suburb || client.address.split(',').pop().trim())
+    : ' your property';
+  const closingScript = `"So just to confirm — we quoted you for ${serviceLabel} at${locationLabel} for a total of $${(q.total||0).toFixed(2)} including GST. Does that all still sound right to you? Are you happy to go ahead and lock in a date?"`;
 
   const listView = document.getElementById('pq-list-view');
   const detailView = document.getElementById('pq-detail-view');
@@ -4883,7 +4886,7 @@ async function pqOpenDetail(quoteId) {
         ${client && client.phone ? `<a href="tel:${client.phone}" style="display:inline-flex;align-items:center;gap:6px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;color:var(--ss-green);text-decoration:none;">📞 ${client.phone}</a>` : '<span style="font-size:13px;color:var(--text3);">No phone on file</span>'}
         ${client && client.email ? `<span style="display:inline-flex;align-items:center;gap:6px;background:#f0f4ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 14px;font-size:13px;color:#1a56cc;">✉️ ${client.email}</span>` : ''}
       </div>
-      ${client && (client.address || client.suburb) ? `<div style="font-size:12px;color:var(--text3);margin-top:8px;">📍 ${client.address || client.suburb}</div>` : ''}
+      ${client && (client.address || client.suburb) ? `<div style="font-size:12px;color:var(--text3);margin-top:8px;">📍 ${[client.address, client.suburb].filter(Boolean).join(', ')}</div>` : ''}
     </div>
 
     <!-- Quote Summary -->
@@ -4905,11 +4908,20 @@ async function pqOpenDetail(quoteId) {
       <div style="font-size:13px;color:var(--text2);line-height:1.7;">
         ${serviceNames.map(sn => {
           const svcEntry = Object.values(SERVICES).find(s => s.name === sn);
-          if (svcEntry && svcEntry.inclusions && svcEntry.inclusions.length > 0) {
+          if (!svcEntry) return `<div style="font-weight:700;margin-bottom:4px;margin-top:8px;">${sn}</div>`;
+          // Try to get dynamic inclusions via calcQuote if possible
+          let incList = svcEntry.inclusions || [];
+          try {
+            const testResult = svcEntry.calcQuote && svcEntry.calcQuote({});
+            if (testResult && testResult.inclusions && testResult.inclusions.length > 0) {
+              incList = testResult.inclusions;
+            }
+          } catch(e) { /* use static inclusions */ }
+          if (incList.length > 0) {
             return `<div style="font-weight:700;margin-bottom:4px;margin-top:8px;">${sn}</div>` +
-              svcEntry.inclusions.map(inc => `<div>• ${inc}</div>`).join('');
+              incList.map(inc => `<div style="padding:2px 0;">✓ ${inc}</div>`).join('');
           }
-          return `<div style="font-weight:700;margin-bottom:4px;">${sn}</div>`;
+          return `<div style="font-weight:700;margin-bottom:4px;margin-top:8px;">${sn}</div><div style="color:var(--text3);font-size:12px;">Contact office for inclusions</div>`;
         }).join('') || '<div style="color:var(--text3);">See original quote for inclusions</div>'}
       </div>
     </div>
@@ -5207,8 +5219,8 @@ Google Review: g.page/r/ssexteriorservices | Facebook | Instagram | TikTok`;
 
     window._lastQuoteEmailBody = body;
 
-    // Trigger PDF download same as emailQuote()
-    setTimeout(() => pqPrintQuote(q), 400);
+    // Trigger PDF download using same logic as original printQuote()
+    setTimeout(() => pqPrintQuoteFromData(q, client), 400);
 
     if (navigator.share && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
       navigator.share({ title: subject, text: body }).catch(() => showEmailModal(email, subject, false));
@@ -5224,56 +5236,143 @@ Google Review: g.page/r/ssexteriorservices | Facebook | Instagram | TikTok`;
   });
 }
 
-function pqPrintQuote(q) {
-  const items = (q.items || []).filter(i => i.description !== 'TOTAL');
+function pqPrintQuoteFromData(q, client) {
+  // Build service rows from stored items — same format as printQuote()
+  const allItems = (q.items || []).filter(i => i.description !== 'TOTAL');
   const total = q.total || 0;
   const date = new Date().toLocaleDateString('en-AU', { day:'2-digit', month:'2-digit', year:'numeric' });
+  const quoteId = q.id || ('Q-' + Date.now());
 
   let serviceRows = '';
-  items.forEach(item => {
+  allItems.forEach(item => {
     serviceRows += `<tr style="font-weight:700;background:#f0fdf4;">
-      <td>${item.description}</td><td></td><td></td><td></td>
+      <td>${item.description} Subtotal</td>
+      <td></td><td></td><td></td>
       <td style="text-align:right;">$${Number(item.total||0).toFixed(2)}</td>
     </tr>`;
   });
 
-  const win = window.open('', '_blank');
-  if (!win) return;
-  win.document.write(`<!DOCTYPE html><html><head><title>Quote — ${q.client}</title>
-  <style>
-    body{font-family:Arial,sans-serif;margin:0;padding:32px;color:#111;font-size:13px;}
-    h1{font-size:22px;margin:0 0 4px;}
-    table{width:100%;border-collapse:collapse;margin-top:16px;}
-    th{background:#166534;color:#fff;padding:8px 10px;text-align:left;font-size:12px;}
-    td{padding:7px 10px;border-bottom:1px solid #e5e7eb;}
-    .total-row td{font-weight:700;font-size:14px;background:#f0fdf4;}
-    .footer{margin-top:32px;font-size:11px;color:#666;border-top:1px solid #e5e7eb;padding-top:16px;}
-    @media print{button{display:none;}}
-  </style></head><body>
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;">
-    <div><h1>SS Exterior Services</h1><div style="color:#166534;font-weight:700;">Professional Exterior Cleaning</div></div>
-    <div style="text-align:right;font-size:12px;color:#666;">
-      <div>Date: ${date}</div><div>Quote Ref: ${q.id}</div>
+  // Travel row — pull from stored notes if present
+  const travelMatch = (q.notes || '').match(/Travel:\s*\$([0-9.]+)/);
+  const travelCost = travelMatch ? parseFloat(travelMatch[1]) : 0;
+  const travelRow = travelCost > 0 ? `<tr>
+    <td>Travel</td>
+    <td style="text-align:center;">1</td>
+    <td style="text-align:center;"></td>
+    <td style="text-align:right;">$${travelCost.toFixed(2)}</td>
+    <td style="text-align:right;">$${travelCost.toFixed(2)}</td>
+  </tr>` : '';
+
+  const clientName = q.client || '';
+  const clientPhone = (client && client.phone) || '';
+  const clientSuburb = (client && (client.suburb || client.address)) || '';
+  const clientAddress = [client && client.address, client && client.suburb].filter(Boolean).join(', ');
+
+  // Reuse the full branded HTML from printQuote — same CSS, same logo, same layout
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Quote ${quoteId} - SS Exterior Services</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; padding: 40px; color: #222; font-size: 13px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+  .logo-side { display: flex; align-items: flex-start; gap: 14px; }
+  .brand-name { font-size: 24px; font-weight: 900; color: #39b54a; }
+  .brand-contact { font-size: 11px; color: #555; margin-top: 5px; line-height: 1.7; }
+  .quote-block { text-align: right; }
+  .quote-title { font-size: 30px; font-weight: 900; color: #222; letter-spacing: 3px; }
+  .quote-id { font-size: 15px; font-weight: 700; color: #333; margin-top: 4px; }
+  .quote-meta { font-size: 11px; color: #666; margin-top: 5px; line-height: 1.8; }
+  .divider { border: none; border-top: 3px solid #39b54a; margin: 18px 0; }
+  .prepared-label { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .client-name { font-size: 17px; font-weight: 700; }
+  .client-detail { font-size: 12px; color: #555; margin-top: 3px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+  th { text-align: left; font-size: 11px; font-weight: 700; color: #555; text-transform: uppercase; padding: 10px 8px; border-top: 2px solid #222; border-bottom: 2px solid #222; }
+  td { padding: 13px 8px; border-bottom: 1px solid #eee; font-size: 13px; }
+  .total-row td { font-size: 15px; font-weight: 800; border-top: 2px solid #222; border-bottom: none; padding-top: 14px; }
+  .footer { margin-top: 40px; font-size: 11px; color: #666; border-top: 1px solid #ddd; padding-top: 16px; line-height: 1.7; }
+  .social-row { margin-top: 14px; text-align: center; font-size: 11px; }
+  .social-row span { margin: 0 10px; font-weight: 600; color: #39b54a; }
+  @media print { body { padding: 20px; } button { display: none !important; } }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="logo-side">
+    <div>
+      <div class="brand-name">SS Exterior Services</div>
+      <div class="brand-contact">
+        ABN 93 572 816 955<br>
+        Kilmore VIC 3764<br>
+        📞 0447 130 743<br>
+        ssexteriorservices@outlook.com
+      </div>
     </div>
   </div>
-  <div style="background:#f9fafb;border-radius:8px;padding:16px;margin-bottom:16px;">
-    <div style="font-weight:700;font-size:15px;">${q.client}</div>
+  <div class="quote-block">
+    <div class="quote-title">QUOTE</div>
+    <div class="quote-id">${quoteId}</div>
+    <div class="quote-meta">Date: ${date}<br>Valid: 30 days</div>
   </div>
-  <table>
-    <thead><tr><th>Description</th><th>Details</th><th></th><th></th><th style="text-align:right;">Amount</th></tr></thead>
-    <tbody>
-      ${serviceRows}
-      <tr class="total-row"><td colspan="4" style="text-align:right;font-size:13px;">TOTAL (inc. GST)</td><td style="text-align:right;font-size:15px;">$${total.toFixed(2)}</td></tr>
-    </tbody>
-  </table>
-  <div class="footer">
-    <p>• Please ensure clear access to all areas on the day&nbsp;&nbsp;•&nbsp;&nbsp;A responsible adult must be present or access arranged in advance</p>
-    <p>• This quote is valid for 30 days&nbsp;&nbsp;•&nbsp;&nbsp;All prices inclusive of GST</p>
-    <p style="margin-top:12px;"><strong>Simon Sibillin</strong> &nbsp;|&nbsp; 📞 0447 130 743 &nbsp;|&nbsp; ssexteriorservices@outlook.com &nbsp;|&nbsp; ssexteriorservices.com.au</p>
+</div>
+
+<hr class="divider">
+
+<div style="margin-bottom:24px;">
+  <div class="prepared-label">Prepared For</div>
+  <div class="client-name">${clientName}</div>
+  ${clientPhone ? `<div class="client-detail">${clientPhone}</div>` : ''}
+  ${clientAddress ? `<div class="client-detail">${clientAddress}</div>` : ''}
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:48%;">Description</th>
+      <th style="text-align:center;width:10%;">QTY</th>
+      <th style="text-align:center;width:10%;">Unit</th>
+      <th style="text-align:right;width:16%;">Rate</th>
+      <th style="text-align:right;width:16%;">Total</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${serviceRows}
+    ${travelRow}
+    <tr class="total-row">
+      <td colspan="4" style="text-align:right;">Total (inc. GST)</td>
+      <td style="text-align:right;">$${total.toFixed(2)}</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="footer">
+  This quote is valid for 30 days from the date above. Prices are inclusive of GST. To accept this quote or ask any questions, contact Simon on 0447 130 743 or ssexteriorservices@outlook.com.
+  <div class="social-row">
+    Connect with us: <span>⭐ Google Review</span> <span>Facebook</span> <span>Instagram</span> <span>TikTok</span>
   </div>
-  <button onclick="window.print()" style="margin-top:20px;background:#166534;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">🖨️ Print / Save as PDF</button>
-  </body></html>`);
-  win.document.close();
+</div>
+
+<button onclick="window.print()" style="margin-top:24px;background:#39b54a;color:#fff;border:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">🖨️ Print / Save as PDF</button>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const blobUrl = URL.createObjectURL(blob);
+  const win = window.open(blobUrl, '_blank');
+  if (win) {
+    win.addEventListener('load', () => {
+      setTimeout(() => { win.print(); setTimeout(() => URL.revokeObjectURL(blobUrl), 30000); }, 300);
+    });
+  } else {
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = `Quote-${quoteId}-${clientName.replace(/\s+/g,'-')}.html`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+  }
 }
 
 function pqAddFollowUp() {
