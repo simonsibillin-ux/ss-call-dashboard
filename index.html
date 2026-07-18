@@ -1969,22 +1969,36 @@ const SERVICES = {
       const panes = windows * 2;
       const isPost = a.post_construction === 'Yes — post-construction';
       const isDouble = a.storeys === 'Double storey';
+      const isInterior = !isPost && a.scope === 'Interior + exterior';
       let paneRate = isPost ? (isDouble ? 24.00 : 17.50) : (isDouble ? 10.50 : 6.00);
       let exteriorTotal = panes * paneRate;
       let total = exteriorTotal;
-      if (!isPost && a.scope === 'Interior + exterior') total *= 2;
+      if (isInterior) total *= 2;
       const flyTotal = a.flyscreens === 'Yes — include flyscreens' ? windows * 5 : 0;
       const trackTotal = a.tracks === 'Yes — deep clean tracks' ? windows * 9 : 0;
       total += flyTotal + trackTotal;
+      const scopeLabel = isPost ? 'Post-construction' : (isInterior ? 'Interior + exterior' : 'Exterior only');
+      const dynamicInclusions = [
+        'Scope: ' + scopeLabel,
+        isInterior
+          ? 'Clean of all panes, frames, sills, and tracks — interior AND exterior'
+          : 'Clean of all panes, frames, sills, and tracks — EXTERIOR ONLY',
+        'Method: bucket and squeegee or water-fed pole with purified deionised water',
+        'Standard clean disclaimer: does not include hard water stains, paint residue, silicone, or heavy buildup without prior agreement',
+      ];
+      if (flyTotal > 0) dynamicInclusions.push('Flyscreens cleaned');
+      if (trackTotal > 0) dynamicInclusions.push('Window tracks deep cleaned');
       return {
         lines: [
-          { label: `Windows × 2 panes`, value: `${panes} panes` },
-          { label: `Rate (${isPost ? 'post-construction ' : ''}${a.storeys})`, value: `$${paneRate.toFixed(2)}/pane` },
-          a.scope === 'Interior + exterior' && !isPost ? { label: 'Interior + exterior (×2)', value: `$${(exteriorTotal*2).toFixed(2)}` } : null,
-          flyTotal > 0 ? { label: `Flyscreens (${windows} × $5)`, value: `$${flyTotal.toFixed(2)}` } : null,
-          trackTotal > 0 ? { label: `Track deep clean (${windows} × $9)`, value: `$${trackTotal.toFixed(2)}` } : null,
-          { label: 'Travel', value: `$${clientInfo.travelCost.toFixed(2)}` },
+          { label: 'Scope', value: scopeLabel },
+          { label: 'Windows × 2 panes', value: panes + ' panes' },
+          { label: 'Rate (' + (isPost ? 'post-construction ' : '') + (a.storeys || 'standard') + ')', value: '$' + paneRate.toFixed(2) + '/pane' },
+          isInterior ? { label: 'Interior + exterior (×2)', value: '$' + (exteriorTotal * 2).toFixed(2) } : null,
+          flyTotal > 0 ? { label: 'Flyscreens (' + windows + ' × $5)', value: '$' + flyTotal.toFixed(2) } : null,
+          trackTotal > 0 ? { label: 'Track deep clean (' + windows + ' × $9)', value: '$' + trackTotal.toFixed(2) } : null,
+          { label: 'Travel', value: '$' + clientInfo.travelCost.toFixed(2) },
         ].filter(Boolean),
+        inclusions: dynamicInclusions,
         total: Math.max(150, total + clientInfo.travelCost),
         disclaimer: 'Remind client: standard clean only — no hard water stains, paint residue, or silicone included.'
       };
@@ -2669,7 +2683,13 @@ async function saveMultiQuoteToCRM() {
   const total = items.reduce((s, i) => s + i.total, 0);
   // Build combined notes
   const svcNames = items.map(i => i.name).join(' + ');
-  await saveQuoteToCRMWithOverride(total, svcNames, items.map(i => ({ description: i.name, total: i.total })));
+  await saveQuoteToCRMWithOverride(total, svcNames, items.map(i => {
+    let desc = i.name;
+    if (i.serviceKey === 'window-cleaning' && i.savedAnswers && i.savedAnswers.scope) {
+      desc = `${i.name} (${i.savedAnswers.scope})`;
+    }
+    return { description: desc, total: i.total };
+  }));
 }
 
 async function saveQuoteToCRMWithOverride(total, svcLabel, lineItems) {
@@ -3190,8 +3210,12 @@ async function saveQuoteToCRM(total) {
       if (newClient && newClient[0]) clientId = newClient[0].id;
     }
 
-    // Single line item: just the service name and total
-    const quoteItems = [{ description: svc.name, total: total }];
+    // Single line item: service name + scope suffix for window cleaning
+    let _itemDesc = svc.name;
+    if (currentService === 'window-cleaning' && answers.scope) {
+      _itemDesc = `${svc.name} (${answers.scope})`;
+    }
+    const quoteItems = [{ description: _itemDesc, total: total }];
 
     // POST directly — bypasses supabase() helper to guarantee items is a native array
     const quotePayload = JSON.stringify({
@@ -4907,38 +4931,39 @@ async function pqOpenDetail(quoteId) {
       <div class="card-title" style="margin-bottom:10px;">✅ What's Included</div>
       <div style="font-size:13px;color:var(--text2);line-height:1.7;">
         ${serviceNames.map(sn => {
-          // Fuzzy keyword match — handles typos and custom descriptions
+          // Fuzzy keyword match — handles typos, custom descriptions, and scope suffixes
           const snLower = sn.toLowerCase();
+          // Extract scope hint from description e.g. "Window Cleaning (Exterior only)"
+          const scopeMatch = sn.match(/\(([^)]+)\)\s*$/);
+          const scopeHint = scopeMatch ? scopeMatch[1].toLowerCase() : '';
           const svcEntry = Object.values(SERVICES).find(s => {
-            // Exact match first
             if (s.name === sn) return true;
-            // Keyword-based fuzzy match
             const nm = s.name.toLowerCase();
-            if (nm.includes('gutter') && nm.includes('softwash')) {
-              return snLower.includes('softwash') || (snLower.includes('gutter') && snLower.includes('soft'));
-            }
-            if (nm.includes('gutter')) {
-              return snLower.includes('gutter') && !snLower.includes('softwash') && !snLower.includes('soft');
-            }
-            if (nm.includes('solar') && nm.includes('bird')) {
-              return (snLower.includes('bird') || snLower.includes('proof')) && snLower.includes('solar');
-            }
-            if (nm.includes('solar')) {
-              return snLower.includes('solar') && !snLower.includes('bird') && !snLower.includes('proof');
-            }
+            if (nm.includes('gutter') && nm.includes('softwash')) return snLower.includes('softwash') || (snLower.includes('gutter') && snLower.includes('soft'));
+            if (nm.includes('gutter')) return snLower.includes('gutter') && !snLower.includes('softwash') && !snLower.includes('soft');
+            if (nm.includes('solar') && nm.includes('bird')) return (snLower.includes('bird') || snLower.includes('proof')) && snLower.includes('solar');
+            if (nm.includes('solar')) return snLower.includes('solar') && !snLower.includes('bird') && !snLower.includes('proof');
             if (nm.includes('window')) return snLower.includes('window');
             if (nm.includes('house')) return snLower.includes('house') || snLower.includes('wash');
-            if (nm.includes('roof') && nm.includes('biocide')) {
-              return snLower.includes('biocide') || (snLower.includes('roof') && snLower.includes('treat'));
-            }
-            if (nm.includes('roof')) {
-              return snLower.includes('roof') && !snLower.includes('biocide');
-            }
+            if (nm.includes('roof') && nm.includes('biocide')) return snLower.includes('biocide') || (snLower.includes('roof') && snLower.includes('treat'));
+            if (nm.includes('roof')) return snLower.includes('roof') && !snLower.includes('biocide');
             if (nm.includes('pressure')) return snLower.includes('pressure') || snLower.includes('pres');
             return false;
           });
           if (!svcEntry) return `<div style="font-weight:700;margin-bottom:4px;margin-top:8px;">${sn}</div><div style="color:var(--text3);font-size:12px;">Contact office for inclusions</div>`;
-          const incList = svcEntry.inclusions || [];
+          // For window cleaning, build dynamic inclusions from scope hint
+          let incList = svcEntry.inclusions || [];
+          if (svcEntry.name === 'Window Cleaning' && scopeHint) {
+            const isInt = scopeHint.includes('interior');
+            const isPost = scopeHint.includes('post');
+            const scopeLabel = isPost ? 'Post-construction clean' : (isInt ? 'Interior + exterior' : 'Exterior only');
+            incList = [
+              `Scope: ${scopeLabel}`,
+              isInt ? 'Clean of all panes, frames, sills, and tracks — interior AND exterior' : 'Clean of all panes, frames, sills, and tracks — EXTERIOR ONLY',
+              'Method: bucket and squeegee or water-fed pole with purified deionised water',
+              'Standard clean disclaimer: does not include hard water stains, paint residue, silicone, or heavy buildup without prior agreement',
+            ];
+          }
           if (incList.length > 0) {
             return `<div style="font-weight:700;margin-bottom:4px;margin-top:8px;">${sn}</div>` +
               incList.map(inc => `<div style="padding:2px 0;">✓ ${inc}</div>`).join('');
