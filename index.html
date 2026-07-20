@@ -1838,9 +1838,9 @@ const SERVICES = {
           accessMult > 1 ? { label: 'Difficult access', value: '×1.5' } : null,
           { label: 'Main structure subtotal', value: `$${base.toFixed(2)}` },
           ...structureLines,
-          { label: 'Travel', value: `$${clientInfo.travelCost.toFixed(2)}` },
         ].filter(Boolean),
-        total: Math.max(150, base + structureTotal + clientInfo.travelCost)
+        travel: clientInfo.travelCost,
+        total: Math.max(150, base + structureTotal)
       };
     }
   },
@@ -1904,9 +1904,9 @@ const SERVICES = {
           { label: 'Rate (time since last clean)', value: `$${rate.toFixed(2)}/panel` },
           a.hard_access === 'Yes — difficult access' ? { label: 'Hard access double storey', value: '×2' } : null,
           { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
-          { label: 'Travel', value: `$${clientInfo.travelCost.toFixed(2)}` },
         ].filter(Boolean),
-        total: Math.max(150, base + clientInfo.travelCost)
+        travel: clientInfo.travelCost,
+        total: Math.max(150, base)
       };
     }
   },
@@ -1996,10 +1996,10 @@ const SERVICES = {
           isInterior ? { label: 'Interior + exterior (×2)', value: '$' + (exteriorTotal * 2).toFixed(2) } : null,
           flyTotal > 0 ? { label: 'Flyscreens (' + windows + ' × $5)', value: '$' + flyTotal.toFixed(2) } : null,
           trackTotal > 0 ? { label: 'Track deep clean (' + windows + ' × $9)', value: '$' + trackTotal.toFixed(2) } : null,
-          { label: 'Travel', value: '$' + clientInfo.travelCost.toFixed(2) },
         ].filter(Boolean),
         inclusions: dynamicInclusions,
-        total: Math.max(150, total + clientInfo.travelCost),
+        travel: clientInfo.travelCost,
+        total: Math.max(150, total),
         disclaimer: 'Remind client: standard clean only — no hard water stains, paint residue, or silicone included.'
       };
     }
@@ -2061,9 +2061,9 @@ const SERVICES = {
         lines: [
           { label: `${a.storeys} house wash (phone rate)`, value: `$${base.toFixed(2)}` },
           patioAdd > 0 ? { label: 'Patio/veranda add-on', value: `+$${patioAdd.toFixed(2)}` } : null,
-          { label: 'Travel', value: `$${clientInfo.travelCost.toFixed(2)}` },
         ].filter(Boolean),
-        total: Math.max(150, base + patioAdd + clientInfo.travelCost),
+        travel: clientInfo.travelCost,
+        total: Math.max(150, base + patioAdd),
         upsell: 'Offer roof cleaning quote at end of call.'
       };
     }
@@ -2145,10 +2145,10 @@ const SERVICES = {
           { label: `Softwash rate (${a.age})`, value: `$${rate.toFixed(2)}/sqm` },
           { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
           biocide > 0 ? { label: `Biocide treatment (${sqm}sqm × $${biocideRate})`, value: `$${biocide.toFixed(2)}` } : null,
-          { label: 'Travel', value: `$${clientInfo.travelCost.toFixed(2)}` },
         ].filter(Boolean),
         inclusions: dynamicInclusions,
-        total: Math.max(150, base + biocide + clientInfo.travelCost)
+        travel: clientInfo.travelCost,
+        total: Math.max(150, base + biocide)
       };
     }
   },
@@ -2196,9 +2196,9 @@ const SERVICES = {
           { label: `Est. roof sqm (${bedroomKey} bed avg)`, value: `${sqm}sqm` },
           { label: `Biocide rate (${a.storeys})`, value: `$${rate.toFixed(2)}/sqm` },
           { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
-          { label: 'Travel', value: `$${clientInfo.travelCost.toFixed(2)}` },
         ],
-        total: Math.max(150, base + clientInfo.travelCost)
+        travel: clientInfo.travelCost,
+        total: Math.max(150, base)
       };
     }
   },
@@ -2288,9 +2288,9 @@ const SERVICES = {
           { label: `Rate (${a.last_wash})`, value: `$${rate.toFixed(2)}/sqm` },
           { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
           biocide > 0 ? { label: `Biocide post-treatment (${sqm}sqm × $${biocideRate})`, value: `$${biocide.toFixed(2)}` } : null,
-          { label: 'Travel', value: `$${clientInfo.travelCost.toFixed(2)}` },
         ].filter(Boolean),
-        total: Math.max(150, base + biocide + clientInfo.travelCost),
+        travel: clientInfo.travelCost,
+        total: Math.max(150, base + biocide),
         note: 'From price on call — confirm sqm via Google Earth and call back with confirmed total.'
       };
     }
@@ -2329,9 +2329,9 @@ const SERVICES = {
           { label: `Est. linear metres (${bedroomKey} bed avg)`, value: `${metres}m` },
           { label: `Rate (${a.storeys})`, value: `$${rate.toFixed(2)}/m` },
           { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
-          { label: 'Travel', value: `$${clientInfo.travelCost.toFixed(2)}` },
         ],
-        total: Math.max(150, base + clientInfo.travelCost)
+        travel: clientInfo.travelCost,
+        total: Math.max(150, base)
       };
     }
   },
@@ -2439,9 +2439,9 @@ const SERVICES = {
           { label: `Solar panel clean (${panels} panels × $${panelRate})`, value: `$${panelTotal.toFixed(2)}` },
           nestFee > 0 ? { label: 'Nest/dropping removal', value: `$${nestFee.toFixed(2)}` } : null,
           { label: `Bird proofing mesh (~${Math.round(meshEstimate)}m est. × $${meshRate})`, value: `$${meshEstTotal.toFixed(2)} est.` },
-          { label: 'Travel', value: `$${clientInfo.travelCost.toFixed(2)}` },
         ].filter(Boolean),
-        total: Math.max(150, gutterTotal + panelTotal + nestFee + meshEstTotal + clientInfo.travelCost),
+        travel: clientInfo.travelCost,
+        total: Math.max(150, gutterTotal + panelTotal + nestFee + meshEstTotal),
         note: '⚠️ Mesh price is ESTIMATED. Measure linear metres on Google Earth and call client back with confirmed total.'
       };
     }
@@ -2489,8 +2489,7 @@ function addAnotherService() {
           serviceKey: currentService,
           name: svc.name,
           lines: result.lines,
-          total: result.total,
-          baseTotal: result.total - (clientInfo.travelCost || 0), // without travel
+          total: result.total, // already excludes travel
           note: result.note || null,
           savedAnswers: { ...answers }
         });
@@ -2511,26 +2510,25 @@ function renderMultiServiceBanner() {
   const existing = document.getElementById('multi-svc-banner');
   if (existing) existing.remove();
   if (!multiServiceItems.length) return;
-  // Compute per-item display totals: travel only on first item
   const travel = clientInfo.travelCost || 0;
-  const bannerDisplayItems = multiServiceItems.map((item, idx) => ({
-    ...item,
-    displayTotal: idx === 0 ? item.total : (item.baseTotal != null ? item.baseTotal : item.total - travel)
-  }));
-  const runningTotal = bannerDisplayItems.reduce((s, i) => s + i.displayTotal, 0);
+  const runningTotal = multiServiceItems.reduce((s, i) => s + i.total, 0) + travel;
   const banner = document.createElement('div');
   banner.id = 'multi-svc-banner';
   banner.style.cssText = 'background:#f0fdf4;border:1px solid var(--ss-green);border-radius:10px;padding:12px 14px;margin-bottom:12px;';
   banner.innerHTML = `
     <div style="font-size:12px;font-weight:700;color:var(--ss-green);margin-bottom:6px;">🧾 Multi-Service Quote — Items Added</div>
-    ${bannerDisplayItems.map((item, i) => `
+    ${multiServiceItems.map((item, i) => `
       <div style="display:flex;justify-content:space-between;font-size:12px;color:#333;padding:3px 0;border-bottom:1px solid #d1fae5;">
-        <span>${item.name}${i === 0 ? ' <span style="font-size:10px;color:#888;">(incl. travel)</span>' : ''}</span>
-        <span style="display:flex;align-items:center;gap:6px;"><strong>$${item.displayTotal.toFixed(2)}</strong>
+        <span>${item.name}</span>
+        <span style="display:flex;align-items:center;gap:6px;"><strong>$${item.total.toFixed(2)}</strong>
           <button onclick="editMultiServiceItem(${i})" style="font-size:10px;border:none;background:#dbeafe;color:#1e40af;border-radius:4px;padding:1px 5px;cursor:pointer;">✏️</button>
           <button onclick="removeMultiServiceItem(${i})" style="font-size:10px;border:none;background:var(--red-bg);color:var(--red);border-radius:4px;padding:1px 5px;cursor:pointer;">✕</button>
         </span>
       </div>`).join('')}
+    ${travel > 0 ? `
+    <div style="display:flex;justify-content:space-between;font-size:12px;color:#888;padding:3px 0;border-bottom:1px solid #d1fae5;">
+      <span>Travel</span><span>$${travel.toFixed(2)}</span>
+    </div>` : ''}
     <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:800;color:var(--ss-green);margin-top:6px;">
       <span>Running Total</span><span>$${runningTotal.toFixed(2)}</span>
     </div>
@@ -2572,12 +2570,16 @@ function renderCombinedSummary(currentResult) {
   const combinedLabel = allItems.length > 1 ? allItems.map(i => i.name).join(' + ') : (SERVICES[currentService] ? SERVICES[currentService].name : '');
   const closingEl = document.getElementById('closing-script-dynamic');
   if (closingEl) {
-    const displayTotal = grandTotal > 0 ? grandTotal : currentResult.total;
+    const displayTotal = allItems.length > 1 ? (allItems.reduce((s,i)=>s+i.total,0) + (clientInfo.travelCost||0)) : (currentResult.total + (currentResult.travel||0));
     const svcLabel = combinedLabel || (clientInfo.suburb || '[suburb]');
     closingEl.innerHTML = `"So we're all good to go — that's <strong>$${displayTotal.toFixed(2)}</strong> all up${combinedLabel ? ` for the ${combinedLabel}` : ''} in ${clientInfo.suburb || '[suburb]'}. To lock it in I just need to grab a date that works for you. Are you flexible on timing, or is there a particular day or week that would suit best?"`;
   }
 
   if (!multiServiceItems.length) { el.innerHTML = ''; return; }
+  const travel = clientInfo.travelCost || 0;
+  const currentSvcName = SERVICES[currentService] ? SERVICES[currentService].name : 'Current service';
+  const servicesTotal = allItems.reduce((s, i) => s + i.total, 0);
+  const grandTotalWithTravel = servicesTotal + travel;
   el.innerHTML = `
     <div style="background:#f0fdf4;border:1px solid var(--ss-green);border-radius:10px;padding:12px 14px;margin:12px 0;">
       <div style="font-size:12px;font-weight:700;color:var(--ss-green);margin-bottom:8px;">🧾 Combined Quote Total</div>
@@ -2586,10 +2588,14 @@ function renderCombinedSummary(currentResult) {
           <span>${item.name}</span><span>$${item.total.toFixed(2)}</span>
         </div>`).join('')}
       <div style="display:flex;justify-content:space-between;font-size:12px;color:#555;padding:2px 0;">
-        <span>${SERVICES[currentService] ? SERVICES[currentService].name : 'Current service'}</span><span>$${(multiServiceItems.length > 0 ? currentResult.total - (clientInfo.travelCost||0) : currentResult.total).toFixed(2)}</span>
+        <span>${currentSvcName}</span><span>$${currentResult.total.toFixed(2)}</span>
       </div>
+      ${travel > 0 ? `
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#888;padding:2px 0;margin-top:4px;border-top:1px dashed #d1fae5;padding-top:4px;">
+        <span>Travel</span><span>$${travel.toFixed(2)}</span>
+      </div>` : ''}
       <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:800;color:var(--ss-green);margin-top:8px;padding-top:8px;border-top:1px solid #d1fae5;">
-        <span>Grand Total</span><span>$${grandTotal.toFixed(2)}</span>
+        <span>Grand Total</span><span>$${grandTotalWithTravel.toFixed(2)}</span>
       </div>
       <button onclick="showFullQuoteModal()" style="margin-top:10px;width:100%;padding:8px;background:#f0fdf4;border:1px solid var(--ss-green);border-radius:8px;color:var(--ss-green);font-size:12px;font-weight:700;cursor:pointer;">🔍 View Full Quote Breakdown</button>
     </div>`;
@@ -2653,8 +2659,14 @@ function showFullQuoteModal() {
       </div></div></div>`;
     grandTotal += item.total;
   });
+  const modalTravel = clientInfo.travelCost || 0;
+  if (modalTravel > 0) {
+    html += `<div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 12px;color:#888;">
+      <span>Travel</span><span>$${modalTravel.toFixed(2)}</span>
+    </div>`;
+  }
   html += `<div style="display:flex;justify-content:space-between;font-size:16px;font-weight:900;padding:12px;background:#f0fdf4;border-radius:8px;color:var(--ss-green);">
-    <span>GRAND TOTAL</span><span>$${grandTotal.toFixed(2)}</span>
+    <span>GRAND TOTAL</span><span>$${(grandTotal + modalTravel).toFixed(2)}</span>
   </div>
   <div style="font-size:11px;color:#888;margin-top:8px;text-align:center;">Tap outside to close</div>
   </div></div>`;
@@ -2664,29 +2676,22 @@ function showFullQuoteModal() {
 }
 
 function getMultiTotal() {
-  // Use getMultiItems() so travel is only counted once
   const items = getMultiItems();
-  return items.reduce((s, i) => s + i.total, 0);
+  const servicesTotal = items.reduce((s, i) => s + i.total, 0);
+  return servicesTotal + (clientInfo.travelCost || 0);
 }
 
 function getMultiItems() {
   const svc = SERVICES[currentService];
   const currentResult = svc ? svc.calcQuote(answers) : null;
-  const travel = clientInfo.travelCost || 0;
-  // Build items stripping travel from all stored items, then add travel once to first
-  const items = multiServiceItems.map((item, idx) => ({
-    ...item,
-    total: idx === 0
-      ? item.total  // keep first item as-is (travel already included)
-      : (item.baseTotal != null ? item.baseTotal : item.total - travel) // strip travel from subsequent
-  }));
+  // totals are now clean (no travel) — just spread stored items as-is
+  const items = [...multiServiceItems];
   if (currentResult && !currentResult.inPerson && !currentResult.customQuote) {
-    // Current (unsaved) service: strip travel if other items already carry it
-    const currentBase = currentResult.total - travel;
     items.push({
       name: svc.name,
-      total: items.length === 0 ? currentResult.total : currentBase,
-      lines: currentResult.lines
+      total: currentResult.total,
+      lines: currentResult.lines,
+      travel: currentResult.travel
     });
   }
   return items;
@@ -2699,7 +2704,7 @@ function finaliseQuote() {
 
 async function saveMultiQuoteToCRM() {
   const items = getMultiItems();
-  const total = items.reduce((s, i) => s + i.total, 0);
+  const total = items.reduce((s, i) => s + i.total, 0) + (clientInfo.travelCost || 0);
   // Build combined notes
   const svcNames = items.map(i => i.name).join(' + ');
   await saveQuoteToCRMWithOverride(total, svcNames, items.map(i => {
@@ -3120,9 +3125,14 @@ function showQuote() {
     <div class="quote-panel">
       <div class="quote-panel-title">📋 Quote Summary</div>
       ${lines}
+      ${(result.travel > 0) ? `
+      <div class="quote-line">
+        <span class="quote-line-label">Travel</span>
+        <span class="quote-line-value">$${result.travel.toFixed(2)}</span>
+      </div>` : ''}
       <div class="quote-total">
-        <span class="quote-total-label">Subtotal (inc. travel)</span>
-        <span class="quote-total-value">$${result.total.toFixed(2)}</span>
+        <span class="quote-total-label">Total (inc. GST)</span>
+        <span class="quote-total-value">$${(result.total + (result.travel||0)).toFixed(2)}</span>
       </div>
       ${result.note ? `<div class="quote-disclaimer">⚠️ ${result.note}</div>` : ''}
       ${result.upsell ? `<div class="alert alert-info" style="margin-top:10px;">💡 ${result.upsell}</div>` : ''}
@@ -3717,7 +3727,7 @@ async function confirmCalBooking(dateStr, label, total, jobId) {
 function emailQuote(total) {
   // Gather all services (multi-service aware)
   const allItems = getMultiItems();
-  const grandTotal = allItems.length > 0 ? allItems.reduce((s, i) => s + i.total, 0) : total;
+  const grandTotal = (allItems.length > 0 ? allItems.reduce((s, i) => s + i.total, 0) : total) + (clientInfo.travelCost || 0);
   const email = clientInfo.email;
   const name = clientInfo.name || 'there';
   const firstName = name.split(' ')[0];
