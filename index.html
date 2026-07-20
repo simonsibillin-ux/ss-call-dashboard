@@ -2490,6 +2490,7 @@ function addAnotherService() {
           name: svc.name,
           lines: result.lines,
           total: result.total,
+          baseTotal: result.total - (clientInfo.travelCost || 0), // without travel
           note: result.note || null,
           savedAnswers: { ...answers }
         });
@@ -2510,16 +2511,22 @@ function renderMultiServiceBanner() {
   const existing = document.getElementById('multi-svc-banner');
   if (existing) existing.remove();
   if (!multiServiceItems.length) return;
-  const runningTotal = multiServiceItems.reduce((s, i) => s + i.total, 0);
+  // Compute per-item display totals: travel only on first item
+  const travel = clientInfo.travelCost || 0;
+  const bannerDisplayItems = multiServiceItems.map((item, idx) => ({
+    ...item,
+    displayTotal: idx === 0 ? item.total : (item.baseTotal != null ? item.baseTotal : item.total - travel)
+  }));
+  const runningTotal = bannerDisplayItems.reduce((s, i) => s + i.displayTotal, 0);
   const banner = document.createElement('div');
   banner.id = 'multi-svc-banner';
   banner.style.cssText = 'background:#f0fdf4;border:1px solid var(--ss-green);border-radius:10px;padding:12px 14px;margin-bottom:12px;';
   banner.innerHTML = `
     <div style="font-size:12px;font-weight:700;color:var(--ss-green);margin-bottom:6px;">🧾 Multi-Service Quote — Items Added</div>
-    ${multiServiceItems.map((item, i) => `
+    ${bannerDisplayItems.map((item, i) => `
       <div style="display:flex;justify-content:space-between;font-size:12px;color:#333;padding:3px 0;border-bottom:1px solid #d1fae5;">
-        <span>${item.name}</span>
-        <span style="display:flex;align-items:center;gap:6px;"><strong>$${item.total.toFixed(2)}</strong>
+        <span>${item.name}${i === 0 ? ' <span style="font-size:10px;color:#888;">(incl. travel)</span>' : ''}</span>
+        <span style="display:flex;align-items:center;gap:6px;"><strong>$${item.displayTotal.toFixed(2)}</strong>
           <button onclick="editMultiServiceItem(${i})" style="font-size:10px;border:none;background:#dbeafe;color:#1e40af;border-radius:4px;padding:1px 5px;cursor:pointer;">✏️</button>
           <button onclick="removeMultiServiceItem(${i})" style="font-size:10px;border:none;background:var(--red-bg);color:var(--red);border-radius:4px;padding:1px 5px;cursor:pointer;">✕</button>
         </span>
@@ -2579,7 +2586,7 @@ function renderCombinedSummary(currentResult) {
           <span>${item.name}</span><span>$${item.total.toFixed(2)}</span>
         </div>`).join('')}
       <div style="display:flex;justify-content:space-between;font-size:12px;color:#555;padding:2px 0;">
-        <span>${SERVICES[currentService] ? SERVICES[currentService].name : 'Current service'}</span><span>$${currentResult.total.toFixed(2)}</span>
+        <span>${SERVICES[currentService] ? SERVICES[currentService].name : 'Current service'}</span><span>$${(multiServiceItems.length > 0 ? currentResult.total - (clientInfo.travelCost||0) : currentResult.total).toFixed(2)}</span>
       </div>
       <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:800;color:var(--ss-green);margin-top:8px;padding-top:8px;border-top:1px solid #d1fae5;">
         <span>Grand Total</span><span>$${grandTotal.toFixed(2)}</span>
@@ -2657,18 +2664,30 @@ function showFullQuoteModal() {
 }
 
 function getMultiTotal() {
-  const svc = SERVICES[currentService];
-  const currentResult = svc ? svc.calcQuote(answers) : null;
-  const prevTotal = multiServiceItems.reduce((s, i) => s + i.total, 0);
-  return prevTotal + (currentResult ? currentResult.total : 0);
+  // Use getMultiItems() so travel is only counted once
+  const items = getMultiItems();
+  return items.reduce((s, i) => s + i.total, 0);
 }
 
 function getMultiItems() {
   const svc = SERVICES[currentService];
   const currentResult = svc ? svc.calcQuote(answers) : null;
-  const items = [...multiServiceItems];
+  const travel = clientInfo.travelCost || 0;
+  // Build items stripping travel from all stored items, then add travel once to first
+  const items = multiServiceItems.map((item, idx) => ({
+    ...item,
+    total: idx === 0
+      ? item.total  // keep first item as-is (travel already included)
+      : (item.baseTotal != null ? item.baseTotal : item.total - travel) // strip travel from subsequent
+  }));
   if (currentResult && !currentResult.inPerson && !currentResult.customQuote) {
-    items.push({ name: svc.name, total: currentResult.total, lines: currentResult.lines });
+    // Current (unsaved) service: strip travel if other items already carry it
+    const currentBase = currentResult.total - travel;
+    items.push({
+      name: svc.name,
+      total: items.length === 0 ? currentResult.total : currentBase,
+      lines: currentResult.lines
+    });
   }
   return items;
 }
