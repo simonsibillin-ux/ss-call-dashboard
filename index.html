@@ -3128,11 +3128,6 @@ function showQuote() {
     <div class="quote-panel">
       <div class="quote-panel-title">📋 Quote Summary</div>
       ${lines}
-      ${(result.travel > 0) ? `
-      <div class="quote-line">
-        <span class="quote-line-label">Travel</span>
-        <span class="quote-line-value">$${result.travel.toFixed(2)}</span>
-      </div>` : ''}
       <div class="quote-total">
         <span class="quote-total-label">Total (inc. GST)</span>
         <span class="quote-total-value">$${(result.total + (result.travel||0)).toFixed(2)}</span>
