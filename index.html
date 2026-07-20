@@ -1903,7 +1903,7 @@ const SERVICES = {
           { label: 'Panel count', value: `${panels} panels` },
           { label: 'Rate (time since last clean)', value: `$${rate.toFixed(2)}/panel` },
           a.hard_access === 'Yes — difficult access' ? { label: 'Hard access double storey', value: '×2' } : null,
-          { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
+          { label: 'Service subtotal', value: `$${Math.max(150, base).toFixed(2)}` },
         ].filter(Boolean),
         travel: clientInfo.travelCost,
         total: Math.max(150, base)
@@ -1996,6 +1996,7 @@ const SERVICES = {
           isInterior ? { label: 'Interior + exterior (×2)', value: '$' + (exteriorTotal * 2).toFixed(2) } : null,
           flyTotal > 0 ? { label: 'Flyscreens (' + windows + ' × $5)', value: '$' + flyTotal.toFixed(2) } : null,
           trackTotal > 0 ? { label: 'Track deep clean (' + windows + ' × $9)', value: '$' + trackTotal.toFixed(2) } : null,
+          total < 150 ? { label: 'Minimum call-out applied', value: '$150.00' } : null,
         ].filter(Boolean),
         inclusions: dynamicInclusions,
         travel: clientInfo.travelCost,
@@ -2145,6 +2146,7 @@ const SERVICES = {
           { label: `Softwash rate (${a.age})`, value: `$${rate.toFixed(2)}/sqm` },
           { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
           biocide > 0 ? { label: `Biocide treatment (${sqm}sqm × $${biocideRate})`, value: `$${biocide.toFixed(2)}` } : null,
+          (base + biocide) < 150 ? { label: 'Minimum call-out applied', value: '$150.00' } : null,
         ].filter(Boolean),
         inclusions: dynamicInclusions,
         travel: clientInfo.travelCost,
@@ -2195,7 +2197,7 @@ const SERVICES = {
         lines: [
           { label: `Est. roof sqm (${bedroomKey} bed avg)`, value: `${sqm}sqm` },
           { label: `Biocide rate (${a.storeys})`, value: `$${rate.toFixed(2)}/sqm` },
-          { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
+          { label: 'Service subtotal', value: `$${Math.max(150, base).toFixed(2)}` },
         ],
         travel: clientInfo.travelCost,
         total: Math.max(150, base)
@@ -2288,6 +2290,7 @@ const SERVICES = {
           { label: `Rate (${a.last_wash})`, value: `$${rate.toFixed(2)}/sqm` },
           { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
           biocide > 0 ? { label: `Biocide post-treatment (${sqm}sqm × $${biocideRate})`, value: `$${biocide.toFixed(2)}` } : null,
+          biocide === 0 && base < 150 ? { label: 'Minimum call-out applied', value: '$150.00' } : null,
         ].filter(Boolean),
         travel: clientInfo.travelCost,
         total: Math.max(150, base + biocide),
@@ -2328,7 +2331,7 @@ const SERVICES = {
         lines: [
           { label: `Est. linear metres (${bedroomKey} bed avg)`, value: `${metres}m` },
           { label: `Rate (${a.storeys})`, value: `$${rate.toFixed(2)}/m` },
-          { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
+          { label: 'Service subtotal', value: `$${Math.max(150, base).toFixed(2)}` },
         ],
         travel: clientInfo.travelCost,
         total: Math.max(150, base)
