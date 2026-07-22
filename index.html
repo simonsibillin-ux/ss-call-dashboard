@@ -3913,9 +3913,9 @@ function printQuote(grandTotal) {
     }
   }
 
-  // Travel is silently included in totalToPrint — no separate row shown to client
+  // Travel already included in grandTotal passed in — no separate row shown to client
   const travelRow = '';
-  const total = totalToPrint + (clientInfo.travelCost || 0);
+  const total = totalToPrint;
 
   const html = `<!DOCTYPE html>
 <html>
