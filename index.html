@@ -2707,15 +2707,17 @@ function finaliseQuote() {
 
 async function saveMultiQuoteToCRM() {
   const items = getMultiItems();
+  // Travel already baked into first item total — grand total is just sum of items
   const total = items.reduce((s, i) => s + i.total, 0) + (clientInfo.travelCost || 0);
   // Build combined notes
   const svcNames = items.map(i => i.name).join(' + ');
-  await saveQuoteToCRMWithOverride(total, svcNames, items.map(i => {
+  const _travel = clientInfo.travelCost || 0;
+  await saveQuoteToCRMWithOverride(total, svcNames, items.map((i, idx) => {
     let desc = i.name;
     if (i.serviceKey === 'window-cleaning' && i.savedAnswers && i.savedAnswers.scope) {
       desc = `${i.name} (${i.savedAnswers.scope})`;
     }
-    return { description: desc, total: i.total };
+    return { description: desc, total: idx === 0 ? i.total + _travel : i.total };
   }));
 }
 
@@ -3742,19 +3744,20 @@ function emailQuote(total) {
   // Build per-service breakdown sections
   let servicesSections = '';
   if (allItems.length > 0) {
-    allItems.forEach(item => {
+    allItems.forEach((item, idx) => {
       const svc = SERVICES[item.serviceKey] || null;
       const lines = (item.lines || []).map(l => `  • ${l.label}: ${l.value}`).join('\n');
       const inclusions = (svc && svc.inclusions && svc.inclusions.length > 0)
         ? svc.inclusions.map(i => `  • ${i}`).join('\n')
         : '';
+      const _eqItemTotal = idx === 0 ? item.total + (clientInfo.travelCost || 0) : item.total;
       servicesSections += `\n─────────────────────────────────────────
 SERVICE: ${item.name}
 ─────────────────────────────────────────
 PRICE BREAKDOWN:
 ${lines}
   ─────────────────────
-  Subtotal: $${item.total.toFixed(2)}
+  Subtotal: $${_eqItemTotal.toFixed(2)}
 ${inclusions ? `\nWHAT'S INCLUDED:\n${inclusions}\n` : ''}`;
     });
   } else {
@@ -3889,31 +3892,34 @@ function printQuote(grandTotal) {
   const date = new Date().toLocaleDateString('en-AU', { day:'2-digit', month:'2-digit', year:'numeric' });
   const quoteId = 'Q-' + Date.now();
 
-  // Build client-facing rows: service name + subtotal only, no measurements, no travel line
+  // Client-facing: travel baked into first service subtotal only, no travel row
+  const _pqTravel = clientInfo.travelCost || 0;
   let serviceRows = '';
   if (allItems.length > 0) {
-    allItems.forEach(item => {
+    allItems.forEach((item, idx) => {
+      const itemTotal = idx === 0 ? item.total + _pqTravel : item.total;
       serviceRows += `<tr>
         <td>${item.name}</td>
         <td style="text-align:center;"></td>
         <td style="text-align:center;"></td>
         <td style="text-align:right;"></td>
-        <td style="text-align:right;">$${item.total.toFixed(2)}</td>
+        <td style="text-align:right;">$${itemTotal.toFixed(2)}</td>
       </tr>`;
     });
   } else {
     const svc = SERVICES[currentService];
     if (svc) {
       const result = svc.calcQuote(answers);
+      const singleTotal = result.total + _pqTravel;
       serviceRows += `<tr>
         <td>${svc.name}</td>
         <td></td><td></td><td></td>
-        <td style="text-align:right;">$${result.total.toFixed(2)}</td>
+        <td style="text-align:right;">$${singleTotal.toFixed(2)}</td>
       </tr>`;
     }
   }
 
-  // Travel already included in grandTotal passed in — no separate row shown to client
+  // Grand total = sum of base totals + travel (travel already in first item display but total still needs it added once)
   const travelRow = '';
   const total = totalToPrint;
 
@@ -5322,17 +5328,19 @@ function pqPrintQuoteFromData(q, client) {
   const date = new Date().toLocaleDateString('en-AU', { day:'2-digit', month:'2-digit', year:'numeric' });
   const quoteId = q.id || ('Q-' + Date.now());
 
-  // Client-facing: service name + subtotal only, no measurements, no travel line
+  // Client-facing: travel baked into first service subtotal only, no travel row
+  const _pqpTravel = travelCost || 0;
   let serviceRows = '';
-  allItems.forEach(item => {
+  allItems.forEach((item, idx) => {
+    const itemTotal = idx === 0 ? Number(item.total||0) + _pqpTravel : Number(item.total||0);
     serviceRows += `<tr>
       <td>${item.description}</td>
       <td></td><td></td><td></td>
-      <td style="text-align:right;">$${Number(item.total||0).toFixed(2)}</td>
+      <td style="text-align:right;">$${itemTotal.toFixed(2)}</td>
     </tr>`;
   });
 
-  // Travel is silently included in total — no separate row shown to client
+  // Travel already baked into first item — no separate row
   const travelRow = '';
 
   const clientName = q.client || '';
