@@ -2494,6 +2494,7 @@ function addAnotherService() {
           lines: result.lines,
           total: result.total, // already excludes travel
           note: result.note || null,
+          inclusions: result.inclusions || svc.inclusions || [],
           savedAnswers: { ...answers }
         });
       }
@@ -2692,9 +2693,11 @@ function getMultiItems() {
   if (currentResult && !currentResult.inPerson && !currentResult.customQuote) {
     items.push({
       name: svc.name,
+      serviceKey: currentService,
       total: currentResult.total,
       lines: currentResult.lines,
-      travel: currentResult.travel
+      travel: currentResult.travel,
+      inclusions: currentResult.inclusions || svc.inclusions || []
     });
   }
   return items;
@@ -3745,10 +3748,7 @@ function emailQuote(total) {
   let servicesSections = '';
   if (allItems.length > 0) {
     allItems.forEach((item, idx) => {
-      const svc = SERVICES[item.serviceKey] || null;
-      // Try dynamic inclusions from saved result, fall back to static svc.inclusions
-      const savedResult = svc && svc.calcQuote ? svc.calcQuote(item.savedAnswers || answers || {}) : null;
-      const inclusionSource = (savedResult && savedResult.inclusions) || (svc && svc.inclusions) || item.inclusions || [];
+      const inclusionSource = item.inclusions || (SERVICES[item.serviceKey] && SERVICES[item.serviceKey].inclusions) || [];
       const inclusions = inclusionSource.length > 0 ? inclusionSource.map(i => `  • ${i}`).join('\n') : '';
       const _eqItemTotal = idx === 0 ? item.total + (clientInfo.travelCost || 0) : item.total;
       servicesSections += `\n─────────────────────────────────────────
