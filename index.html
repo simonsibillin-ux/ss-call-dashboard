@@ -3746,10 +3746,10 @@ function emailQuote(total) {
   if (allItems.length > 0) {
     allItems.forEach((item, idx) => {
       const svc = SERVICES[item.serviceKey] || null;
-      const lines = (item.lines || []).map(l => `  • ${l.label}: ${l.value}`).join('\n');
-      const inclusions = (svc && svc.inclusions && svc.inclusions.length > 0)
-        ? svc.inclusions.map(i => `  • ${i}`).join('\n')
-        : '';
+      // Try dynamic inclusions from saved result, fall back to static svc.inclusions
+      const savedResult = svc && svc.calcQuote ? svc.calcQuote(item.savedAnswers || answers || {}) : null;
+      const inclusionSource = (savedResult && savedResult.inclusions) || (svc && svc.inclusions) || item.inclusions || [];
+      const inclusions = inclusionSource.length > 0 ? inclusionSource.map(i => `  • ${i}`).join('\n') : '';
       const _eqItemTotal = idx === 0 ? item.total + (clientInfo.travelCost || 0) : item.total;
       servicesSections += `\n─────────────────────────────────────────
 SERVICE: ${item.name}
@@ -3765,12 +3765,12 @@ ${inclusions ? `\nWHAT'S INCLUDED:\n${inclusions}\n` : ''}`;
       const inclusions = svc.inclusions && svc.inclusions.length > 0
         ? svc.inclusions.map(i => `  • ${i}`).join('\n')
         : '';
+      const _eqSingleTotal = result.total + (clientInfo.travelCost || 0);
+      const _eqSingleInclusions = (result.inclusions || svc.inclusions || []).map(i => `  • ${i}`).join('\n');
       servicesSections += `\n─────────────────────────────────────────
 SERVICE: ${svc.name}
-─────────────────────────────────────────
-PRICE BREAKDOWN:
-${lines}
-${inclusions ? `\nWHAT'S INCLUDED:\n${inclusions}\n` : ''}`;
+  Subtotal: $${_eqSingleTotal.toFixed(2)}
+${_eqSingleInclusions ? `\nWHAT'S INCLUDED:\n${_eqSingleInclusions}\n` : ''}`;
     }
   }
 
