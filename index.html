@@ -3889,23 +3889,15 @@ function printQuote(grandTotal) {
   const date = new Date().toLocaleDateString('en-AU', { day:'2-digit', month:'2-digit', year:'numeric' });
   const quoteId = 'Q-' + Date.now();
 
-  // Build rows for all services
+  // Build client-facing rows: service name + subtotal only, no measurements, no travel line
   let serviceRows = '';
   if (allItems.length > 0) {
     allItems.forEach(item => {
-      const lines = item.lines || [];
-      lines.forEach(line => {
-        serviceRows += `<tr>
-          <td style="padding-left:16px;">${line.label}</td>
-          <td style="text-align:center;"></td>
-          <td style="text-align:center;"></td>
-          <td style="text-align:right;"></td>
-          <td style="text-align:right;">${line.value}</td>
-        </tr>`;
-      });
-      serviceRows += `<tr style="font-weight:700;background:#f0fdf4;">
-        <td>${item.name} Subtotal</td>
-        <td></td><td></td><td></td>
+      serviceRows += `<tr>
+        <td>${item.name}</td>
+        <td style="text-align:center;"></td>
+        <td style="text-align:center;"></td>
+        <td style="text-align:right;"></td>
         <td style="text-align:right;">$${item.total.toFixed(2)}</td>
       </tr>`;
     });
@@ -3913,24 +3905,17 @@ function printQuote(grandTotal) {
     const svc = SERVICES[currentService];
     if (svc) {
       const result = svc.calcQuote(answers);
-      (result.lines || []).forEach(line => {
-        serviceRows += `<tr>
-          <td style="padding-left:16px;">${line.label}</td>
-          <td></td><td></td><td></td>
-          <td style="text-align:right;">${line.value}</td>
-        </tr>`;
-      });
+      serviceRows += `<tr>
+        <td>${svc.name}</td>
+        <td></td><td></td><td></td>
+        <td style="text-align:right;">$${result.total.toFixed(2)}</td>
+      </tr>`;
     }
   }
 
-  const travelRow = clientInfo.travelCost > 0 ? `<tr>
-    <td>Travel (${clientInfo.travelKm}km from Kilmore)</td>
-    <td style="text-align:center;">1</td>
-    <td style="text-align:center;"></td>
-    <td style="text-align:right;">$${clientInfo.travelCost.toFixed(2)}</td>
-    <td style="text-align:right;">$${clientInfo.travelCost.toFixed(2)}</td>
-  </tr>` : '';
-  const total = totalToPrint;
+  // Travel is silently included in totalToPrint — no separate row shown to client
+  const travelRow = '';
+  const total = totalToPrint + (clientInfo.travelCost || 0);
 
   const html = `<!DOCTYPE html>
 <html>
@@ -5337,25 +5322,18 @@ function pqPrintQuoteFromData(q, client) {
   const date = new Date().toLocaleDateString('en-AU', { day:'2-digit', month:'2-digit', year:'numeric' });
   const quoteId = q.id || ('Q-' + Date.now());
 
+  // Client-facing: service name + subtotal only, no measurements, no travel line
   let serviceRows = '';
   allItems.forEach(item => {
-    serviceRows += `<tr style="font-weight:700;background:#f0fdf4;">
-      <td>${item.description} Subtotal</td>
+    serviceRows += `<tr>
+      <td>${item.description}</td>
       <td></td><td></td><td></td>
       <td style="text-align:right;">$${Number(item.total||0).toFixed(2)}</td>
     </tr>`;
   });
 
-  // Travel row — pull from stored notes if present
-  const travelMatch = (q.notes || '').match(/Travel:\s*\$([0-9.]+)/);
-  const travelCost = travelMatch ? parseFloat(travelMatch[1]) : 0;
-  const travelRow = travelCost > 0 ? `<tr>
-    <td>Travel</td>
-    <td style="text-align:center;">1</td>
-    <td style="text-align:center;"></td>
-    <td style="text-align:right;">$${travelCost.toFixed(2)}</td>
-    <td style="text-align:right;">$${travelCost.toFixed(2)}</td>
-  </tr>` : '';
+  // Travel is silently included in total — no separate row shown to client
+  const travelRow = '';
 
   const clientName = q.client || '';
   const clientPhone = (client && client.phone) || '';
