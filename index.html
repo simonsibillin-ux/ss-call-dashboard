@@ -3753,10 +3753,6 @@ function emailQuote(total) {
       const _eqItemTotal = idx === 0 ? item.total + (clientInfo.travelCost || 0) : item.total;
       servicesSections += `\n─────────────────────────────────────────
 SERVICE: ${item.name}
-─────────────────────────────────────────
-PRICE BREAKDOWN:
-${lines}
-  ─────────────────────
   Subtotal: $${_eqItemTotal.toFixed(2)}
 ${inclusions ? `\nWHAT'S INCLUDED:\n${inclusions}\n` : ''}`;
     });
