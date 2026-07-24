@@ -1385,6 +1385,17 @@
         <div id="ai-workspace-view" style="display:none;">
           <div class="page-title">New Quote</div>
 
+          <!-- Session status bar + New Quote action -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px;">
+            <div id="aiw-session-status" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text3);background:var(--surface2);border-radius:20px;padding:4px 12px;">
+              <span id="aiw-session-status-icon">📋</span>
+              <span id="aiw-session-status-label">New quote</span>
+            </div>
+            <button id="aiw-new-quote-btn" onclick="aiwRequestNewQuote()" style="font-size:12px;font-weight:600;color:var(--text2);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 14px;cursor:pointer;display:flex;align-items:center;gap:5px;">
+              ✕ New Quote
+            </button>
+          </div>
+
           <!-- Recovery banner (shown when localStorage session found) -->
           <div id="aiw-recovery-bar" class="aiw-recovery-bar" style="display:none;">
             <span>⚡</span>
@@ -6339,17 +6350,232 @@ let _aiwState = null; // The live session object
 
 function _aiwNewState() {
   return {
-    sessionId:     'AIW-' + Date.now(),
-    currentNotes:  '',
-    notesHistory:  [],   // [{ text, timestamp }]
-    extraction:    null, // Last validated extraction from API
-    manualEdits:   {},   // { serviceIdx: { fieldName: value } }
-    customer:      { name: null, phone: null, email: null },
-    property:      { address: null, suburb: null },
-    services:      [],   // The working list of service objects (merged extraction + edits)
+    sessionId:      'AIW-' + Date.now(),
+    currentNotes:   '',
+    notesHistory:   [],   // [{ text, timestamp }]
+    extraction:     null, // Last validated extraction from API
+    manualEdits:    {},   // reserved
+    customer:       { name: null, phone: null, email: null },
+    property:       { address: null, suburb: null },
+    services:       [],   // working list of service objects
     lastAnalysedAt: null,
-    status:        'idle' // idle | analysing | ready | error
+    preparedQuote:  null, // set after Build Quote
+    status:         'idle', // idle | analysing | ready | error
+    // Field provenance tracking per service: { serviceKey: { fieldName: 'ai'|'csr'|'derived'|'unknown' } }
+    provenance:     {},
+    // Tracks whether the CSR has dismissed a structure-mention warning for a gutter service.
+    // Key: svc.serviceKey (always 'gutter-cleaning'). Value: true = dismissed.
+    // Cleared when new notes explicitly add a structure.
+    dismissedStructureMention: {}
   };
+}
+
+// ── Single authoritative readiness evaluator ────────────────────────────────
+// Returns { ready, missingFields, blockingIssues, warnings, unresolvedStructures }
+function _aiwEvaluateServiceReadiness(svc) {
+  const cat = AIW_CATALOGUE[svc.serviceKey];
+  if (!cat) return { ready: false, missingFields: [], blockingIssues: ['Unknown service key'], warnings: [], unresolvedStructures: [] };
+
+  const answers = svc.answers || {};
+  const missingFields = [];
+  const blockingIssues = [];
+  const warnings = [];
+  const unresolvedStructures = [];
+
+  // Check required fields
+  cat.requiredForPricing.forEach(f => {
+    const v = answers[f];
+    if (v === null || v === undefined || v === '') {
+      const label = cat.fields[f]?.label || f;
+      missingFields.push({ field: f, label });
+    }
+  });
+
+  // Check structures for gutter-cleaning
+  if (svc.serviceKey === 'gutter-cleaning') {
+    const structs = Array.isArray(answers.structures) ? answers.structures : [];
+
+    // (A) Incomplete configured structures — debris null
+    structs.forEach((s, i) => {
+      if (!s.debris) {
+        unresolvedStructures.push({
+          index: i,
+          type: s.type || 'Unknown structure',
+          issue: 'Last cleaned (debris level) is required for pricing',
+          kind: 'incomplete'
+        });
+      }
+    });
+    if (unresolvedStructures.length > 0) {
+      blockingIssues.push(`${unresolvedStructures.length} additional structure${unresolvedStructures.length > 1 ? 's' : ''} missing "last cleaned" field`);
+    }
+
+    // (B) Deterministic text-mention check — structure mentioned but not configured
+    // Only runs if _aiwDetectStructureMentions is defined (it always is, but guard for safety)
+    const isDismissed = !!(_aiwState && _aiwState.dismissedStructureMention && _aiwState.dismissedStructureMention[svc.serviceKey]);
+    if (!isDismissed && typeof _aiwDetectStructureMentions === 'function') {
+      const detection = _aiwDetectStructureMentions(svc);
+      if (detection.detected && structs.length === 0) {
+        // Terms found in notes/text but nothing configured at all
+        blockingIssues.push('structureMentionUnconfigured');
+        unresolvedStructures.push({
+          index: -1,
+          type: 'Mentioned structure (unconfigured)',
+          issue: 'An additional structure was mentioned but has not been configured for pricing.',
+          kind: 'mentioned',
+          terms: detection.terms
+        });
+      }
+      // If structs.length > 0, the existing incomplete-structure check (A) already covers it.
+    }
+  }
+
+  // Check escalations
+  const escalations = (cat.escalations || []).filter(e => answers[e.field] === e.value);
+  escalations.forEach(e => {
+    if (e.action === 'custom-quote') blockingIssues.push('Custom quote required — escalate to Simon');
+    else if (e.action === 'in-person-quote') blockingIssues.push('In-person quote required for this suburb');
+    else if (e.action === 'reroute-to-roof-biocide') blockingIssues.push('Terra cotta roof — reroute to Roof Biocide Treatment');
+  });
+
+  const ready = missingFields.length === 0 && blockingIssues.length === 0 && unresolvedStructures.length === 0;
+  return { ready, missingFields, blockingIssues, warnings, unresolvedStructures };
+}
+
+// ── Deterministic structure-mention consistency check ──────────────────────
+//
+// Scans all text sources for probable additional-structure mentions.
+// Returns { detected: bool, terms: string[] } — does NOT add or price anything.
+// Called by _aiwEvaluateServiceReadiness for gutter-cleaning services.
+//
+// Sources scanned (in priority order):
+//   1. Notes history (strongest — original customer words)
+//   2. Current note textarea value (captured in _aiwState.currentNotes)
+//   3. AI extraction assumptions + warnings text
+//   4. Service scopeNotes
+//
+// Exclusion phrases prevent false positives:
+//   "exclude shed", "shed not included", "do not quote shed",
+//   "garage not part of the job", "do not clean the garage", "garage excluded", etc.
+
+const _AIW_STRUCT_TERMS = [
+  'shed', 'garage', 'granny flat', 'bungalow', 'second dwelling',
+  'separate dwelling', 'outbuilding', 'workshop', 'additional structure'
+];
+
+// Phrases that indicate the structure is explicitly excluded from scope
+const _AIW_STRUCT_EXCLUSIONS = [
+  /\bexclude\s+(the\s+)?(shed|garage|granny\s+flat|bungalow|outbuilding|workshop)\b/i,
+  /\b(shed|garage|granny\s+flat|bungalow|outbuilding|workshop)\s+(is\s+)?(not\s+included|excluded|not\s+part|not\s+in\s+scope)\b/i,
+  /\bdo\s+not\s+(quote|include|clean)\s+(the\s+)?(shed|garage|granny\s+flat|outbuilding|workshop)\b/i,
+  /\b(shed|garage)\s+not\s+part\s+of\s+(the\s+)?(job|quote|scope)\b/i,
+  /\bno\s+(shed|garage)\s+(gutter|cleaning|gutters)\b/i,
+  /\b(skip|ignore)\s+(the\s+)?(shed|garage)\b/i,
+  // Pronoun-based exclusions: "do not include it in the quote" / "not part of the quote" after a structure mention
+  /\bdo\s+not\s+(quote|include|price)\s+it\b/i,
+  /\bnot\s+(include|quote|part\s+of|in)\s+(this\s+|the\s+)?quote\b/i,
+  /\b(leave|left)\s+(it\s+)?out\s+of\s+(this\s+|the\s+)?quote\b/i,
+];
+
+function _aiwDetectStructureMentions(svc) {
+  if (!_aiwState) return { detected: false, terms: [] };
+
+  // Gather all text sources
+  const textSources = [];
+
+  // 1. Notes history — strongest source
+  (_aiwState.notesHistory || []).forEach(h => { if (h.text) textSources.push(h.text); });
+
+  // 2. Current note textarea
+  const currentNotes = document.getElementById('aiw-notes-textarea')?.value || _aiwState.currentNotes || '';
+  if (currentNotes) textSources.push(currentNotes);
+
+  // 3. AI extraction assumptions + warnings
+  const extraction = _aiwState.extraction;
+  if (extraction) {
+    (extraction.assumptions || []).forEach(a => textSources.push(a));
+    (extraction.warnings || []).forEach(w => textSources.push(w));
+    // Also check evidence text from this specific service
+    if (svc.evidence) {
+      Object.values(svc.evidence).forEach(v => { if (typeof v === 'string') textSources.push(v); });
+    }
+  }
+
+  // 4. Service scopeNotes
+  if (svc.scopeNotes) textSources.push(svc.scopeNotes);
+
+  const combinedText = textSources.join(' ');
+  if (!combinedText.trim()) return { detected: false, terms: [] };
+
+  // Check for explicit exclusion phrases first — if present, no warning
+  for (const exclusionRe of _AIW_STRUCT_EXCLUSIONS) {
+    if (exclusionRe.test(combinedText)) return { detected: false, terms: [], excluded: true };
+  }
+
+  // Check for structure terms
+  const foundTerms = _AIW_STRUCT_TERMS.filter(term => {
+    const re = new RegExp('\\b' + term.replace(/\s+/g, '\\s+') + '\\b', 'i');
+    return re.test(combinedText);
+  });
+
+  return { detected: foundTerms.length > 0, terms: foundTerms };
+}
+
+// CSR dismisses the structure-mention warning for the current gutter-cleaning service
+function aiwDismissStructureMention(serviceKey) {
+  if (!_aiwState) return;
+  if (!_aiwState.dismissedStructureMention) _aiwState.dismissedStructureMention = {};
+  _aiwState.dismissedStructureMention[serviceKey] = true;
+  _aiwSaveToLS();
+  _aiwRenderReadiness();
+  _aiwRenderMissing();
+  _aiwUpdateSessionStatus();
+}
+
+// Clear a prior dismissal when new notes explicitly add a structure
+// Called from _aiwMergeExtraction when structures array gains entries
+function _aiwClearStructureDismissalIfResolved(serviceKey, structuresArray) {
+  if (!_aiwState?.dismissedStructureMention) return;
+  if (Array.isArray(structuresArray) && structuresArray.length > 0) {
+    // A real structure has been configured — dismissal no longer relevant
+    delete _aiwState.dismissedStructureMention[serviceKey];
+  }
+}
+
+// ── Session status (Part 10) ────────────────────────────────────────────────
+function _aiwGetSessionStatus() {
+  if (!_aiwState) return { code: 'new', label: 'New quote', icon: '📋' };
+  const services = (_aiwState.services || []).filter(s => !s._removed);
+  const hasNotes = !!_aiwState.currentNotes?.trim() || _aiwState.notesHistory?.length > 0;
+  const hasAnalysis = !!_aiwState.extraction;
+  const pq = _aiwState.preparedQuote;
+
+  if (pq) {
+    if (pq.stale) return { code: 'stale', label: 'Quote needs rebuilding', icon: '⚡' };
+    return { code: 'built', label: 'Quote built', icon: '✅' };
+  }
+  if (services.length === 0 && !hasAnalysis) {
+    if (hasNotes) return { code: 'notes', label: 'Notes entered', icon: '📝' };
+    return { code: 'new', label: 'New quote', icon: '📋' };
+  }
+  if (!hasAnalysis) return { code: 'notes', label: 'Notes entered', icon: '📝' };
+
+  const anyUnresolved = services.some(s => {
+    const r = _aiwEvaluateServiceReadiness(s);
+    return !r.ready;
+  });
+  if (anyUnresolved) return { code: 'needs-info', label: 'Needs information', icon: '⏳' };
+  const hasCustomer = _aiwState.customer?.name && _aiwState.property?.suburb;
+  if (!hasCustomer) return { code: 'needs-info', label: 'Needs information', icon: '⏳' };
+  return { code: 'ready', label: 'Ready to build', icon: '✓' };
+}
+
+function _aiwUpdateSessionStatus() {
+  const { label, icon } = _aiwGetSessionStatus();
+  const statusIcon = document.getElementById('aiw-session-status-icon');
+  const statusLabel = document.getElementById('aiw-session-status-label');
+  if (statusIcon) statusIcon.textContent = icon;
+  if (statusLabel) statusLabel.textContent = label;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -6610,25 +6836,91 @@ function _aiwSetAnalysing(on) {
 // ── Merge extraction into working services ─────────────────────────────────
 
 function _aiwMergeExtraction(extraction) {
-  // Update customer/property from extraction (only if fields are not already populated
-  // by a higher-confidence existing value or user edit)
+  // Update customer/property from extraction (only if not already populated by CSR)
   _aiwMergeCustomer(extraction.customer, extraction.property);
 
-  // Build working services list from extraction
-  // Preserve any manually-added services not in the new extraction
-  const existingManual = _aiwState.services.filter(s => s._manual && !s._removed);
+  // Preserve manually-added services and CSR-confirmed field values
+  const existingServices = _aiwState.services || [];
 
-  _aiwState.services = (extraction.services || []).map(svc => ({
-    ...svc,
-    _manual: false,
-    _removed: false,
-    _unsupported: false
-  }));
+  const mergedServices = (extraction.services || []).map(newSvc => {
+    // Find existing entry for this service key (if any)
+    const existing = existingServices.find(s => s.serviceKey === newSvc.serviceKey && !s._removed);
 
-  // Re-append manually added services that weren't in extraction
-  existingManual.forEach(ms => {
-    const alreadyPresent = _aiwState.services.some(s => s.serviceKey === ms.serviceKey);
-    if (!alreadyPresent) _aiwState.services.push(ms);
+    if (!existing) {
+      // Brand new service from this extraction
+      return { ...newSvc, _manual: false, _removed: false, _unsupported: false };
+    }
+
+    // Merge: CSR-confirmed values win over fresh AI extraction
+    const prov = (_aiwState.provenance || {})[newSvc.serviceKey] || {};
+    const mergedAnswers = { ...(newSvc.answers || {}) };
+
+    // Preserve any field the CSR explicitly set (provenance === 'csr')
+    Object.entries(existing.answers || {}).forEach(([field, val]) => {
+      if (prov[field] === 'csr' && val !== null && val !== undefined && val !== '') {
+        mergedAnswers[field] = val;
+      }
+    });
+
+    // Preserve structures the CSR has added/edited (structures are always CSR-owned once edited)
+    if (newSvc.serviceKey === 'gutter-cleaning' && prov['structures'] === 'csr') {
+      mergedAnswers.structures = existing.answers?.structures || newSvc.answers?.structures || [];
+    }
+
+    // Merge: add structures from new extraction that aren't already represented
+    if (newSvc.serviceKey === 'gutter-cleaning' && prov['structures'] !== 'csr') {
+      const existingStructs = Array.isArray(existing.answers?.structures) ? existing.answers.structures : [];
+      const newStructs = Array.isArray(newSvc.answers?.structures) ? newSvc.answers.structures : [];
+      const merged = [...existingStructs];
+      newStructs.forEach(ns => {
+        const alreadyPresent = merged.some(es => es.type === ns.type);
+        if (!alreadyPresent) merged.push(ns);
+      });
+      mergedAnswers.structures = merged;
+    }
+
+    return {
+      ...newSvc,
+      answers: mergedAnswers,
+      _manual: existing._manual || false,
+      _removed: false,
+      _unsupported: false
+    };
+  });
+
+  // Re-append manually added services not in the new extraction
+  existingServices.filter(s => s._manual && !s._removed).forEach(ms => {
+    const alreadyPresent = mergedServices.some(s => s.serviceKey === ms.serviceKey);
+    if (!alreadyPresent) mergedServices.push(ms);
+  });
+
+  _aiwState.services = mergedServices;
+
+  // Clear any prior structure-mention dismissals that are now resolved by actual structure data
+  // (e.g. re-analysis after CSR entered "add the shed" — AI now returns a structure entry)
+  _aiwState.services.forEach(svc => {
+    if (svc.serviceKey === 'gutter-cleaning' && !svc._removed) {
+      const structs = Array.isArray(svc.answers?.structures) ? svc.answers.structures : [];
+      _aiwClearStructureDismissalIfResolved(svc.serviceKey, structs);
+    }
+  });
+
+  // Re-evaluate all service readiness using the single authoritative frontend engine
+  // (server readyForPricing does not account for structure sub-field requirements)
+  _aiwState.services.forEach(svc => {
+    if (svc._removed) return;
+    const cat = AIW_CATALOGUE[svc.serviceKey];
+    if (!cat) return;
+    const readiness = _aiwEvaluateServiceReadiness(svc);
+    svc.missingRequiredFields = readiness.missingFields.map(f => f.field);
+    svc.missingRecommendedFields = (cat.recommendedForPricing || []).filter(f => {
+      const v = svc.answers?.[f];
+      return v === null || v === undefined || v === '';
+    });
+    svc.escalations = (cat.escalations || [])
+      .filter(e => svc.answers?.[e.field] === e.value)
+      .map(e => ({ field: e.field, value: e.value, action: e.action }));
+    svc.readyForPricing = readiness.ready;
   });
 }
 
@@ -6721,7 +7013,7 @@ function _aiwRenderAll() {
   // Assumptions
   _aiwRenderAssumptions();
 
-  // Readiness
+  // Readiness (also updates session status)
   _aiwRenderReadiness();
 }
 
@@ -6763,8 +7055,9 @@ function _aiwRenderServices() {
     if (!cat) return; // should never happen after server validation
 
     const hasEscalation = (svc.escalations || []).length > 0;
-    const missingReq = svc.missingRequiredFields || [];
-    const isReady = svc.readyForPricing && !hasEscalation;
+    const readiness = _aiwEvaluateServiceReadiness(svc);
+    const isReady = readiness.ready && !hasEscalation;
+    const missingReq = readiness.missingFields.map(f => f.field);
     const isManual = svc._manual;
     const isUnsupported = svc._unsupported;
 
@@ -6802,11 +7095,19 @@ function _aiwRenderServices() {
     let structuresEditBtn = '';
     if (svc.serviceKey === 'gutter-cleaning') {
       const structs = Array.isArray(svc.answers?.structures) ? svc.answers.structures : [];
-      const structLabel = structs.length > 0 ? structs.map(s => s.type).join(', ') : 'None';
+      const structLabel = structs.length > 0 ? structs.map(s => _esc(s.type || '?')).join(', ') : 'None';
+      // Check for incomplete structures (missing last-cleaned)
+      const incompleteStructs = structs.filter(s => !s.debris);
+      const incompleteWarning = incompleteStructs.length > 0
+        ? `<div style="margin-top:5px;padding:6px 8px;background:var(--amber-bg);border:1px solid var(--amber);border-radius:6px;font-size:11px;color:var(--amber);font-weight:600;">
+            ⚠ ${incompleteStructs.length} structure${incompleteStructs.length > 1 ? 's' : ''} missing "last cleaned" — required for pricing.
+          </div>`
+        : '';
       structuresEditBtn = `<div style="margin-top:6px;">
         <div class="aiw-section-label" style="margin-bottom:4px;">Additional structures</div>
-        <div style="font-size:12px;color:var(--text2);margin-bottom:4px;">${_esc(structLabel)}</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:4px;">${structLabel}</div>
         <button onclick="aiwEditStructures(${idx})" style="font-size:11px;padding:5px 10px;border:1px solid var(--border);background:var(--surface2);border-radius:6px;cursor:pointer;color:var(--text2);">✏️ Edit structures</button>
+        ${incompleteWarning}
       </div>`;
     }
 
@@ -6867,8 +7168,13 @@ function _aiwRenderServices() {
 function _aiwRenderServiceFields(svc, svcIdx, cat) {
   const answers = svc.answers || {};
   const confidence = svc.confidence || {};
-  const missingReq = svc.missingRequiredFields || [];
-  const missingRec = svc.missingRecommendedFields || [];
+  // Use authoritative readiness evaluator for field highlighting
+  const readiness = _aiwEvaluateServiceReadiness(svc);
+  const missingReq = readiness.missingFields.map(f => f.field);
+  const missingRec = (cat.recommendedForPricing || []).filter(f => {
+    const v = answers[f];
+    return v === null || v === undefined || v === '';
+  });
 
   let html = '';
   Object.entries(cat.fields).forEach(([fieldName, fieldDef]) => {
@@ -6961,31 +7267,39 @@ function aiwUpdateField(svcIdx, fieldName, value) {
   const svc = activeServices[svcIdx];
   if (!svc) return;
   if (!svc.answers) svc.answers = {};
-  svc.answers[fieldName] = value === '' ? null : (isNaN(Number(value)) ? value : (value === '' ? null : value));
 
-  // Re-compute missing fields
+  // Parse value appropriately
+  const numVal = Number(value);
+  svc.answers[fieldName] = value === '' ? null : (!isNaN(numVal) && value !== '' && fieldName !== 'debris' && fieldName !== 'last_clean' && fieldName !== 'last_wash' ? numVal : value);
+  // For enum fields, empty string means null (not set)
   const cat = AIW_CATALOGUE[svc.serviceKey];
+  if (cat?.fields[fieldName]?.type === 'enum') {
+    svc.answers[fieldName] = value === '' ? null : value;
+  }
+
+  // Record CSR provenance for this field
+  if (!_aiwState.provenance) _aiwState.provenance = {};
+  if (!_aiwState.provenance[svc.serviceKey]) _aiwState.provenance[svc.serviceKey] = {};
+  _aiwState.provenance[svc.serviceKey][fieldName] = 'csr';
+
+  // Use single authoritative readiness evaluator
   if (cat) {
-    svc.missingRequiredFields = cat.requiredForPricing.filter(f => {
-      const v = svc.answers[f];
-      return v === null || v === undefined || v === '';
-    });
+    const readiness = _aiwEvaluateServiceReadiness(svc);
+    svc.missingRequiredFields = readiness.missingFields.map(f => f.field);
     svc.missingRecommendedFields = cat.recommendedForPricing.filter(f => {
       const v = svc.answers[f];
       return v === null || v === undefined || v === '';
     });
-    // Re-check escalations
     svc.escalations = (cat.escalations || [])
       .filter(e => svc.answers[e.field] === e.value)
       .map(e => ({ field: e.field, value: e.value, action: e.action }));
-    svc.readyForPricing = svc.missingRequiredFields.length === 0 && svc.escalations.length === 0;
+    svc.readyForPricing = readiness.ready;
   }
 
   _aiwSaveToLS();
   // Update pills and readiness without full re-render (preserves focus)
   _aiwRenderReadiness();
   _aiwRenderMissing();
-  // Update the card status pill
   _aiwUpdateServicePill(svcIdx, svc);
 }
 
@@ -6995,9 +7309,10 @@ function _aiwUpdateServicePill(idx, svc) {
   const pillEl = card.querySelector('.aiw-pill');
   if (!pillEl) return;
   const hasEscalation = (svc.escalations || []).length > 0;
+  const readiness = _aiwEvaluateServiceReadiness(svc);
   if (svc._unsupported) { pillEl.className = 'aiw-pill manual'; pillEl.textContent = 'Manual required'; }
   else if (hasEscalation) { pillEl.className = 'aiw-pill escalate'; pillEl.textContent = '⚠ Escalation'; }
-  else if (svc.readyForPricing) { pillEl.className = 'aiw-pill ready'; pillEl.textContent = '✓ Ready'; }
+  else if (readiness.ready) { pillEl.className = 'aiw-pill ready'; pillEl.textContent = '✓ Ready'; }
   else { pillEl.className = 'aiw-pill missing'; pillEl.textContent = 'Info needed'; }
 }
 
@@ -7086,30 +7401,61 @@ function _aiwRenderMissing() {
   if (!card || !content) return;
 
   const activeServices = (_aiwState?.services || []).filter(s => !s._removed && !s._unsupported);
-  const allMissingReq = [];
-  const allMissingRec = [];
-  const allQuestions = [];
-  const allEscalations = [];
   const unsupportedRequests = _aiwState?.extraction?.unsupportedRequests || [];
 
-  activeServices.forEach(svc => {
+  // Use single authoritative readiness engine
+  const allBlockingIssues = [];
+  const allMissingReq = [];
+  const allMissingRec = [];
+  const allUnresolvedStructures = [];
+  const allSuggestedQ = [];
+  const allEscalations = [];
+
+  activeServices.forEach((svc, activeIdx) => {
     const cat = AIW_CATALOGUE[svc.serviceKey];
     const name = cat?.displayName || svc.serviceKey;
-    (svc.missingRequiredFields || []).forEach(f => {
-      const fieldLabel = cat?.fields[f]?.label || f;
-      const q = cat?.fields[f]?.suggestedQuestion || null;
-      allMissingReq.push({ service: name, field: f, label: fieldLabel, question: q });
+    const readiness = _aiwEvaluateServiceReadiness(svc);
+    // Resolve the ACTUAL index in _aiwState.services (not activeIdx which skips removed ones)
+    const actualSvcIdx = (_aiwState.services || []).filter(s => !s._removed).indexOf(svc);
+
+    readiness.missingFields.forEach(({ field, label }) => {
+      const q = cat?.fields[field]?.suggestedQuestion || null;
+      allMissingReq.push({ service: name, field, label, question: q });
     });
-    (svc.missingRecommendedFields || []).forEach(f => {
-      const fieldLabel = cat?.fields[f]?.label || f;
-      const q = cat?.fields[f]?.suggestedQuestion || null;
-      allMissingRec.push({ service: name, field: f, label: fieldLabel, question: q });
+
+    readiness.unresolvedStructures.forEach(s => {
+      allUnresolvedStructures.push({ service: name, svcIdx: actualSvcIdx, serviceKey: svc.serviceKey, ...s });
     });
-    (svc.suggestedQuestions || []).forEach(q => allQuestions.push({ service: name, q }));
-    (svc.escalations || []).forEach(e => allEscalations.push({ service: name, ...e }));
+
+    readiness.blockingIssues.forEach(issue => {
+      // Categorise: escalation vs other vs structure
+      if (issue.includes('Custom quote') || issue.includes('In-person') || issue.includes('reroute') || issue.includes('Terra cotta')) {
+        allEscalations.push({ service: name, issue });
+      } else if (issue === 'structureMentionUnconfigured') {
+        // Handled separately via unresolvedStructures (kind: 'mentioned')
+      } else if (!issue.includes('structure') && !issue.includes('last cleaned')) {
+        allBlockingIssues.push({ service: name, issue });
+      }
+    });
+
+    // Recommended fields (from cat, not readiness — these are softer)
+    (cat?.recommendedForPricing || []).forEach(f => {
+      const v = svc.answers?.[f];
+      if (v === null || v === undefined || v === '') {
+        const fieldLabel = cat?.fields[f]?.label || f;
+        const q = cat?.fields[f]?.suggestedQuestion || null;
+        allMissingRec.push({ service: name, field: f, label: fieldLabel, question: q });
+      }
+    });
+
+    // Suggested questions from AI (only show if field is still actually missing)
+    (svc.suggestedQuestions || []).forEach(q => {
+      allSuggestedQ.push({ service: name, q });
+    });
   });
 
-  const hasAnything = allMissingReq.length || allMissingRec.length || allQuestions.length || allEscalations.length || unsupportedRequests.length;
+  const hasAnything = allEscalations.length || allBlockingIssues.length || allMissingReq.length
+    || allUnresolvedStructures.length || allMissingRec.length || allSuggestedQ.length || unsupportedRequests.length;
   card.style.display = hasAnything ? 'block' : 'none';
   if (!hasAnything) return;
 
@@ -7118,36 +7464,70 @@ function _aiwRenderMissing() {
   if (allEscalations.length > 0) {
     html += `<div class="aiw-section-label">Escalations</div>`;
     allEscalations.forEach(e => {
-      const msgs = {
-        'custom-quote': 'Custom quote required — escalate to Simon',
-        'in-person-quote': 'In-person quote — book a site visit',
-        'reroute-to-roof-biocide': 'Reroute to Roof Biocide Treatment'
-      };
-      html += `<div class="aiw-escalation-box" style="margin-bottom:6px;"><strong>${_esc(e.service)}:</strong> ${_esc(msgs[e.action] || e.action)}</div>`;
+      html += `<div class="aiw-escalation-box" style="margin-bottom:6px;"><strong>${_esc(e.service)}:</strong> ${_esc(e.issue)}</div>`;
+    });
+  }
+
+  if (allUnresolvedStructures.length > 0) {
+    html += `<div class="aiw-section-label" style="margin-top:10px;color:var(--amber);">⛔ Blocking — Additional structures</div>`;
+    allUnresolvedStructures.forEach(s => {
+      if (s.kind === 'mentioned') {
+        // Structure detected in notes but not yet configured — show dismissal option
+        const termsStr = _esc((s.terms || []).join(', '));
+        html += `<div class="aiw-missing-item required" style="flex-direction:column;align-items:flex-start;gap:6px;">
+          <div style="display:flex;align-items:flex-start;gap:8px;width:100%;">
+            <span style="font-size:16px;flex-shrink:0;">🏚</span>
+            <div style="flex:1;">
+              <div style="font-size:12px;font-weight:700;color:var(--text);">${_esc(s.service)}: structure mentioned in notes</div>
+              <div style="font-size:12px;color:var(--amber);margin-top:2px;">An additional structure was mentioned but has not been configured for pricing.</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px;">Detected: ${termsStr}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;width:100%;padding-left:24px;">
+            <button onclick="aiwEditStructures(${s.svcIdx})" style="flex:1;font-size:11px;font-weight:600;padding:5px 8px;border:1px solid var(--ss-green);background:var(--green-bg);color:var(--ss-green);border-radius:6px;cursor:pointer;">✏️ Configure structure</button>
+            <button onclick="aiwDismissStructureMention('${_esc(s.serviceKey)}')" style="font-size:11px;padding:5px 8px;border:1px solid var(--border);background:var(--surface2);color:var(--text3);border-radius:6px;cursor:pointer;white-space:nowrap;">Not part of this quote</button>
+          </div>
+        </div>`;
+      } else {
+        // Incomplete configured structure — missing last-cleaned
+        html += `<div class="aiw-missing-item required" onclick="aiwEditStructures(${s.svcIdx})" style="cursor:pointer;">
+          <span style="font-size:16px;">🏚</span>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:var(--text);">${_esc(s.service)}: ${_esc(s.type)}</div>
+            <div class="aiw-question-text" style="font-size:12px;color:var(--amber);margin-top:2px;">Missing "last cleaned" — required before pricing. Click to edit.</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px;">"When were the gutters on this structure last cleaned?"</div>
+          </div>
+        </div>`;
+      }
     });
   }
 
   if (allMissingReq.length > 0) {
     html += `<div class="aiw-section-label" style="margin-top:10px;">Required before pricing</div>`;
     allMissingReq.forEach(item => {
+      // Use user-facing label — map "debris" to "last cleaned" in question display
+      const displayLabel = item.field === 'debris' ? 'Last cleaned' : item.label;
+      const displayQuestion = item.question || (item.field === 'debris' ? 'When were the gutters last cleaned, or have they ever been done?' : null);
       const focusAttr = `onclick="aiwFocusField('${_esc(item.service)}','${_esc(item.field)}')"`;
       html += `<div class="aiw-missing-item required" ${focusAttr}>
         <span style="font-size:16px;">❗</span>
         <div>
-          <div style="font-size:12px;font-weight:700;color:var(--text);">${_esc(item.service)}: ${_esc(item.label)}</div>
-          ${item.question ? `<div class="aiw-question-text" style="font-size:12px;color:var(--text2);margin-top:2px;">"${_esc(item.question)}"</div>` : ''}
+          <div style="font-size:12px;font-weight:700;color:var(--text);">${_esc(item.service)}: ${_esc(displayLabel)}</div>
+          ${displayQuestion ? `<div class="aiw-question-text" style="font-size:12px;color:var(--text2);margin-top:2px;">"${_esc(displayQuestion)}"</div>` : ''}
         </div>
       </div>`;
     });
   }
 
-  // Consolidate suggested questions from AI
-  const allSuggestedQ = [];
-  activeServices.forEach(svc => {
-    const cat = AIW_CATALOGUE[svc.serviceKey];
-    const name = cat?.displayName || svc.serviceKey;
-    (svc.suggestedQuestions || []).forEach(q => allSuggestedQ.push({ service: name, q }));
-  });
+  if (allBlockingIssues.length > 0) {
+    html += `<div class="aiw-section-label" style="margin-top:10px;">Other blocking issues</div>`;
+    allBlockingIssues.forEach(({ service, issue }) => {
+      html += `<div style="padding:7px 10px;background:var(--red-bg);border:1px solid var(--red);border-radius:6px;font-size:12px;margin-bottom:5px;">
+        <strong>${_esc(service)}:</strong> ${_esc(issue)}
+      </div>`;
+    });
+  }
+
   if (allSuggestedQ.length > 0) {
     html += `<div class="aiw-section-label" style="margin-top:10px;">💬 Suggested next questions</div>`;
     allSuggestedQ.forEach(({ service, q }) => {
@@ -7278,42 +7658,54 @@ function _aiwRenderReadiness() {
   card.style.display = _aiwState?.extraction || activeServices.length > 0 ? 'block' : 'none';
 
   if (activeServices.length === 0) {
-    bar.className = 'aiw-readiness-bar partial';
+    if (bar) bar.className = 'aiw-readiness-bar partial';
     if (icon) icon.textContent = '⏳';
     if (label) label.textContent = 'No services added yet';
     if (buildBtn) buildBtn.disabled = true;
     if (hint) hint.textContent = '';
+    _aiwUpdateSessionStatus();
     return;
   }
 
-  const hasEscalations = activeServices.some(s => (s.escalations || []).length > 0);
-  const allReady = activeServices.every(s => s.readyForPricing);
-  const anyReady = activeServices.some(s => s.readyForPricing);
-  const totalMissing = activeServices.reduce((n, s) => n + (s.missingRequiredFields || []).length, 0);
+  // Use the single authoritative readiness engine for every service
+  const readinessResults = activeServices.map(s => _aiwEvaluateServiceReadiness(s));
+  const allReady = readinessResults.every(r => r.ready);
+  const hasEscalations = readinessResults.some(r => r.blockingIssues.some(i =>
+    i.includes('Custom quote') || i.includes('In-person quote') || i.includes('reroute')
+  ));
+  const totalMissing = readinessResults.reduce((n, r) => n + r.missingFields.length + r.unresolvedStructures.length, 0);
+  const totalBlocking = readinessResults.reduce((n, r) => n + r.blockingIssues.length, 0);
   const hasCustomer = _aiwState?.customer?.name && _aiwState?.property?.suburb;
 
-  if (hasEscalations) {
-    bar.className = 'aiw-readiness-bar blocked';
+  if (hasEscalations && !allReady) {
+    if (bar) bar.className = 'aiw-readiness-bar blocked';
     if (icon) icon.textContent = '🚨';
     if (label) label.textContent = 'Escalation — manual action required';
-    if (buildBtn) buildBtn.disabled = !isOwner; // owner can override
+    if (buildBtn) buildBtn.disabled = !isOwner;
     if (hint) hint.textContent = isOwner ? 'Owner override available' : 'Resolve escalations before building';
+  } else if (totalBlocking > 0) {
+    if (bar) bar.className = 'aiw-readiness-bar blocked';
+    if (icon) icon.textContent = '⛔';
+    if (label) label.textContent = `${totalBlocking} blocking issue${totalBlocking > 1 ? 's' : ''} — see panel below`;
+    if (buildBtn) buildBtn.disabled = !isOwner;
+    if (hint) hint.textContent = isOwner ? 'Owner override available' : 'Resolve blocking issues before building';
   } else if (allReady && hasCustomer) {
-    bar.className = 'aiw-readiness-bar ready';
+    if (bar) bar.className = 'aiw-readiness-bar ready';
     if (icon) icon.textContent = '✓';
     if (label) label.textContent = 'Ready to build quote';
     if (buildBtn) buildBtn.disabled = false;
     if (hint) hint.textContent = '';
   } else {
-    bar.className = 'aiw-readiness-bar partial';
+    if (bar) bar.className = 'aiw-readiness-bar partial';
     if (icon) icon.textContent = '⏳';
     const issues = [];
     if (totalMissing > 0) issues.push(`${totalMissing} required field${totalMissing > 1 ? 's' : ''} missing`);
     if (!hasCustomer) issues.push('customer name and suburb needed');
-    if (label) label.textContent = 'Information required: ' + issues.join(', ');
+    if (label) label.textContent = issues.length > 0 ? 'Information required: ' + issues.join(', ') : 'Checking fields…';
     if (buildBtn) buildBtn.disabled = true;
     if (hint) hint.textContent = 'Fill required fields above to enable Build Quote';
   }
+  _aiwUpdateSessionStatus();
 }
 
 // ── Build quote — Phase 4 full implementation ──────────────────────────────
@@ -7337,25 +7729,31 @@ function aiwBuildQuote() {
   // — Sync customer info to clientInfo so calcQuote travel lookup works —
   _aiwSyncToClientInfo();
 
-  // — Final field validation —
+  // — Final validation using authoritative readiness engine —
   const validationErrors = [];
   activeServices.forEach(svc => {
     if (!AIW_VALID_SERVICE_KEYS.includes(svc.serviceKey)) {
       validationErrors.push(`Unknown service key: ${svc.serviceKey}`);
       return;
     }
-    const cat = AIW_CATALOGUE[svc.serviceKey];
-    if (!cat) return;
     const hasBlockingEscalation = (svc.escalations || []).some(e =>
       e.action === 'custom-quote' || e.action === 'in-person-quote'
     );
     if (hasBlockingEscalation) return; // handled below as special result
-    cat.requiredForPricing.forEach(f => {
-      const v = svc.answers?.[f];
-      if (v === null || v === undefined || v === '') {
-        validationErrors.push(`${cat.displayName}: ${cat.fields[f]?.label || f} is required`);
-      }
-    });
+
+    const readiness = _aiwEvaluateServiceReadiness(svc);
+    if (!readiness.ready) {
+      const cat = AIW_CATALOGUE[svc.serviceKey];
+      readiness.missingFields.forEach(({ label }) => {
+        validationErrors.push(`${cat?.displayName || svc.serviceKey}: ${label} is required`);
+      });
+      readiness.unresolvedStructures.forEach(s => {
+        validationErrors.push(`${cat?.displayName || svc.serviceKey}: "${s.type}" — last cleaned is required for pricing`);
+      });
+      readiness.blockingIssues.filter(i => !i.includes('escalat')).forEach(issue => {
+        validationErrors.push(`${cat?.displayName || svc.serviceKey}: ${issue}`);
+      });
+    }
   });
 
   if (validationErrors.length > 0 && !isOwner) {
@@ -7750,6 +8148,7 @@ function _aiwReturnToWorkspace() {
 function _aiwMarkQuoteStale() {
   if (!_aiwState?.preparedQuote) return;
   _aiwState.preparedQuote.stale = true;
+  _aiwUpdateSessionStatus();
   const result = document.getElementById('aiw-quote-result');
   if (result) {
     const staleEl = result.querySelector('#aiw-stale-warning');
@@ -8229,8 +8628,23 @@ function aiwAddStructure(svcIdx) {
   if (!svc.answers) svc.answers = {};
   if (!Array.isArray(svc.answers.structures)) svc.answers.structures = [];
   svc.answers.structures.push({ type, gutter_guard: guard, debris: debris || null });
+  // Record CSR provenance for structures
+  if (!_aiwState.provenance) _aiwState.provenance = {};
+  if (!_aiwState.provenance[svc.serviceKey]) _aiwState.provenance[svc.serviceKey] = {};
+  _aiwState.provenance[svc.serviceKey]['structures'] = 'csr';
+  // Clear any prior structure-mention dismissal — CSR is now actively configuring a structure
+  _aiwClearStructureDismissalIfResolved(svc.serviceKey, svc.answers.structures);
+  // Re-evaluate readiness
+  const cat = AIW_CATALOGUE[svc.serviceKey];
+  if (cat) {
+    const readiness = _aiwEvaluateServiceReadiness(svc);
+    svc.missingRequiredFields = readiness.missingFields.map(f => f.field);
+    svc.readyForPricing = readiness.ready;
+  }
   _aiwSaveToLS();
   _aiwMarkQuoteStale();
+  _aiwRenderReadiness();
+  _aiwRenderMissing();
   // Re-render just the list inside the modal
   const list = document.getElementById('aiw-struct-list');
   if (list) {
@@ -8250,8 +8664,17 @@ function aiwRemoveStructure(svcIdx, structIdx) {
   const svc = activeServices[svcIdx];
   if (!svc || !Array.isArray(svc.answers?.structures)) return;
   svc.answers.structures.splice(structIdx, 1);
+  // Re-evaluate readiness after removal
+  const cat = AIW_CATALOGUE[svc.serviceKey];
+  if (cat) {
+    const readiness = _aiwEvaluateServiceReadiness(svc);
+    svc.missingRequiredFields = readiness.missingFields.map(f => f.field);
+    svc.readyForPricing = readiness.ready;
+  }
   _aiwSaveToLS();
   _aiwMarkQuoteStale();
+  _aiwRenderReadiness();
+  _aiwRenderMissing();
   aiwEditStructures(svcIdx); // re-open modal refreshed
 }
 
@@ -8278,9 +8701,52 @@ clearAndNewQuote = function() {
   aiwResetSession();
 };
 
+// ── New Quote / Abandon Quote ──────────────────────────────────────────────
+
+function aiwRequestNewQuote() {
+  // If no meaningful state exists, reset immediately
+  const hasData = _aiwState && (
+    _aiwState.currentNotes?.trim() ||
+    (_aiwState.notesHistory || []).length > 0 ||
+    _aiwState.extraction ||
+    (_aiwState.services || []).length > 0 ||
+    _aiwState.customer?.name ||
+    _aiwState.property?.suburb
+  );
+
+  if (!hasData) {
+    aiwResetSession();
+    return;
+  }
+
+  // Show confirmation modal
+  const existing = document.getElementById('aiw-new-quote-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'aiw-new-quote-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:24px;max-width:400px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+      <div style="font-size:18px;font-weight:800;margin-bottom:8px;">Start a new quote?</div>
+      <div style="font-size:13px;color:#555;margin-bottom:20px;line-height:1.5;">This will discard the current customer details, notes, extracted services, reviewed answers and quote preview.<br><br><strong>Already saved quotes in the CRM are not affected.</strong></div>
+      <div style="display:flex;gap:8px;">
+        <button onclick="document.getElementById('aiw-new-quote-modal').remove()" style="flex:1;background:#f3f4f6;border:none;border-radius:10px;padding:12px;font-size:14px;cursor:pointer;color:#555;font-weight:600;">Cancel</button>
+        <button onclick="document.getElementById('aiw-new-quote-modal').remove();aiwResetSession();" style="flex:1;background:#dc2626;color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;">Start New Quote</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
 function aiwResetSession() {
   _aiwClearLS();
   _aiwState = _aiwNewState();
+  // Close any open modals
+  ['aiw-new-quote-modal','aiw-struct-modal','address-required-modal'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  });
   // Clear multiServiceItems so a fresh quote is clean
   multiServiceItems = [];
   const banner = document.getElementById('multi-svc-banner');
@@ -8319,6 +8785,7 @@ function aiwResetSession() {
     document.getElementById('ai-workspace-view').style.display = 'block';
     document.getElementById('service-select-view').style.display = 'none';
   }
+  _aiwUpdateSessionStatus();
 }
 
 // ── Initialise on page load ────────────────────────────────────────────────

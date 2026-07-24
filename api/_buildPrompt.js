@@ -18,6 +18,7 @@ function buildSystemPrompt() {
         const values = spec.allowedValues
           ? `Allowed values: ${spec.allowedValues.map(v => `"${v}"`).join(' | ')}`
           : spec.type === 'number' ? 'Type: number (positive integer or decimal)'
+          : spec.type === 'array' ? 'Type: array of structure objects (see ADDITIONAL STRUCTURES rules below)'
           : 'Type: string';
         const hints = spec.extractionHints ? '\n      Hints: ' + spec.extractionHints.join(' | ') : '';
         return `    - ${fieldName} [${required}]: ${values}${hints}`;
@@ -83,9 +84,60 @@ SUBURB HANDLING:
 - For house-washing: suburbs within 30km of Kilmore trigger "Within 30km of Kilmore → In-person quote"
 
 HANDLING AMBIGUITY:
-- "medium debris" without a time reference → do not map to a debris enum; instead flag as missing with suggested question "When were the gutters last cleaned?"
+- "medium debris" without a time reference → do NOT map to a debris/last-cleaned enum value; flag as missing with suggested question "When were the gutters last cleaned?"
 - "about 55 metres of guttering" → set gutterMetresExact to 55, leave bedrooms as null
 - Pergola at rear → note in scopeNotes and access field; does not automatically mean difficult access
+
+DEBRIS / LAST CLEANED TERMINOLOGY:
+- The field named "debris" in gutter-cleaning and bird-proofing represents TIME since last cleaned, not the amount of debris
+- Always interpret "debris" questions as "when were the gutters last cleaned?"
+- Allowed values are: "Less than 12 months" | "1–3 years ago" | "3+ years ago / never"
+- "Last cleaned about 2 years ago" → "1–3 years ago"
+- "Never been done" or "never cleaned" → "3+ years ago / never"
+- "Medium debris" alone is ambiguous — do NOT set debris; ask when last cleaned
+- Do not infer debris from the word "medium" — "medium" is a size descriptor for sheds, NOT a debris level
+
+ADDITIONAL STRUCTURES (gutter-cleaning only) — CRITICAL RULES:
+The "structures" field is an ARRAY of additional buildings on the property (sheds, bungalows, granny flats) that also have gutters.
+
+STRUCTURE SCHEMA — each item must have exactly:
+  { "type": <one of the allowed type values>, "gutter_guard": "Yes" | "No" | null, "debris": <time-based value or null> }
+
+Allowed type values (use EXACTLY):
+  "Small shed (~20m guttering)"
+  "Medium shed (~28m guttering)"
+  "Large shed (~40m guttering)"
+  "Bungalow / Granny flat (~50m guttering)"
+
+SIZE MAPPING — "medium" modifies SHED SIZE, not debris level:
+  "small shed" → type: "Small shed (~20m guttering)"
+  "medium shed" → type: "Medium shed (~28m guttering)"
+  "large shed" → type: "Large shed (~40m guttering)"
+  "big shed" → type: "Large shed (~40m guttering)"
+  "granny flat", "bungalow", "second dwelling", "studio" → type: "Bungalow / Granny flat (~50m guttering)"
+  "shed" with no size → type: "Small shed (~20m guttering)" (smallest safe assumption — flag in assumptions)
+  "garage" → Small shed if small, Medium or Large if larger — flag in assumptions
+
+STRUCTURE EXTRACTION RULES:
+1. If a shed, garage, bungalow, granny flat, or separate structure is mentioned as needing gutters cleaned → add a structure entry
+2. "medium shed" → type = "Medium shed (~28m guttering)", NOT a debris indicator
+3. "shed with no gutter guard" → gutter_guard: "No"
+4. "medium shed no gutter guard" → type: "Medium shed (~28m guttering)", gutter_guard: "No", debris: null (MISSING — ask when last cleaned)
+5. If gutter guard status for a structure is not stated → gutter_guard: null
+6. If last-cleaned for a structure is not stated → debris: null
+7. NEVER leave a mentioned structure only in scopeNotes — it MUST appear in answers.structures
+8. If you cannot confidently map to a structure type → use the smallest type that fits and note assumption
+
+BLOCKING INCOMPLETE STRUCTURES:
+- If a structure is detected but debris (last-cleaned) is null → the structure IS still added to answers.structures with debris: null
+- A null debris on any structure will be flagged as a missing field by the application
+- Do NOT omit the structure from answers.structures just because some sub-fields are unknown
+- Always add the structure with whatever you know; leave unknown sub-fields as null
+
+SCOPE NOTES vs STRUCTURED DATA:
+- Scope notes are supplementary text only — they do NOT substitute for structured answers
+- Never rely on scopeNotes as the place to "mention" a shed — it must be in answers.structures
+- If a structure is in scopeNotes but NOT in answers.structures, that is an extraction error
 
 MULTIPLE SERVICES:
 - Return one service entry per requested service
@@ -118,6 +170,7 @@ You must respond with a single valid JSON object matching this schema exactly. D
       "answers": {
         // Only fields valid for this service. Use exact field names from the catalogue.
         // Use null for unknown fields, not omission.
+        // For gutter-cleaning: "structures" must be an array ([] if none, not null)
       },
       "scopeNotes": string,
       "confidence": {
@@ -174,7 +227,7 @@ function buildUserMessage({ notes, previousNotes = [], existingExtraction = null
   }
 
   parts.push('');
-  parts.push('Extract the structured information from these notes and return a single JSON object matching the required schema. Do not include any text outside the JSON.');
+  parts.push('Extract the structured information from these notes and return a single JSON object matching the required schema. Do not include any text outside the JSON. For gutter-cleaning, ensure every mentioned shed/structure appears in answers.structures as a structured entry, never only in scopeNotes.');
 
   return parts.join('\n');
 }
