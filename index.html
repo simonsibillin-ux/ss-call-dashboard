@@ -752,6 +752,568 @@
   .cal-cell.today .cal-day-num { color: var(--ss-green); }
   .cal-dot { font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--ss-green); font-weight:600; margin-top:1px; }
   .cal-more { font-size:9px; color:var(--text3); margin-top:1px; }
+
+  /* ═══════════════════════════════════════════════════════════════
+     AI QUOTE WORKSPACE — Phase 3
+     All selectors prefixed with .aiw- to avoid collisions
+  ═══════════════════════════════════════════════════════════════ */
+
+  /* Mode selector tabs */
+  .aiw-mode-bar {
+    display: flex;
+    gap: 0;
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    width: fit-content;
+  }
+  .aiw-mode-tab {
+    padding: 9px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--surface2);
+    color: var(--text2);
+    border: none;
+    transition: background 0.15s, color 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .aiw-mode-tab.active {
+    background: var(--ss-green);
+    color: #fff;
+  }
+  .aiw-mode-tab:not(.active):hover { background: #e8e8ec; }
+
+  /* Two-column workspace layout */
+  .aiw-workspace {
+    display: grid;
+    grid-template-columns: 420px 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  @media (max-width: 900px) {
+    .aiw-workspace { grid-template-columns: 1fr; }
+  }
+
+  /* Left panel */
+  .aiw-left { display: flex; flex-direction: column; gap: 12px; }
+
+  /* Notes textarea */
+  .aiw-notes-textarea {
+    width: 100%;
+    min-height: 160px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 13px;
+    resize: vertical;
+    line-height: 1.55;
+    color: var(--text);
+    background: #fff;
+    transition: border-color 0.15s;
+    box-sizing: border-box;
+  }
+  .aiw-notes-textarea:focus {
+    outline: none;
+    border-color: var(--ss-green);
+    box-shadow: 0 0 0 2px rgba(46,125,50,0.1);
+  }
+  .aiw-notes-textarea::placeholder { color: var(--text3); }
+
+  /* Analyse button */
+  .aiw-analyse-btn {
+    background: var(--ss-green);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 11px 20px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.15s;
+  }
+  .aiw-analyse-btn:hover:not(:disabled) { background: #1b5e20; }
+  .aiw-analyse-btn:disabled { background: #9e9e9e; cursor: not-allowed; }
+
+  .aiw-btn-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .aiw-clear-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text2);
+    cursor: pointer;
+  }
+  .aiw-clear-btn:hover { background: var(--surface2); }
+
+  .aiw-char-count {
+    font-size: 11px;
+    color: var(--text3);
+    margin-left: auto;
+  }
+  .aiw-char-count.warn { color: var(--amber); }
+
+  /* Status banner inside left panel */
+  .aiw-status-banner {
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .aiw-status-banner.loading { background: #e3f2fd; color: #1565c0; }
+  .aiw-status-banner.error   { background: var(--red-bg); color: var(--red); }
+  .aiw-status-banner.success { background: var(--green-bg); color: var(--green); }
+  .aiw-status-banner.recover { background: var(--amber-bg); color: var(--amber); }
+
+  /* Notes history */
+  .aiw-history-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 9px 11px;
+    font-size: 12px;
+    color: var(--text2);
+    line-height: 1.5;
+  }
+  .aiw-history-item .aiw-hist-meta {
+    font-size: 10px;
+    color: var(--text3);
+    margin-bottom: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .aiw-history-item .aiw-hist-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 80px;
+    overflow: hidden;
+    position: relative;
+  }
+  .aiw-history-item .aiw-hist-text.expanded { max-height: none; }
+  .aiw-hist-expand {
+    font-size: 10px;
+    color: var(--ss-green);
+    cursor: pointer;
+    font-weight: 600;
+    margin-top: 2px;
+    display: inline-block;
+  }
+
+  /* Right panel */
+  .aiw-right { display: flex; flex-direction: column; gap: 12px; }
+
+  /* Section label */
+  .aiw-section-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text3);
+    margin-bottom: 8px;
+  }
+
+  /* Customer / property editable fields */
+  .aiw-field-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .aiw-field-group { display: flex; flex-direction: column; gap: 3px; }
+  .aiw-field-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text3);
+  }
+  .aiw-field-input {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--text);
+    background: #fff;
+    box-sizing: border-box;
+    transition: border-color 0.12s;
+  }
+  .aiw-field-input:focus { outline: none; border-color: var(--ss-green); }
+  .aiw-field-input.ai-filled { border-color: #a5d6a7; background: #f9fff9; }
+  .aiw-field-input.uncertain { border-color: #ffe082; background: #fffde7; }
+
+  /* Service card */
+  .aiw-service-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    overflow: hidden;
+  }
+  .aiw-service-card.has-escalation { border-color: #ef9a9a; }
+
+  .aiw-service-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    gap: 8px;
+  }
+  .aiw-service-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .aiw-service-basis {
+    font-size: 10px;
+    color: var(--text3);
+    font-weight: 500;
+  }
+  .aiw-service-remove {
+    border: none;
+    background: none;
+    color: var(--text3);
+    cursor: pointer;
+    font-size: 15px;
+    padding: 2px 4px;
+    border-radius: 4px;
+    line-height: 1;
+    margin-left: auto;
+  }
+  .aiw-service-remove:hover { background: var(--red-bg); color: var(--red); }
+
+  .aiw-service-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+
+  /* Status pill */
+  .aiw-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .aiw-pill.ready   { background: var(--green-bg); color: var(--green); }
+  .aiw-pill.missing { background: var(--amber-bg); color: var(--amber); }
+  .aiw-pill.escalate { background: var(--red-bg); color: var(--red); }
+  .aiw-pill.manual  { background: var(--blue-bg); color: var(--blue); }
+
+  /* Field rows inside service card */
+  .aiw-answers-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .aiw-answer-field { display: flex; flex-direction: column; gap: 3px; }
+  .aiw-answer-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text3);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .aiw-req-marker { color: var(--red); font-size: 10px; }
+  .aiw-answer-select, .aiw-answer-input {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--text);
+    background: #fff;
+    box-sizing: border-box;
+    transition: border-color 0.12s;
+  }
+  .aiw-answer-select:focus, .aiw-answer-input:focus {
+    outline: none;
+    border-color: var(--ss-green);
+  }
+  .aiw-answer-select.ai-filled, .aiw-answer-input.ai-filled { border-color: #a5d6a7; background: #f9fff9; }
+  .aiw-answer-select.missing-required, .aiw-answer-input.missing-required { border-color: #ef9a9a; background: #fff5f5; }
+  .aiw-answer-select.uncertain { border-color: #ffe082; }
+
+  .aiw-scope-notes {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 12px;
+    resize: vertical;
+    min-height: 54px;
+    box-sizing: border-box;
+    color: var(--text);
+    line-height: 1.4;
+  }
+  .aiw-scope-notes:focus { outline: none; border-color: var(--ss-green); }
+
+  /* Evidence / source collapsible */
+  .aiw-evidence-toggle {
+    font-size: 10px;
+    color: var(--text3);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .aiw-evidence-toggle:hover { color: var(--ss-green); }
+  .aiw-evidence-panel {
+    background: #f8f9fa;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 11px;
+    color: var(--text2);
+    display: none;
+  }
+  .aiw-evidence-panel.open { display: block; }
+  .aiw-evidence-row { margin-bottom: 4px; }
+  .aiw-evidence-key { font-weight: 700; color: var(--text3); }
+  .aiw-evidence-val { color: var(--text); font-style: italic; }
+
+  /* Escalation warning box */
+  .aiw-escalation-box {
+    background: var(--red-bg);
+    border: 1px solid #ef9a9a;
+    border-radius: 7px;
+    padding: 9px 11px;
+    font-size: 12px;
+    color: var(--red);
+    font-weight: 600;
+  }
+
+  /* Metres exact display */
+  .aiw-metres-banner {
+    background: #e3f2fd;
+    border: 1px solid #90caf9;
+    border-radius: 7px;
+    padding: 8px 11px;
+    font-size: 12px;
+    color: #1565c0;
+  }
+  .aiw-metres-banner strong { font-size: 14px; }
+
+  /* Missing info panel */
+  .aiw-missing-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 7px;
+    margin-bottom: 5px;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .aiw-missing-item:hover { background: var(--surface2); }
+  .aiw-missing-item.required { border-left: 3px solid var(--red); }
+  .aiw-missing-item.recommended { border-left: 3px solid var(--amber); }
+  .aiw-missing-item.optional { border-left: 3px solid var(--border); }
+
+  .aiw-question-box {
+    background: var(--blue-bg);
+    border: 1px solid #90caf9;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+  }
+  .aiw-question-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #1565c0;
+    margin-bottom: 4px;
+  }
+  .aiw-question-text {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  /* Readiness status */
+  .aiw-readiness-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .aiw-readiness-bar.ready   { background: var(--green-bg); color: var(--green); }
+  .aiw-readiness-bar.partial { background: var(--amber-bg); color: var(--amber); }
+  .aiw-readiness-bar.blocked { background: var(--red-bg);   color: var(--red); }
+
+  /* Build quote button */
+  .aiw-build-btn {
+    width: 100%;
+    padding: 13px;
+    background: #14532d;
+    color: #fff;
+    border: none;
+    border-radius: 9px;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: background 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .aiw-build-btn:hover:not(:disabled) { background: #0d3b1e; }
+  .aiw-build-btn:disabled { background: #9e9e9e; cursor: not-allowed; }
+
+  .aiw-add-service-btn {
+    width: 100%;
+    padding: 9px;
+    background: none;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    color: var(--text2);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .aiw-add-service-btn:hover { border-color: var(--ss-green); color: var(--ss-green); }
+
+  /* Add service picker popover */
+  .aiw-service-picker {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 10px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .aiw-service-pick-btn {
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--surface2);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    text-align: left;
+    transition: all 0.12s;
+  }
+  .aiw-service-pick-btn:hover { border-color: var(--ss-green); background: var(--green-bg); color: var(--green); }
+
+  /* Build quote preview modal */
+  .aiw-payload-section {
+    background: #1a1a2e;
+    color: #e8e8f0;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 11px;
+    padding: 12px;
+    border-radius: 7px;
+    overflow-x: auto;
+    white-space: pre;
+    max-height: 300px;
+    overflow-y: auto;
+    display: none;
+  }
+  .aiw-payload-section.open { display: block; }
+
+  /* Spinner animation */
+  @keyframes aiw-spin {
+    to { transform: rotate(360deg); }
+  }
+  .aiw-spinner {
+    width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: aiw-spin 0.7s linear infinite;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+
+  .aiw-assumption-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 8px 11px;
+    font-size: 12px;
+    color: var(--text2);
+  }
+
+  .aiw-unsupported-box {
+    background: var(--red-bg);
+    border: 1px solid #ef9a9a;
+    border-radius: 7px;
+    padding: 8px 11px;
+    font-size: 12px;
+    color: var(--red);
+  }
+
+  /* empty state */
+  .aiw-empty-state {
+    text-align: center;
+    padding: 32px 16px;
+    color: var(--text3);
+  }
+  .aiw-empty-icon { font-size: 36px; margin-bottom: 8px; }
+  .aiw-empty-label { font-size: 13px; font-weight: 600; }
+  .aiw-empty-sub { font-size: 12px; margin-top: 4px; }
+
+  .aiw-recovery-bar {
+    background: var(--amber-bg);
+    border: 1px solid #ffe082;
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--amber);
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .aiw-recovery-bar button {
+    padding: 5px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--amber);
+    background: none;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--amber);
+  }
+  .aiw-recovery-bar button:hover { background: var(--amber-bg); }
+
 </style>
 </head>
 <body>
@@ -808,6 +1370,151 @@
 
       <!-- ==================== NEW QUOTE PAGE ==================== -->
       <div class="page active" id="page-quotes">
+
+        <!-- Quote mode selector -->
+        <div class="aiw-mode-bar" id="aiw-mode-bar" style="margin-bottom:20px;">
+          <button class="aiw-mode-tab active" id="aiw-tab-ai" onclick="aiwSetMode('ai')">
+            🤖 AI Assisted
+          </button>
+          <button class="aiw-mode-tab" id="aiw-tab-manual" onclick="aiwSetMode('manual')">
+            📋 Manual Quote
+          </button>
+        </div>
+
+        <!-- ══════ PHASE 3: AI WORKSPACE ══════ -->
+        <div id="ai-workspace-view" style="display:none;">
+          <div class="page-title">New Quote</div>
+
+          <!-- Recovery banner (shown when localStorage session found) -->
+          <div id="aiw-recovery-bar" class="aiw-recovery-bar" style="display:none;">
+            <span>⚡</span>
+            <span id="aiw-recovery-msg">An unfinished AI quote session was found.</span>
+            <button onclick="aiwRestoreSession()">Restore session</button>
+            <button onclick="aiwDiscardSession()">Discard</button>
+          </div>
+
+          <div class="aiw-workspace">
+
+            <!-- ── LEFT PANEL ────────────────────────────────── -->
+            <div class="aiw-left">
+
+              <!-- Notes input card -->
+              <div class="card">
+                <div class="card-title" style="margin-bottom:4px;">Customer Conversation Notes</div>
+                <div style="font-size:11px;color:var(--text3);margin-bottom:10px;">Type or paste what the customer tells you. Information can be entered in any order. Press <kbd style="background:#f0f0f0;border:1px solid #ddd;border-radius:3px;padding:1px 4px;font-size:10px;">Ctrl+Enter</kbd> to analyse.</div>
+                <textarea
+                  id="aiw-notes-textarea"
+                  class="aiw-notes-textarea"
+                  placeholder="e.g. Customer has a single-storey Colorbond home in Wallan. Gutters last cleaned about two years ago. Approximately 55 metres of guttering. No gutter guard. Also wants 18 solar panels cleaned..."
+                  oninput="aiwOnNotesInput()"
+                  onkeydown="if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();aiwAnalyse();}"
+                  aria-label="Customer conversation notes"
+                ></textarea>
+                <div class="aiw-btn-row" style="margin-top:8px;">
+                  <button class="aiw-analyse-btn" id="aiw-analyse-btn" onclick="aiwAnalyse()">
+                    <span id="aiw-analyse-icon">⚡</span>
+                    <span id="aiw-analyse-label">Analyse Notes</span>
+                  </button>
+                  <button class="aiw-clear-btn" onclick="aiwClearCurrentNotes()" title="Clear current notes">✕ Clear</button>
+                  <span class="aiw-char-count" id="aiw-char-count">0 / 8000</span>
+                </div>
+                <div id="aiw-status-banner" style="display:none;margin-top:8px;"></div>
+              </div>
+
+              <!-- Notes history card -->
+              <div class="card" id="aiw-history-card" style="display:none;">
+                <div class="aiw-section-label">Notes History</div>
+                <div id="aiw-history-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+              </div>
+
+            </div>
+
+            <!-- ── RIGHT PANEL ───────────────────────────────── -->
+            <div class="aiw-right">
+
+              <!-- Empty / prompt state -->
+              <div class="card" id="aiw-empty-card">
+                <div class="aiw-empty-state">
+                  <div class="aiw-empty-icon">🤖</div>
+                  <div class="aiw-empty-label">AI Quote Workspace</div>
+                  <div class="aiw-empty-sub">Enter conversation notes on the left and click Analyse.<br>Extracted information will appear here for review.</div>
+                </div>
+              </div>
+
+              <!-- Customer & property card (shown after first extraction) -->
+              <div class="card" id="aiw-customer-card" style="display:none;">
+                <div class="card-header" style="margin-bottom:12px;">
+                  <div class="card-title">Customer &amp; Property</div>
+                  <span class="aiw-pill" id="aiw-customer-pill" style="background:var(--surface2);color:var(--text3);">Not synced</span>
+                </div>
+                <div class="aiw-field-grid">
+                  <div class="aiw-field-group">
+                    <label class="aiw-field-label" for="aiw-f-name">Name</label>
+                    <input class="aiw-field-input" id="aiw-f-name" type="text" placeholder="Full name" oninput="aiwSyncCustomerField('name',this.value)" aria-label="Customer name">
+                  </div>
+                  <div class="aiw-field-group">
+                    <label class="aiw-field-label" for="aiw-f-phone">Phone</label>
+                    <input class="aiw-field-input" id="aiw-f-phone" type="text" placeholder="04XX XXX XXX" oninput="aiwSyncCustomerField('phone',this.value)" aria-label="Phone number">
+                  </div>
+                  <div class="aiw-field-group">
+                    <label class="aiw-field-label" for="aiw-f-email">Email</label>
+                    <input class="aiw-field-input" id="aiw-f-email" type="email" placeholder="client@email.com" oninput="aiwSyncCustomerField('email',this.value)" aria-label="Email address">
+                  </div>
+                  <div class="aiw-field-group">
+                    <label class="aiw-field-label" for="aiw-f-suburb">Suburb</label>
+                    <input class="aiw-field-input" id="aiw-f-suburb" type="text" placeholder="e.g. Wallan" oninput="aiwSyncCustomerField('suburb',this.value)" aria-label="Suburb">
+                  </div>
+                  <div class="aiw-field-group" style="grid-column:span 2;">
+                    <label class="aiw-field-label" for="aiw-f-address">Address</label>
+                    <input class="aiw-field-input" id="aiw-f-address" type="text" placeholder="Street address" oninput="aiwSyncCustomerField('address',this.value)" aria-label="Property address">
+                  </div>
+                </div>
+              </div>
+
+              <!-- Services section (populated dynamically) -->
+              <div id="aiw-services-section" style="display:none;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                  <div class="aiw-section-label" style="margin:0;">Extracted Services</div>
+                  <button class="aiw-clear-btn" style="font-size:11px;padding:5px 10px;" onclick="aiwShowAddService()">＋ Add Service</button>
+                </div>
+                <div id="aiw-services-list"></div>
+                <!-- Add service picker (hidden by default) -->
+                <div id="aiw-service-picker" style="display:none;margin-top:8px;">
+                  <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">Select a service to add manually:</div>
+                  <div class="aiw-service-picker" id="aiw-service-picker-grid"></div>
+                  <button class="aiw-clear-btn" style="width:100%;margin-top:6px;text-align:center;" onclick="document.getElementById('aiw-service-picker').style.display='none'">Cancel</button>
+                </div>
+              </div>
+
+              <!-- Missing information panel -->
+              <div class="card" id="aiw-missing-card" style="display:none;">
+                <div class="card-title" style="margin-bottom:12px;">Missing &amp; Suggested</div>
+                <div id="aiw-missing-content"></div>
+              </div>
+
+              <!-- Assumptions / warnings -->
+              <div class="card" id="aiw-assumptions-card" style="display:none;">
+                <div class="card-title" style="margin-bottom:8px;">Assumptions &amp; Notes</div>
+                <div id="aiw-assumptions-content"></div>
+              </div>
+
+              <!-- Readiness + Build Quote -->
+              <div class="card" id="aiw-readiness-card" style="display:none;">
+                <div id="aiw-readiness-bar" class="aiw-readiness-bar partial" style="margin-bottom:12px;">
+                  <span id="aiw-readiness-icon">⏳</span>
+                  <span id="aiw-readiness-label">Enter notes to begin</span>
+                </div>
+                <button class="aiw-build-btn" id="aiw-build-btn" onclick="aiwBuildQuote()" disabled>
+                  🏗️ Build Quote
+                </button>
+                <div style="font-size:11px;color:var(--text3);text-align:center;margin-top:6px;" id="aiw-build-hint"></div>
+              </div>
+
+            </div><!-- /aiw-right -->
+          </div><!-- /aiw-workspace -->
+        </div><!-- /ai-workspace-view -->
+        <!-- ══════ END AI WORKSPACE ══════ -->
+
         <div id="service-select-view">
           <div class="page-title">New Quote</div>
           <div class="page-subtitle">Select a service to begin the call flow</div>
@@ -1809,8 +2516,16 @@ const SERVICES = {
       'Additional structures included if selected'
     ],
     calcQuote: (a) => {
-      const bedroomKey = a.bedrooms === '5+ bed' ? '5+' : a.bedrooms.replace(' bed','');
-      const metres = BEDROOM_TO_METRES[bedroomKey] || 62;
+      const bedroomKey = a.bedrooms ? (a.bedrooms === '5+ bed' ? '5+' : a.bedrooms.replace(' bed','')) : null;
+      // Phase 4: support exact metre override when supplied and valid
+      const exactMetres = Number(a.gutterMetresExact);
+      const usingExactMetres = Number.isFinite(exactMetres) && exactMetres > 0;
+      const metres = usingExactMetres
+        ? Math.round(exactMetres)
+        : (BEDROOM_TO_METRES[bedroomKey] || 62);
+      const metresBasis = usingExactMetres
+        ? `Based on ${metres} metres stated`
+        : `Est. linear metres (${bedroomKey || '?'} bed avg)`;
       const storeyRate = a.storeys === 'Single storey' ? 3.00 : 6.00;
       const guardMult = a.gutter_guard === 'Yes' ? 2 : 1;
       const debrisMult = a.debris === '1–3 years ago' ? 1.5 : a.debris === '3+ years ago / never' ? 2 : 1;
@@ -1831,7 +2546,7 @@ const SERVICES = {
       });
       return {
         lines: [
-          { label: `Est. linear metres (${bedroomKey} bed avg)`, value: `${metres}m` },
+          { label: metresBasis, value: `${metres}m` },
           { label: `Rate (${a.storeys})`, value: `$${storeyRate.toFixed(2)}/m` },
           a.gutter_guard === 'Yes' ? { label: 'Gutter guard multiplier', value: '×2' } : null,
           debrisMult > 1 ? { label: 'Debris multiplier', value: `×${debrisMult}` } : null,
@@ -2724,54 +3439,9 @@ async function saveMultiQuoteToCRM() {
   }));
 }
 
-async function saveQuoteToCRMWithOverride(total, svcLabel, lineItems) {
-  try {
-    const quoteId = 'Q-' + Date.now();
-    let clientId = null;
-    const existingRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/clients?phone=eq.${encodeURIComponent(clientInfo.phone)}&select=id`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
-    );
-    const existing = await existingRes.json();
-    if (existing && existing.length > 0) {
-      clientId = existing[0].id;
-      if (clientInfo.address || clientInfo.email) {
-        await fetch(`${SUPABASE_URL}/rest/v1/clients?id=eq.${clientId}`, {
-          method: 'PATCH',
-          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...(clientInfo.address && { address: clientInfo.address }), ...(clientInfo.email && { email: clientInfo.email }) })
-        });
-      }
-    } else {
-      const nc = await fetch(`${SUPABASE_URL}/rest/v1/clients`, {
-        method: 'POST',
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
-        body: JSON.stringify({ id: 'C-' + Date.now(), name: clientInfo.name, phone: clientInfo.phone, email: clientInfo.email || null, address: clientInfo.address || null, suburb: clientInfo.suburb, status: 'lead', source: clientInfo.source || 'phone-call', created_at: new Date().toISOString() })
-      });
-      const ncData = await nc.json();
-      if (ncData && ncData[0]) clientId = ncData[0].id;
-    }
-
-    const quoteRes = await fetch(`${SUPABASE_URL}/rest/v1/quotes`, {
-      method: 'POST',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
-      body: JSON.stringify({
-        id: quoteId, client: clientInfo.name, date: localToday(), total,
-        status: 'pending', items: lineItems,
-        notes: `Phone quote via Call Dashboard. Services: ${svcLabel}. Address: ${clientInfo.address || clientInfo.suburb}. Travel included. Source: ${clientInfo.source || 'phone-call'}. Rep: ${currentRep ? currentRep.name : 'unknown'}.`,
-        created_at: new Date().toISOString()
-      })
-    });
-
-    if (!quoteRes.ok) { const e = await quoteRes.text(); console.error('Quote save error:', e); throw new Error(e); }
-    showToast('Quote saved to CRM ✓');
-    showMarketingHubPrompt(clientInfo.name, 'pending');
-    showQuoteSuccessScreen('saved');
-  } catch(e) {
-    showToast('Saved locally — check CRM connection');
-    console.error(e);
-  }
-}
+// saveQuoteToCRMWithOverride is defined later in the AI workspace section
+// with support for a custom notes parameter. The manual workflow (saveMultiQuoteToCRM)
+// calls it without customNotes which triggers the default note string.
 
 function showQuoteSuccessScreen(mode) {
   const existing = document.getElementById('quote-success-screen');
@@ -5498,6 +6168,2172 @@ function pqAddFollowUp() {
   }).catch(()=>{});
   openAddFollowUp();
 }
+
+// ============================================================
+// PHASE 3 — AI QUOTE WORKSPACE
+// ============================================================
+
+// ── Service catalogue (client-side mirror of server catalogue) ─────────────
+// Field definitions — used to render editable service cards without
+// any pricing information. Allowed values match _serviceCatalogue.js exactly.
+const AIW_CATALOGUE = {
+  'gutter-cleaning': {
+    displayName: 'Gutter Cleaning', pricingBasis: 'Per linear metre',
+    requiredForPricing: ['storeys','bedrooms','gutter_guard','debris'],
+    recommendedForPricing: ['access'],
+    optionalForPricing: ['structures','gutterMetresExact'],
+    fields: {
+      storeys:         { label:'Storeys', type:'enum', values:['Single storey','Double storey','3+ storeys','Commercial / Industrial'] },
+      bedrooms:        { label:'Bedrooms', type:'enum', values:['2 bed','3 bed','4 bed','5+ bed'] },
+      gutterMetresExact: { label:'Exact metres (override)', type:'number', hint:'If known — overrides bedroom estimate when pricing' },
+      gutter_guard:    { label:'Gutter guard', type:'enum', values:['No','Yes'] },
+      debris:          { label:'Last cleaned', type:'enum', values:['Less than 12 months','1–3 years ago','3+ years ago / never'] },
+      access:          { label:'Access', type:'enum', values:['No','Yes — difficult access'] },
+      structures:      { label:'Additional structures', type:'array-summary' }
+    },
+    escalations: [
+      { field:'storeys', value:'3+ storeys', action:'custom-quote' },
+      { field:'storeys', value:'Commercial / Industrial', action:'custom-quote' }
+    ]
+  },
+  'solar-cleaning': {
+    displayName: 'Solar Panel Cleaning', pricingBasis: 'Per panel',
+    requiredForPricing: ['panels','storeys','last_clean'],
+    recommendedForPricing: ['hard_access'],
+    optionalForPricing: [],
+    fields: {
+      panels:      { label:'Panel count', type:'number' },
+      storeys:     { label:'Storeys', type:'enum', values:['Single storey','Double storey','3+ storeys','Commercial / Industrial'] },
+      last_clean:  { label:'Last professionally cleaned', type:'enum', values:['Less than 1 year ago','1–2 years ago','2–4 years ago','4+ years ago / never cleaned'] },
+      hard_access: { label:'Difficult access (double storey)', type:'enum', values:['No — standard access','Yes — difficult access'] }
+    },
+    escalations: [
+      { field:'storeys', value:'3+ storeys', action:'custom-quote' },
+      { field:'storeys', value:'Commercial / Industrial', action:'custom-quote' }
+    ]
+  },
+  'window-cleaning': {
+    displayName: 'Window Cleaning', pricingBasis: 'Per pane',
+    requiredForPricing: ['storeys','windows','scope','post_construction'],
+    recommendedForPricing: ['flyscreens'],
+    optionalForPricing: [],
+    fields: {
+      storeys:           { label:'Storeys', type:'enum', values:['Single storey','Double storey','3+ storeys','Commercial / Industrial'] },
+      windows:           { label:'Window panes', type:'number' },
+      scope:             { label:'Scope', type:'enum', values:['Exterior only','Interior + exterior'] },
+      post_construction: { label:'Post-construction', type:'enum', values:['No — standard clean','Yes — post-construction'] },
+      flyscreens:        { label:'Flyscreens', type:'enum', values:['No','Yes — include flyscreens'] }
+    },
+    escalations: [
+      { field:'storeys', value:'3+ storeys', action:'custom-quote' },
+      { field:'storeys', value:'Commercial / Industrial', action:'custom-quote' }
+    ]
+  },
+  'house-washing': {
+    displayName: 'House Washing', pricingBasis: 'Flat rate by storeys',
+    requiredForPricing: ['storeys','suburb_check','staining'],
+    recommendedForPricing: ['patio'],
+    optionalForPricing: [],
+    fields: {
+      storeys:      { label:'Storeys', type:'enum', values:['Single storey','Double storey','3+ storeys','Commercial / Industrial'] },
+      suburb_check: { label:'Distance from Kilmore', type:'enum', values:['Within 30km of Kilmore → In-person quote','More than 30km from Kilmore → Phone quote'] },
+      staining:     { label:'Staining type', type:'enum', values:['Organic growth only (moss, algae, dirt)','Non-organic staining (rust, oil, paint, etc.)'] },
+      patio:        { label:'Patio / veranda', type:'enum', values:['No patio','Yes — single patio/veranda','Yes — multiple / large areas'] }
+    },
+    escalations: [
+      { field:'staining', value:'Non-organic staining (rust, oil, paint, etc.)', action:'custom-quote' },
+      { field:'suburb_check', value:'Within 30km of Kilmore → In-person quote', action:'in-person-quote' }
+    ]
+  },
+  'roof-cleaning': {
+    displayName: 'Roof Cleaning', pricingBasis: 'Per sqm',
+    requiredForPricing: ['storeys','roof_type','age','bedrooms'],
+    recommendedForPricing: [],
+    optionalForPricing: ['biocide'],
+    fields: {
+      storeys:   { label:'Storeys', type:'enum', values:['Single storey','Double storey','3+ storeys','Commercial / Industrial'] },
+      roof_type: { label:'Roof type', type:'enum', values:['Concrete tiles','Terra cotta tiles','Colorbond / metal'] },
+      age:       { label:'Property age', type:'enum', values:['Under 10 years','10–20 years','20+ years'] },
+      bedrooms:  { label:'Bedrooms', type:'enum', values:['2 bed','3 bed','4 bed','5+ bed'] },
+      biocide:   { label:'Biocide treatment', type:'enum', values:['No thanks','Yes — add biocide treatment'] }
+    },
+    escalations: [
+      { field:'storeys', value:'3+ storeys', action:'custom-quote' },
+      { field:'storeys', value:'Commercial / Industrial', action:'custom-quote' },
+      { field:'roof_type', value:'Terra cotta tiles', action:'reroute-to-roof-biocide' }
+    ]
+  },
+  'roof-biocide': {
+    displayName: 'Roof Biocide Treatment', pricingBasis: 'Per sqm',
+    requiredForPricing: ['storeys','bedrooms'],
+    recommendedForPricing: [],
+    optionalForPricing: [],
+    fields: {
+      storeys:  { label:'Storeys', type:'enum', values:['Single storey','Double storey','3+ storeys','Commercial / Industrial'] },
+      bedrooms: { label:'Bedrooms', type:'enum', values:['2 bed','3 bed','4 bed','5+ bed'] }
+    },
+    escalations: [
+      { field:'storeys', value:'3+ storeys', action:'custom-quote' },
+      { field:'storeys', value:'Commercial / Industrial', action:'custom-quote' }
+    ]
+  },
+  'pressure-washing': {
+    displayName: 'Pressure Washing', pricingBasis: 'Per sqm',
+    requiredForPricing: ['surface_type','last_wash'],
+    recommendedForPricing: ['bedrooms'],
+    optionalForPricing: ['painted_concrete','dimensions','staining','biocide'],
+    fields: {
+      surface_type:     { label:'Surface type', type:'enum', values:['Driveway','Paths around the house','Entertaining area / patio','Other'] },
+      painted_concrete: { label:'Painted concrete', type:'enum', values:['No','Yes — painted concrete'] },
+      bedrooms:         { label:'Bedrooms', type:'enum', values:['2 bed','3 bed','4 bed','5+ bed'] },
+      dimensions:       { label:'Dimensions (e.g. 6m × 10m)', type:'text' },
+      last_wash:        { label:'Last pressure washed', type:'enum', values:['Less than 1 year ago','1–3 years ago','3+ years ago / never done'] },
+      staining:         { label:'Non-organic staining', type:'enum', values:['No — dirt, grime, organic growth only','Yes — non-organic staining present'] },
+      biocide:          { label:'Biocide post-treatment', type:'enum', values:['No thanks','Yes — add biocide post-treatment'] }
+    },
+    escalations: [
+      { field:'painted_concrete', value:'Yes — painted concrete', action:'custom-quote' },
+      { field:'staining', value:'Yes — non-organic staining present', action:'custom-quote' }
+    ]
+  },
+  'gutter-softwash': {
+    displayName: 'Gutter Exterior Softwash', pricingBasis: 'Per linear metre',
+    requiredForPricing: ['storeys','bedrooms'],
+    recommendedForPricing: [],
+    optionalForPricing: [],
+    fields: {
+      storeys:  { label:'Storeys', type:'enum', values:['Single storey','Double storey','3+ storeys','Commercial / Industrial'] },
+      bedrooms: { label:'Bedrooms', type:'enum', values:['2 bed','3 bed','4 bed','5+ bed'] }
+    },
+    escalations: [
+      { field:'storeys', value:'3+ storeys', action:'custom-quote' },
+      { field:'storeys', value:'Commercial / Industrial', action:'custom-quote' }
+    ]
+  },
+  'bird-proofing': {
+    displayName: 'Solar Bird Proofing', pricingBasis: 'Bundle — gutter + solar + mesh',
+    requiredForPricing: ['panels','nesting','storeys','bedrooms'],
+    recommendedForPricing: ['gutter_guard','debris','last_clean'],
+    optionalForPricing: [],
+    fields: {
+      panels:       { label:'Panel count', type:'number' },
+      nesting:      { label:'Active nesting', type:'enum', values:['No','Yes — birds currently nesting'] },
+      storeys:      { label:'Storeys', type:'enum', values:['Single storey','Double storey','3+ storeys','Commercial / Industrial'] },
+      bedrooms:     { label:'Bedrooms', type:'enum', values:['2 bed','3 bed','4 bed','5+ bed'] },
+      gutter_guard: { label:'Gutter guard', type:'enum', values:['No','Yes'] },
+      debris:       { label:'Gutters last cleaned', type:'enum', values:['Less than 12 months','1–3 years ago','3+ years ago / never'] },
+      last_clean:   { label:'Panels last cleaned', type:'enum', values:['Less than 1 year ago','1–2 years ago','2–4 years ago','4+ years ago / never cleaned'] }
+    },
+    escalations: [
+      { field:'storeys', value:'3+ storeys', action:'custom-quote' },
+      { field:'storeys', value:'Commercial / Industrial', action:'custom-quote' }
+    ]
+  }
+};
+
+// ── localStorage keys ──────────────────────────────────────────────────────
+const AIW_LS_SESSION  = 'aiw_session';      // { sessionId, updatedAt, currentNotes, notesHistory, extraction, manualEdits, customer, property }
+
+// ── Session state ──────────────────────────────────────────────────────────
+let _aiwState = null; // The live session object
+
+function _aiwNewState() {
+  return {
+    sessionId:     'AIW-' + Date.now(),
+    currentNotes:  '',
+    notesHistory:  [],   // [{ text, timestamp }]
+    extraction:    null, // Last validated extraction from API
+    manualEdits:   {},   // { serviceIdx: { fieldName: value } }
+    customer:      { name: null, phone: null, email: null },
+    property:      { address: null, suburb: null },
+    services:      [],   // The working list of service objects (merged extraction + edits)
+    lastAnalysedAt: null,
+    status:        'idle' // idle | analysing | ready | error
+  };
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function _esc(str) {
+  // Escape untrusted text for safe insertion as textContent-equivalent in HTML
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+function _aiwSaveToLS() {
+  if (!_aiwState) return;
+  try {
+    localStorage.setItem(AIW_LS_SESSION, JSON.stringify({
+      ..._aiwState,
+      currentNotes: document.getElementById('aiw-notes-textarea')?.value || _aiwState.currentNotes,
+      updatedAt: new Date().toISOString()
+    }));
+  } catch(e) { /* quota exceeded — degrade silently */ }
+}
+
+function _aiwClearLS() {
+  try { localStorage.removeItem(AIW_LS_SESSION); } catch(e) {}
+}
+
+function _aiwCheckRecovery() {
+  try {
+    const raw = localStorage.getItem(AIW_LS_SESSION);
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (!saved || !saved.sessionId) return false;
+    // Only offer recovery if there are actual notes or an extraction
+    if (!saved.currentNotes && !saved.notesHistory?.length && !saved.extraction) return false;
+    const bar = document.getElementById('aiw-recovery-bar');
+    const msg = document.getElementById('aiw-recovery-msg');
+    if (bar && msg) {
+      const when = saved.updatedAt ? new Date(saved.updatedAt).toLocaleTimeString('en-AU', {hour:'2-digit',minute:'2-digit'}) : '';
+      const client = saved.customer?.name || '';
+      msg.textContent = `Unfinished AI quote found${client ? ' for ' + client : ''}${when ? ' (last updated ' + when + ')' : ''}.`;
+      bar.style.display = 'flex';
+    }
+    return true;
+  } catch(e) { return false; }
+}
+
+function aiwRestoreSession() {
+  try {
+    const raw = localStorage.getItem(AIW_LS_SESSION);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    _aiwState = saved;
+    // Restore textarea
+    const ta = document.getElementById('aiw-notes-textarea');
+    if (ta && saved.currentNotes) ta.value = saved.currentNotes;
+    aiwOnNotesInput();
+    // Restore extraction rendering if present
+    if (saved.extraction || saved.services?.length) {
+      _aiwRenderAll();
+    }
+    // Sync customer fields
+    _aiwApplyCustomerToFields(saved.customer, saved.property);
+    document.getElementById('aiw-recovery-bar').style.display = 'none';
+    showToast('Session restored ✓');
+  } catch(e) {
+    showToast('Could not restore session', 'error');
+  }
+}
+
+function aiwDiscardSession() {
+  _aiwClearLS();
+  document.getElementById('aiw-recovery-bar').style.display = 'none';
+  _aiwState = _aiwNewState();
+  showToast('Previous session discarded');
+}
+
+// ── Mode switching ─────────────────────────────────────────────────────────
+
+let _aiwCurrentMode = 'ai';
+
+function aiwSetMode(mode) {
+  _aiwCurrentMode = mode;
+  document.getElementById('aiw-tab-ai').classList.toggle('active', mode === 'ai');
+  document.getElementById('aiw-tab-manual').classList.toggle('active', mode === 'manual');
+  document.getElementById('ai-workspace-view').style.display = mode === 'ai' ? 'block' : 'none';
+  document.getElementById('service-select-view').style.display = mode === 'manual' ? 'block' : 'none';
+  if (mode === 'ai' && !_aiwState) {
+    _aiwState = _aiwNewState();
+    _aiwCheckRecovery();
+  }
+}
+
+// ── Notes input / char count ───────────────────────────────────────────────
+
+function aiwOnNotesInput() {
+  const ta = document.getElementById('aiw-notes-textarea');
+  if (!ta) return;
+  const len = ta.value.length;
+  const el = document.getElementById('aiw-char-count');
+  if (el) {
+    el.textContent = len + ' / 8000';
+    el.classList.toggle('warn', len > 7000);
+  }
+  // Save current notes draft to localStorage continuously
+  if (_aiwState) {
+    _aiwState.currentNotes = ta.value;
+    _aiwSaveToLS();
+  }
+}
+
+function aiwClearCurrentNotes() {
+  const ta = document.getElementById('aiw-notes-textarea');
+  if (ta) ta.value = '';
+  aiwOnNotesInput();
+  _aiwHideStatus();
+}
+
+// ── Status banner ──────────────────────────────────────────────────────────
+
+function _aiwShowStatus(type, html) {
+  const el = document.getElementById('aiw-status-banner');
+  if (!el) return;
+  el.className = 'aiw-status-banner ' + type;
+  el.innerHTML = html;
+  el.style.display = 'flex';
+}
+function _aiwHideStatus() {
+  const el = document.getElementById('aiw-status-banner');
+  if (el) el.style.display = 'none';
+}
+
+// ── Analyse ────────────────────────────────────────────────────────────────
+
+async function aiwAnalyse() {
+  if (!_aiwState) _aiwState = _aiwNewState();
+
+  const ta = document.getElementById('aiw-notes-textarea');
+  const notes = ta ? ta.value.trim() : '';
+  if (!notes || notes.length < 10) {
+    _aiwShowStatus('error', '<span>⚠</span> Please enter some notes before analysing.');
+    return;
+  }
+  if (notes.length > 8000) {
+    _aiwShowStatus('error', '<span>⚠</span> Notes are too long (max 8,000 characters). Split into two submissions.');
+    return;
+  }
+
+  // Save notes to localStorage BEFORE the API call — protects against failures
+  _aiwState.currentNotes = notes;
+  _aiwSaveToLS();
+
+  // Set loading state
+  _aiwSetAnalysing(true);
+  _aiwShowStatus('loading', '<span class="aiw-spinner"></span> Analysing notes — this takes a few seconds…');
+
+  const payload = {
+    notes,
+    previousNotes: _aiwState.notesHistory.map(h => h.text),
+    existingExtraction: _aiwState.extraction || null,
+    customerContext: { ..._aiwState.customer },
+    propertyContext: { ..._aiwState.property }
+  };
+
+  try {
+    const endpoint = _aiwGetEndpoint();
+    const response = await _aiwFetchWithTimeout(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }, 35000);
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      _aiwHandleApiError(response.status, errData.userMessage || errData.error || 'Unknown error');
+      return;
+    }
+
+    const data = await response.json();
+
+    if (!data.success || !data.extraction) {
+      _aiwHandleApiError(0, data.userMessage || 'Invalid response from AI service.');
+      return;
+    }
+
+    // Success — commit notes to history, clear textarea
+    _aiwState.notesHistory.push({ text: notes, timestamp: new Date().toISOString() });
+    _aiwState.extraction = data.extraction;
+    _aiwState.lastAnalysedAt = new Date().toISOString();
+
+    // Merge extraction into working services list
+    _aiwMergeExtraction(data.extraction);
+
+    if (ta) ta.value = '';
+    aiwOnNotesInput();
+    _aiwSaveToLS();
+
+    _aiwShowStatus('success', '✓ Notes analysed. Review and correct the extracted information below.');
+    _aiwRenderAll();
+
+    const warnCount = (data.validationWarnings || []).length;
+    if (warnCount > 0) {
+      console.debug('[AIW] Validation warnings:', data.validationWarnings);
+    }
+
+  } catch(err) {
+    if (err.name === 'AbortError') {
+      _aiwHandleApiError('timeout', 'The AI service took too long. Your notes are saved — please try again.');
+    } else if (!navigator.onLine) {
+      _aiwHandleApiError('offline', 'No internet connection. Your notes are saved — reconnect and try again.');
+    } else {
+      _aiwHandleApiError('network', 'Network error. Your notes are saved — please try again.');
+    }
+  } finally {
+    _aiwSetAnalysing(false);
+  }
+}
+
+function _aiwGetEndpoint() {
+  // Use same origin where possible — works for both local dev and Vercel deploy
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:3000/api/ai-extract';
+  }
+  return '/api/ai-extract';
+}
+
+async function _aiwFetchWithTimeout(url, options, ms) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
+
+function _aiwHandleApiError(status, message) {
+  let friendly = message;
+  if (status === 429) friendly = 'Too many requests. Please wait a moment before analysing again.';
+  if (status === 500) friendly = 'AI service configuration error. Contact your administrator.';
+  if (status === 503 || status === 504) friendly = 'AI service temporarily unavailable. Please try again in a moment.';
+  _aiwShowStatus('error', '<span>⚠</span> ' + _esc(friendly) + ' <span style="font-size:10px;font-weight:400;margin-left:6px;">Your notes are preserved.</span>');
+}
+
+function _aiwSetAnalysing(on) {
+  const btn = document.getElementById('aiw-analyse-btn');
+  const icon = document.getElementById('aiw-analyse-icon');
+  const label = document.getElementById('aiw-analyse-label');
+  if (!btn) return;
+  btn.disabled = on;
+  if (icon) icon.innerHTML = on ? '<span class="aiw-spinner"></span>' : '⚡';
+  if (label) label.textContent = on ? 'Analysing…' : 'Analyse Notes';
+}
+
+// ── Merge extraction into working services ─────────────────────────────────
+
+function _aiwMergeExtraction(extraction) {
+  // Update customer/property from extraction (only if fields are not already populated
+  // by a higher-confidence existing value or user edit)
+  _aiwMergeCustomer(extraction.customer, extraction.property);
+
+  // Build working services list from extraction
+  // Preserve any manually-added services not in the new extraction
+  const existingManual = _aiwState.services.filter(s => s._manual && !s._removed);
+
+  _aiwState.services = (extraction.services || []).map(svc => ({
+    ...svc,
+    _manual: false,
+    _removed: false,
+    _unsupported: false
+  }));
+
+  // Re-append manually added services that weren't in extraction
+  existingManual.forEach(ms => {
+    const alreadyPresent = _aiwState.services.some(s => s.serviceKey === ms.serviceKey);
+    if (!alreadyPresent) _aiwState.services.push(ms);
+  });
+}
+
+function _aiwMergeCustomer(customer, property) {
+  // Only update AI workspace fields if they are currently empty or the AI has higher confidence
+  const state = _aiwState;
+  const fields = [
+    { stateKey: 'name', aiVal: customer?.name },
+    { stateKey: 'phone', aiVal: customer?.phone },
+    { stateKey: 'email', aiVal: customer?.email }
+  ];
+  fields.forEach(({ stateKey, aiVal }) => {
+    if (aiVal && !state.customer[stateKey]) state.customer[stateKey] = aiVal;
+  });
+  if (property?.suburb && !state.property.suburb) state.property.suburb = property.suburb;
+  if (property?.address && !state.property.address) state.property.address = property.address;
+  _aiwApplyCustomerToFields(state.customer, state.property);
+}
+
+function _aiwApplyCustomerToFields(customer, property) {
+  const map = {
+    'aiw-f-name': customer?.name,
+    'aiw-f-phone': customer?.phone,
+    'aiw-f-email': customer?.email,
+    'aiw-f-suburb': property?.suburb,
+    'aiw-f-address': property?.address
+  };
+  Object.entries(map).forEach(([id, val]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (val && !el.value) {
+      el.value = val;
+      el.classList.add('ai-filled');
+    }
+  });
+}
+
+// ── Sync workspace customer fields → existing New Quote fields ─────────────
+
+function aiwSyncCustomerField(field, value) {
+  if (!_aiwState) return;
+  if (field === 'suburb') _aiwState.property.suburb = value;
+  else if (field === 'address') _aiwState.property.address = value;
+  else _aiwState.customer[field] = value;
+  _aiwSaveToLS();
+
+  // Mirror to the existing New Quote form fields
+  const mirrorMap = {
+    name:    'client-name',
+    phone:   'client-phone',
+    email:   'client-email',
+    suburb:  'client-suburb',
+    address: 'client-address'
+  };
+  const targetId = mirrorMap[field];
+  if (targetId) {
+    const el = document.getElementById(targetId);
+    if (el && !el.value) {
+      el.value = value;
+      updateClientInfo();
+      if (field === 'suburb') calcTravel();
+    }
+  }
+}
+
+// ── Render all right-panel content ─────────────────────────────────────────
+
+function _aiwRenderAll() {
+  if (!_aiwState) return;
+
+  const hasData = _aiwState.services.length > 0 || _aiwState.customer.name || _aiwState.property.suburb;
+
+  // Show/hide empty card
+  document.getElementById('aiw-empty-card').style.display = hasData ? 'none' : 'block';
+
+  // Customer card
+  document.getElementById('aiw-customer-card').style.display = hasData ? 'block' : 'none';
+  _aiwRenderCustomerPill();
+
+  // Services
+  document.getElementById('aiw-services-section').style.display = hasData ? 'block' : 'none';
+  _aiwRenderServices();
+
+  // History
+  _aiwRenderHistory();
+
+  // Missing info
+  _aiwRenderMissing();
+
+  // Assumptions
+  _aiwRenderAssumptions();
+
+  // Readiness
+  _aiwRenderReadiness();
+}
+
+function _aiwRenderCustomerPill() {
+  const pill = document.getElementById('aiw-customer-pill');
+  if (!pill) return;
+  const c = _aiwState.customer;
+  const hasName = c.name;
+  const hasPhone = c.phone;
+  if (hasName && hasPhone) {
+    pill.className = 'aiw-pill ready';
+    pill.textContent = '✓ Complete';
+  } else if (hasName || hasPhone) {
+    pill.className = 'aiw-pill missing';
+    pill.textContent = hasName ? 'Phone missing' : 'Name missing';
+  } else {
+    pill.className = 'aiw-pill';
+    pill.style.background = 'var(--surface2)';
+    pill.style.color = 'var(--text3)';
+    pill.textContent = 'Not captured';
+  }
+}
+
+// ── Render services ────────────────────────────────────────────────────────
+
+function _aiwRenderServices() {
+  const list = document.getElementById('aiw-services-list');
+  if (!list) return;
+  list.innerHTML = '';
+
+  const activeServices = _aiwState.services.filter(s => !s._removed);
+  if (activeServices.length === 0) {
+    list.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px 0;">No services detected yet. Analyse notes or add a service manually.</div>';
+    return;
+  }
+
+  activeServices.forEach((svc, idx) => {
+    const cat = AIW_CATALOGUE[svc.serviceKey];
+    if (!cat) return; // should never happen after server validation
+
+    const hasEscalation = (svc.escalations || []).length > 0;
+    const missingReq = svc.missingRequiredFields || [];
+    const isReady = svc.readyForPricing && !hasEscalation;
+    const isManual = svc._manual;
+    const isUnsupported = svc._unsupported;
+
+    let statusPill = '';
+    if (isUnsupported) {
+      statusPill = '<span class="aiw-pill manual">Manual required</span>';
+    } else if (hasEscalation) {
+      statusPill = '<span class="aiw-pill escalate">⚠ Escalation</span>';
+    } else if (isReady) {
+      statusPill = '<span class="aiw-pill ready">✓ Ready</span>';
+    } else {
+      statusPill = '<span class="aiw-pill missing">Info needed</span>';
+    }
+
+    // Escalation warning
+    let escalationHtml = '';
+    (svc.escalations || []).forEach(esc => {
+      const msgs = {
+        'custom-quote': '⚠ This service requires a custom quote. Escalate to Simon.',
+        'in-person-quote': '📍 Suburb is within 30km of Kilmore — offer an in-person quote.',
+        'reroute-to-roof-biocide': '↪ Terra cotta roof — this should be a Roof Biocide Treatment, not a Roof Clean.'
+      };
+      escalationHtml += `<div class="aiw-escalation-box">${_esc(msgs[esc.action] || 'Escalation: ' + esc.action)}</div>`;
+    });
+
+    // Metres exact banner for gutter-cleaning
+    let metresBanner = '';
+    if (svc.serviceKey === 'gutter-cleaning' && svc.answers?.gutterMetresExact) {
+      metresBanner = `<div class="aiw-metres-banner">
+        📏 Customer stated <strong>${_esc(String(svc.answers.gutterMetresExact))} metres</strong> of guttering — this overrides the bedroom estimate when pricing.
+      </div>`;
+    }
+
+    // Structures edit button for gutter-cleaning
+    let structuresEditBtn = '';
+    if (svc.serviceKey === 'gutter-cleaning') {
+      const structs = Array.isArray(svc.answers?.structures) ? svc.answers.structures : [];
+      const structLabel = structs.length > 0 ? structs.map(s => s.type).join(', ') : 'None';
+      structuresEditBtn = `<div style="margin-top:6px;">
+        <div class="aiw-section-label" style="margin-bottom:4px;">Additional structures</div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:4px;">${_esc(structLabel)}</div>
+        <button onclick="aiwEditStructures(${idx})" style="font-size:11px;padding:5px 10px;border:1px solid var(--border);background:var(--surface2);border-radius:6px;cursor:pointer;color:var(--text2);">✏️ Edit structures</button>
+      </div>`;
+    }
+
+    // Scope notes textarea
+    const scopeId = `aiw-scope-${idx}`;
+    const scopeVal = _esc(svc.scopeNotes || '');
+
+    // Field inputs
+    const fieldsHtml = _aiwRenderServiceFields(svc, idx, cat);
+
+    // Evidence section
+    const evidenceEntries = Object.entries(svc.evidence || {});
+    let evidenceHtml = '';
+    if (evidenceEntries.length > 0) {
+      const rows = evidenceEntries.map(([k, v]) =>
+        `<div class="aiw-evidence-row"><span class="aiw-evidence-key">${_esc(k)}: </span><span class="aiw-evidence-val">"${_esc(v)}"</span></div>`
+      ).join('');
+      evidenceHtml = `
+        <div>
+          <span class="aiw-evidence-toggle" onclick="this.nextElementSibling.classList.toggle('open')">▸ Show AI source evidence</span>
+          <div class="aiw-evidence-panel">${rows}</div>
+        </div>`;
+    }
+
+    const card = document.createElement('div');
+    card.className = 'aiw-service-card' + (hasEscalation ? ' has-escalation' : '');
+    card.id = `aiw-svc-card-${idx}`;
+    card.innerHTML = `
+      <div class="aiw-service-header">
+        <div>
+          <div class="aiw-service-name">${_esc(cat.displayName)}</div>
+          <div class="aiw-service-basis">${_esc(cat.pricingBasis)}</div>
+        </div>
+        ${statusPill}
+        <button class="aiw-service-remove" onclick="aiwRemoveService(${idx})" title="Remove this service" aria-label="Remove ${_esc(cat.displayName)}">✕</button>
+      </div>
+      <div class="aiw-service-body">
+        ${escalationHtml}
+        ${metresBanner}
+        <div class="aiw-answers-grid">${fieldsHtml}</div>
+        ${structuresEditBtn}
+        <div>
+          <label class="aiw-field-label" for="${scopeId}" style="margin-bottom:4px;">Scope notes</label>
+          <textarea class="aiw-scope-notes" id="${scopeId}"
+            oninput="aiwUpdateScopeNotes(${idx},this.value)"
+            placeholder="Internal notes about this service…"
+            aria-label="Scope notes for ${_esc(cat.displayName)}"
+          >${scopeVal}</textarea>
+        </div>
+        ${evidenceHtml}
+        ${isManual ? '<div style="font-size:10px;color:var(--text3);margin-top:4px;">📝 Manually added</div>' : ''}
+      </div>`;
+
+    list.appendChild(card);
+  });
+}
+
+function _aiwRenderServiceFields(svc, svcIdx, cat) {
+  const answers = svc.answers || {};
+  const confidence = svc.confidence || {};
+  const missingReq = svc.missingRequiredFields || [];
+  const missingRec = svc.missingRecommendedFields || [];
+
+  let html = '';
+  Object.entries(cat.fields).forEach(([fieldName, fieldDef]) => {
+    if (fieldDef.type === 'array-summary') {
+      // Structures — just show a summary for now
+      const structs = answers[fieldName];
+      if (Array.isArray(structs) && structs.length > 0) {
+        const summary = structs.map(s => s.type).join(', ');
+        html += `<div class="aiw-answer-field">
+          <div class="aiw-answer-label">${_esc(fieldDef.label)}</div>
+          <div style="font-size:12px;color:var(--text2);padding:6px 0;">${_esc(summary)}</div>
+        </div>`;
+      }
+      return;
+    }
+
+    const isRequired = cat.requiredForPricing.includes(fieldName);
+    const isRec = cat.recommendedForPricing.includes(fieldName);
+    const isMissingReq = missingReq.includes(fieldName);
+    const isMissingRec = missingRec.includes(fieldName);
+    const currentVal = answers[fieldName];
+    const conf = confidence[fieldName];
+    const isUncertain = conf !== undefined && conf < 0.6 && currentVal !== null;
+
+    const reqMarker = isRequired ? '<span class="aiw-req-marker" title="Required for pricing">*</span>' : '';
+    const confBadge = (conf !== undefined && conf < 0.8 && currentVal !== null)
+      ? `<span style="font-size:9px;color:var(--amber);margin-left:4px;" title="AI confidence: ${Math.round(conf*100)}%">~${Math.round(conf*100)}%</span>`
+      : '';
+
+    const inputId = `aiw-field-${svcIdx}-${fieldName}`;
+
+    let inputHtml = '';
+    if (fieldDef.type === 'enum') {
+      let cls = 'aiw-answer-select';
+      if (currentVal) cls += ' ai-filled';
+      if (isMissingReq) cls += ' missing-required';
+      if (isUncertain) cls += ' uncertain';
+
+      const opts = ['<option value="">— Not set —</option>'];
+      fieldDef.values.forEach(v => {
+        const sel = v === currentVal ? ' selected' : '';
+        opts.push(`<option value="${_esc(v)}"${sel}>${_esc(v)}</option>`);
+      });
+
+      inputHtml = `<select class="${cls}" id="${inputId}"
+        onchange="aiwUpdateField(${svcIdx},'${fieldName}',this.value)"
+        aria-label="${_esc(fieldDef.label)}"
+      >${opts.join('')}</select>`;
+
+    } else if (fieldDef.type === 'number') {
+      let cls = 'aiw-answer-input';
+      if (currentVal !== null && currentVal !== undefined) cls += ' ai-filled';
+      if (isMissingReq) cls += ' missing-required';
+
+      inputHtml = `<input class="${cls}" id="${inputId}" type="number" min="0"
+        value="${currentVal !== null && currentVal !== undefined ? _esc(String(currentVal)) : ''}"
+        oninput="aiwUpdateField(${svcIdx},'${fieldName}',this.value)"
+        aria-label="${_esc(fieldDef.label)}"
+      >`;
+
+    } else if (fieldDef.type === 'text') {
+      let cls = 'aiw-answer-input';
+      if (currentVal) cls += ' ai-filled';
+
+      inputHtml = `<input class="${cls}" id="${inputId}" type="text"
+        value="${currentVal ? _esc(currentVal) : ''}"
+        oninput="aiwUpdateField(${svcIdx},'${fieldName}',this.value)"
+        aria-label="${_esc(fieldDef.label)}"
+        placeholder="${fieldDef.hint ? _esc(fieldDef.hint) : ''}"
+      >`;
+    }
+
+    const hint = fieldDef.hint ? `<div style="font-size:10px;color:var(--blue);margin-top:2px;">${_esc(fieldDef.hint)}</div>` : '';
+
+    html += `<div class="aiw-answer-field">
+      <div class="aiw-answer-label">${_esc(fieldDef.label)}${reqMarker}${confBadge}</div>
+      ${inputHtml}
+      ${hint}
+    </div>`;
+  });
+
+  return html;
+}
+
+// ── Update service field value ─────────────────────────────────────────────
+
+function aiwUpdateField(svcIdx, fieldName, value) {
+  if (!_aiwState) return;
+  const activeServices = _aiwState.services.filter(s => !s._removed);
+  const svc = activeServices[svcIdx];
+  if (!svc) return;
+  if (!svc.answers) svc.answers = {};
+  svc.answers[fieldName] = value === '' ? null : (isNaN(Number(value)) ? value : (value === '' ? null : value));
+
+  // Re-compute missing fields
+  const cat = AIW_CATALOGUE[svc.serviceKey];
+  if (cat) {
+    svc.missingRequiredFields = cat.requiredForPricing.filter(f => {
+      const v = svc.answers[f];
+      return v === null || v === undefined || v === '';
+    });
+    svc.missingRecommendedFields = cat.recommendedForPricing.filter(f => {
+      const v = svc.answers[f];
+      return v === null || v === undefined || v === '';
+    });
+    // Re-check escalations
+    svc.escalations = (cat.escalations || [])
+      .filter(e => svc.answers[e.field] === e.value)
+      .map(e => ({ field: e.field, value: e.value, action: e.action }));
+    svc.readyForPricing = svc.missingRequiredFields.length === 0 && svc.escalations.length === 0;
+  }
+
+  _aiwSaveToLS();
+  // Update pills and readiness without full re-render (preserves focus)
+  _aiwRenderReadiness();
+  _aiwRenderMissing();
+  // Update the card status pill
+  _aiwUpdateServicePill(svcIdx, svc);
+}
+
+function _aiwUpdateServicePill(idx, svc) {
+  const card = document.getElementById(`aiw-svc-card-${idx}`);
+  if (!card) return;
+  const pillEl = card.querySelector('.aiw-pill');
+  if (!pillEl) return;
+  const hasEscalation = (svc.escalations || []).length > 0;
+  if (svc._unsupported) { pillEl.className = 'aiw-pill manual'; pillEl.textContent = 'Manual required'; }
+  else if (hasEscalation) { pillEl.className = 'aiw-pill escalate'; pillEl.textContent = '⚠ Escalation'; }
+  else if (svc.readyForPricing) { pillEl.className = 'aiw-pill ready'; pillEl.textContent = '✓ Ready'; }
+  else { pillEl.className = 'aiw-pill missing'; pillEl.textContent = 'Info needed'; }
+}
+
+function aiwUpdateScopeNotes(svcIdx, value) {
+  if (!_aiwState) return;
+  const activeServices = _aiwState.services.filter(s => !s._removed);
+  const svc = activeServices[svcIdx];
+  if (svc) svc.scopeNotes = value;
+  _aiwSaveToLS();
+}
+
+// ── Remove / add services ──────────────────────────────────────────────────
+
+function aiwRemoveService(idx) {
+  if (!_aiwState) return;
+  const activeServices = _aiwState.services.filter(s => !s._removed);
+  const svc = activeServices[idx];
+  if (!svc) return;
+  svc._removed = true;
+  _aiwSaveToLS();
+  _aiwRenderAll();
+}
+
+function aiwShowAddService() {
+  const picker = document.getElementById('aiw-service-picker');
+  const grid = document.getElementById('aiw-service-picker-grid');
+  if (!picker || !grid) return;
+  grid.innerHTML = '';
+  Object.entries(AIW_CATALOGUE).forEach(([key, cat]) => {
+    const btn = document.createElement('button');
+    btn.className = 'aiw-service-pick-btn';
+    btn.textContent = cat.displayName;
+    btn.onclick = () => aiwAddServiceManually(key);
+    grid.appendChild(btn);
+  });
+  picker.style.display = picker.style.display === 'none' ? 'block' : 'none';
+}
+
+function aiwAddServiceManually(serviceKey) {
+  if (!_aiwState) _aiwState = _aiwNewState();
+  const cat = AIW_CATALOGUE[serviceKey];
+  if (!cat) return;
+
+  // Don't add duplicates
+  const existing = _aiwState.services.find(s => s.serviceKey === serviceKey && !s._removed);
+  if (existing) {
+    showToast(cat.displayName + ' is already in the quote');
+    document.getElementById('aiw-service-picker').style.display = 'none';
+    return;
+  }
+
+  const emptyAnswers = {};
+  Object.keys(cat.fields).forEach(f => { emptyAnswers[f] = null; });
+
+  _aiwState.services.push({
+    serviceKey,
+    displayName: cat.displayName,
+    answers: emptyAnswers,
+    scopeNotes: '',
+    confidence: {},
+    evidence: {},
+    missingRequiredFields: [...cat.requiredForPricing],
+    missingRecommendedFields: [...cat.recommendedForPricing],
+    suggestedQuestions: [],
+    escalations: [],
+    readyForPricing: false,
+    _manual: true,
+    _removed: false,
+    _unsupported: false
+  });
+
+  document.getElementById('aiw-service-picker').style.display = 'none';
+  _aiwSaveToLS();
+  _aiwRenderAll();
+  // Show the new services section if it was hidden
+  document.getElementById('aiw-empty-card').style.display = 'none';
+  document.getElementById('aiw-services-section').style.display = 'block';
+  showToast(cat.displayName + ' added. Fill in the required fields.');
+}
+
+// ── Missing info panel ─────────────────────────────────────────────────────
+
+function _aiwRenderMissing() {
+  const card = document.getElementById('aiw-missing-card');
+  const content = document.getElementById('aiw-missing-content');
+  if (!card || !content) return;
+
+  const activeServices = (_aiwState?.services || []).filter(s => !s._removed && !s._unsupported);
+  const allMissingReq = [];
+  const allMissingRec = [];
+  const allQuestions = [];
+  const allEscalations = [];
+  const unsupportedRequests = _aiwState?.extraction?.unsupportedRequests || [];
+
+  activeServices.forEach(svc => {
+    const cat = AIW_CATALOGUE[svc.serviceKey];
+    const name = cat?.displayName || svc.serviceKey;
+    (svc.missingRequiredFields || []).forEach(f => {
+      const fieldLabel = cat?.fields[f]?.label || f;
+      const q = cat?.fields[f]?.suggestedQuestion || null;
+      allMissingReq.push({ service: name, field: f, label: fieldLabel, question: q });
+    });
+    (svc.missingRecommendedFields || []).forEach(f => {
+      const fieldLabel = cat?.fields[f]?.label || f;
+      const q = cat?.fields[f]?.suggestedQuestion || null;
+      allMissingRec.push({ service: name, field: f, label: fieldLabel, question: q });
+    });
+    (svc.suggestedQuestions || []).forEach(q => allQuestions.push({ service: name, q }));
+    (svc.escalations || []).forEach(e => allEscalations.push({ service: name, ...e }));
+  });
+
+  const hasAnything = allMissingReq.length || allMissingRec.length || allQuestions.length || allEscalations.length || unsupportedRequests.length;
+  card.style.display = hasAnything ? 'block' : 'none';
+  if (!hasAnything) return;
+
+  let html = '';
+
+  if (allEscalations.length > 0) {
+    html += `<div class="aiw-section-label">Escalations</div>`;
+    allEscalations.forEach(e => {
+      const msgs = {
+        'custom-quote': 'Custom quote required — escalate to Simon',
+        'in-person-quote': 'In-person quote — book a site visit',
+        'reroute-to-roof-biocide': 'Reroute to Roof Biocide Treatment'
+      };
+      html += `<div class="aiw-escalation-box" style="margin-bottom:6px;"><strong>${_esc(e.service)}:</strong> ${_esc(msgs[e.action] || e.action)}</div>`;
+    });
+  }
+
+  if (allMissingReq.length > 0) {
+    html += `<div class="aiw-section-label" style="margin-top:10px;">Required before pricing</div>`;
+    allMissingReq.forEach(item => {
+      const focusAttr = `onclick="aiwFocusField('${_esc(item.service)}','${_esc(item.field)}')"`;
+      html += `<div class="aiw-missing-item required" ${focusAttr}>
+        <span style="font-size:16px;">❗</span>
+        <div>
+          <div style="font-size:12px;font-weight:700;color:var(--text);">${_esc(item.service)}: ${_esc(item.label)}</div>
+          ${item.question ? `<div class="aiw-question-text" style="font-size:12px;color:var(--text2);margin-top:2px;">"${_esc(item.question)}"</div>` : ''}
+        </div>
+      </div>`;
+    });
+  }
+
+  // Consolidate suggested questions from AI
+  const allSuggestedQ = [];
+  activeServices.forEach(svc => {
+    const cat = AIW_CATALOGUE[svc.serviceKey];
+    const name = cat?.displayName || svc.serviceKey;
+    (svc.suggestedQuestions || []).forEach(q => allSuggestedQ.push({ service: name, q }));
+  });
+  if (allSuggestedQ.length > 0) {
+    html += `<div class="aiw-section-label" style="margin-top:10px;">💬 Suggested next questions</div>`;
+    allSuggestedQ.forEach(({ service, q }) => {
+      html += `<div class="aiw-question-box">
+        <div class="aiw-question-label">${_esc(service)}</div>
+        <div class="aiw-question-text">"${_esc(q)}"</div>
+      </div>`;
+    });
+  }
+
+  if (allMissingRec.length > 0) {
+    html += `<div class="aiw-section-label" style="margin-top:10px;">Recommended</div>`;
+    allMissingRec.forEach(item => {
+      const focusAttr = `onclick="aiwFocusField('${_esc(item.service)}','${_esc(item.field)}')"`;
+      html += `<div class="aiw-missing-item recommended" ${focusAttr}>
+        <span style="font-size:16px;">ℹ</span>
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--text);">${_esc(item.service)}: ${_esc(item.label)}</div>
+          ${item.question ? `<div style="font-size:12px;color:var(--text2);margin-top:2px;">"${_esc(item.question)}"</div>` : ''}
+        </div>
+      </div>`;
+    });
+  }
+
+  if (unsupportedRequests.length > 0) {
+    html += `<div class="aiw-section-label" style="margin-top:10px;">Unsupported requests</div>`;
+    unsupportedRequests.forEach(r => {
+      html += `<div class="aiw-unsupported-box" style="margin-bottom:5px;">🚫 ${_esc(r)}</div>`;
+    });
+  }
+
+  content.innerHTML = html;
+}
+
+// ── Focus a field from missing-info panel click ────────────────────────────
+
+function aiwFocusField(serviceName, fieldName) {
+  // Find the service index by display name
+  const activeServices = (_aiwState?.services || []).filter(s => !s._removed);
+  const svcIdx = activeServices.findIndex(s => {
+    const cat = AIW_CATALOGUE[s.serviceKey];
+    return cat && (cat.displayName === serviceName || s.serviceKey === serviceName);
+  });
+  if (svcIdx < 0) return;
+  const inputId = `aiw-field-${svcIdx}-${fieldName}`;
+  const el = document.getElementById(inputId);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => el.focus(), 300);
+  }
+}
+
+// ── Assumptions / warnings panel ──────────────────────────────────────────
+
+function _aiwRenderAssumptions() {
+  const card = document.getElementById('aiw-assumptions-card');
+  const content = document.getElementById('aiw-assumptions-content');
+  if (!card || !content) return;
+
+  const extraction = _aiwState?.extraction;
+  const assumptions = extraction?.assumptions || [];
+  const warnings = extraction?.warnings || [];
+  const concerns = extraction?.customerConcerns || [];
+
+  const hasAnything = assumptions.length || warnings.length || concerns.length;
+  card.style.display = hasAnything ? 'block' : 'none';
+  if (!hasAnything) return;
+
+  let html = '';
+
+  if (concerns.length > 0) {
+    html += `<div class="aiw-section-label">Customer concerns</div>`;
+    concerns.forEach(c => {
+      html += `<div class="aiw-assumption-box" style="border-left:3px solid var(--amber);margin-bottom:5px;">${_esc(c)}</div>`;
+    });
+  }
+
+  if (assumptions.length > 0) {
+    html += `<div class="aiw-section-label" style="margin-top:8px;">AI assumptions</div>`;
+    assumptions.forEach(a => {
+      html += `<div class="aiw-assumption-box" style="margin-bottom:4px;">💭 ${_esc(a)}</div>`;
+    });
+  }
+
+  if (warnings.length > 0) {
+    html += `<div class="aiw-section-label" style="margin-top:8px;">Warnings</div>`;
+    warnings.forEach(w => {
+      html += `<div class="aiw-assumption-box" style="border-left:3px solid var(--red);margin-bottom:4px;">⚠ ${_esc(w)}</div>`;
+    });
+  }
+
+  content.innerHTML = html;
+}
+
+// ── Notes history ──────────────────────────────────────────────────────────
+
+function _aiwRenderHistory() {
+  const list = document.getElementById('aiw-history-list');
+  const card = document.getElementById('aiw-history-card');
+  if (!list || !card) return;
+  const history = _aiwState?.notesHistory || [];
+  card.style.display = history.length > 0 ? 'block' : 'none';
+  if (history.length === 0) return;
+
+  list.innerHTML = history.map((h, i) => {
+    const time = h.timestamp ? new Date(h.timestamp).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }) : '';
+    const textId = `aiw-hist-text-${i}`;
+    return `<div class="aiw-history-item">
+      <div class="aiw-hist-meta">Batch ${i + 1}${time ? ' · ' + time : ''}</div>
+      <div class="aiw-hist-text" id="${textId}">${_esc(h.text)}</div>
+      ${h.text.length > 200 ? `<span class="aiw-hist-expand" onclick="document.getElementById('${textId}').classList.toggle('expanded');this.textContent=this.textContent==='Show more'?'Show less':'Show more'">Show more</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// ── Readiness panel ────────────────────────────────────────────────────────
+
+function _aiwRenderReadiness() {
+  const bar = document.getElementById('aiw-readiness-bar');
+  const icon = document.getElementById('aiw-readiness-icon');
+  const label = document.getElementById('aiw-readiness-label');
+  const buildBtn = document.getElementById('aiw-build-btn');
+  const hint = document.getElementById('aiw-build-hint');
+  const card = document.getElementById('aiw-readiness-card');
+  if (!card) return;
+
+  const activeServices = (_aiwState?.services || []).filter(s => !s._removed && !s._unsupported);
+  card.style.display = _aiwState?.extraction || activeServices.length > 0 ? 'block' : 'none';
+
+  if (activeServices.length === 0) {
+    bar.className = 'aiw-readiness-bar partial';
+    if (icon) icon.textContent = '⏳';
+    if (label) label.textContent = 'No services added yet';
+    if (buildBtn) buildBtn.disabled = true;
+    if (hint) hint.textContent = '';
+    return;
+  }
+
+  const hasEscalations = activeServices.some(s => (s.escalations || []).length > 0);
+  const allReady = activeServices.every(s => s.readyForPricing);
+  const anyReady = activeServices.some(s => s.readyForPricing);
+  const totalMissing = activeServices.reduce((n, s) => n + (s.missingRequiredFields || []).length, 0);
+  const hasCustomer = _aiwState?.customer?.name && _aiwState?.property?.suburb;
+
+  if (hasEscalations) {
+    bar.className = 'aiw-readiness-bar blocked';
+    if (icon) icon.textContent = '🚨';
+    if (label) label.textContent = 'Escalation — manual action required';
+    if (buildBtn) buildBtn.disabled = !isOwner; // owner can override
+    if (hint) hint.textContent = isOwner ? 'Owner override available' : 'Resolve escalations before building';
+  } else if (allReady && hasCustomer) {
+    bar.className = 'aiw-readiness-bar ready';
+    if (icon) icon.textContent = '✓';
+    if (label) label.textContent = 'Ready to build quote';
+    if (buildBtn) buildBtn.disabled = false;
+    if (hint) hint.textContent = '';
+  } else {
+    bar.className = 'aiw-readiness-bar partial';
+    if (icon) icon.textContent = '⏳';
+    const issues = [];
+    if (totalMissing > 0) issues.push(`${totalMissing} required field${totalMissing > 1 ? 's' : ''} missing`);
+    if (!hasCustomer) issues.push('customer name and suburb needed');
+    if (label) label.textContent = 'Information required: ' + issues.join(', ');
+    if (buildBtn) buildBtn.disabled = true;
+    if (hint) hint.textContent = 'Fill required fields above to enable Build Quote';
+  }
+}
+
+// ── Build quote — Phase 4 full implementation ──────────────────────────────
+
+// SERVICES keys that are allowed through to calcQuote
+const AIW_VALID_SERVICE_KEYS = ['gutter-cleaning','solar-cleaning','window-cleaning','house-washing','roof-cleaning','roof-biocide','pressure-washing','gutter-softwash','bird-proofing'];
+
+// Fields that calcQuote must never receive from AI output
+const AIW_FORBIDDEN_ANSWER_FIELDS = ['price','total','subtotal','cost','rate','amount','discount','charge','fee','dollar','aud','gst','travel_cost','travel_km'];
+
+function aiwBuildQuote() {
+  if (!_aiwState) return;
+  if (_aiwState._building) return; // debounce double-click
+
+  const activeServices = _aiwState.services.filter(s => !s._removed && !s._unsupported);
+  if (activeServices.length === 0) {
+    showToast('No services to quote', 'error');
+    return;
+  }
+
+  // — Sync customer info to clientInfo so calcQuote travel lookup works —
+  _aiwSyncToClientInfo();
+
+  // — Final field validation —
+  const validationErrors = [];
+  activeServices.forEach(svc => {
+    if (!AIW_VALID_SERVICE_KEYS.includes(svc.serviceKey)) {
+      validationErrors.push(`Unknown service key: ${svc.serviceKey}`);
+      return;
+    }
+    const cat = AIW_CATALOGUE[svc.serviceKey];
+    if (!cat) return;
+    const hasBlockingEscalation = (svc.escalations || []).some(e =>
+      e.action === 'custom-quote' || e.action === 'in-person-quote'
+    );
+    if (hasBlockingEscalation) return; // handled below as special result
+    cat.requiredForPricing.forEach(f => {
+      const v = svc.answers?.[f];
+      if (v === null || v === undefined || v === '') {
+        validationErrors.push(`${cat.displayName}: ${cat.fields[f]?.label || f} is required`);
+      }
+    });
+  });
+
+  if (validationErrors.length > 0 && !isOwner) {
+    showToast('Fill required fields before building quote', 'error');
+    _aiwRenderMissing();
+    return;
+  }
+
+  _aiwState._building = true;
+  const buildBtn = document.getElementById('aiw-build-btn');
+  if (buildBtn) { buildBtn.disabled = true; buildBtn.textContent = '⏳ Building…'; }
+
+  try {
+    // — Clear previous build from multiServiceItems —
+    multiServiceItems = [];
+    _aiwState.preparedQuote = null;
+
+    const priceableItems = [];
+    const specialItems = [];   // inPerson | customQuote | rerouteToService
+    const rerouted = new Set(); // prevent reroute loops
+
+    for (const svc of activeServices) {
+      if (!AIW_VALID_SERVICE_KEYS.includes(svc.serviceKey)) {
+        specialItems.push({ type: 'unknown', serviceKey: svc.serviceKey, displayName: svc.serviceKey });
+        continue;
+      }
+
+      // Build a clean, safe answers clone
+      const safeAnswers = _aiwBuildSafeAnswers(svc);
+      if (!safeAnswers) {
+        specialItems.push({ type: 'error', serviceKey: svc.serviceKey, displayName: AIW_CATALOGUE[svc.serviceKey]?.displayName || svc.serviceKey, reason: 'Could not build safe answers object' });
+        continue;
+      }
+
+      // Run calcQuote
+      let result;
+      try {
+        result = SERVICES[svc.serviceKey].calcQuote(safeAnswers);
+      } catch(e) {
+        specialItems.push({ type: 'error', serviceKey: svc.serviceKey, displayName: SERVICES[svc.serviceKey]?.name || svc.serviceKey, reason: 'Pricing engine error: ' + e.message });
+        continue;
+      }
+
+      if (!result) {
+        specialItems.push({ type: 'error', serviceKey: svc.serviceKey, displayName: SERVICES[svc.serviceKey]?.name || svc.serviceKey, reason: 'No result from pricing engine' });
+        continue;
+      }
+
+      // Handle special results
+      if (result.inPerson) {
+        specialItems.push({ type: 'inPerson', serviceKey: svc.serviceKey, displayName: SERVICES[svc.serviceKey]?.name, scopeNotes: svc.scopeNotes });
+        continue;
+      }
+      if (result.customQuote) {
+        specialItems.push({ type: 'customQuote', serviceKey: svc.serviceKey, displayName: SERVICES[svc.serviceKey]?.name, reason: result.reason, scopeNotes: svc.scopeNotes });
+        continue;
+      }
+      if (result.rerouteToService) {
+        const targetKey = result.rerouteToService;
+        if (!rerouted.has(svc.serviceKey) && AIW_VALID_SERVICE_KEYS.includes(targetKey) && SERVICES[targetKey]) {
+          rerouted.add(svc.serviceKey);
+          specialItems.push({ type: 'rerouted', serviceKey: svc.serviceKey, displayName: SERVICES[svc.serviceKey]?.name, targetKey, targetName: SERVICES[targetKey]?.name, message: result.message });
+          // Try to price the rerouted service with compatible answers
+          try {
+            const reroutedResult = SERVICES[targetKey].calcQuote(safeAnswers);
+            if (reroutedResult && !reroutedResult.inPerson && !reroutedResult.customQuote && !reroutedResult.rerouteToService) {
+              priceableItems.push({ svc, result: reroutedResult, displayName: SERVICES[targetKey].name, serviceKey: targetKey, inclusions: reroutedResult.inclusions || SERVICES[targetKey].inclusions || [], scopeNotes: svc.scopeNotes });
+            }
+          } catch(e) { /* rerouted service also failed — show original special item only */ }
+        } else {
+          specialItems.push({ type: 'rerouted', serviceKey: svc.serviceKey, displayName: SERVICES[svc.serviceKey]?.name, targetKey, message: result.message });
+        }
+        continue;
+      }
+
+      // Normal priceable result
+      if (typeof result.total !== 'number' || !Number.isFinite(result.total)) {
+        specialItems.push({ type: 'error', serviceKey: svc.serviceKey, displayName: SERVICES[svc.serviceKey]?.name, reason: 'Invalid total returned by pricing engine' });
+        continue;
+      }
+
+      priceableItems.push({
+        svc,
+        result,
+        displayName: SERVICES[svc.serviceKey].name,
+        serviceKey: svc.serviceKey,
+        inclusions: result.inclusions || SERVICES[svc.serviceKey].inclusions || [],
+        scopeNotes: svc.scopeNotes
+      });
+    }
+
+    if (priceableItems.length === 0 && specialItems.length === 0) {
+      showToast('Nothing to price', 'error');
+      return;
+    }
+
+    // — Populate multiServiceItems (travel excluded from each item.total per existing convention) —
+    priceableItems.forEach(item => {
+      multiServiceItems.push({
+        serviceKey: item.serviceKey,
+        name: item.displayName,
+        lines: item.result.lines || [],
+        total: item.result.total, // excludes travel — per existing convention
+        note: item.result.note || null,
+        inclusions: item.inclusions,
+        savedAnswers: item.svc.answers ? { ...item.svc.answers } : {},
+        scopeNotes: item.scopeNotes || ''
+      });
+    });
+
+    // Travel: calcTravel reads suburb from clientInfo (already synced above)
+    const travel = clientInfo.travelCost || 0;
+    const servicesTotal = priceableItems.reduce((s, i) => s + i.result.total, 0);
+    const grandTotal = servicesTotal + travel;
+
+    // — Store prepared quote in state —
+    _aiwState.preparedQuote = {
+      builtAt: new Date().toISOString(),
+      grandTotal,
+      travel,
+      servicesTotal,
+      priceableItems: priceableItems.map(i => ({ serviceKey: i.serviceKey, displayName: i.displayName, total: i.result.total, scopeNotes: i.scopeNotes })),
+      specialItems,
+      stale: false
+    };
+    _aiwSaveToLS();
+
+    // — Render the AI quote result panel —
+    _aiwRenderQuoteResult(priceableItems, specialItems, grandTotal, travel);
+
+  } finally {
+    _aiwState._building = false;
+    if (buildBtn) { buildBtn.disabled = false; buildBtn.textContent = '🏗️ Build Quote'; }
+  }
+}
+
+// Build a validated, sanitised answers object for a single service
+function _aiwBuildSafeAnswers(svc) {
+  try {
+    const raw = svc.answers || {};
+    const cat = AIW_CATALOGUE[svc.serviceKey];
+    if (!cat) return null;
+
+    // Clone only permitted fields
+    const safe = {};
+    Object.keys(cat.fields).forEach(field => {
+      const spec = cat.fields[field];
+      const val = raw[field];
+      if (val === null || val === undefined) { safe[field] = null; return; }
+
+      // Block forbidden financial fields (should never be present after server validation, but belt-and-braces)
+      if (AIW_FORBIDDEN_ANSWER_FIELDS.includes(field.toLowerCase())) return;
+
+      if (spec.type === 'enum') {
+        safe[field] = spec.values.includes(val) ? val : null;
+      } else if (spec.type === 'number') {
+        const num = Number(val);
+        safe[field] = (Number.isFinite(num) && num >= 0) ? num : null;
+      } else if (spec.type === 'text' || spec.type === 'string') {
+        safe[field] = typeof val === 'string' ? val : String(val);
+      } else if (spec.type === 'array') {
+        safe[field] = Array.isArray(val) ? val : [];
+      } else if (spec.type === 'array-summary') {
+        safe[field] = Array.isArray(val) ? val : [];
+      } else {
+        safe[field] = val;
+      }
+    });
+
+    // — House-washing: derive suburb_check from clientInfo, not AI —
+    if (svc.serviceKey === 'house-washing') {
+      const suburb = (clientInfo.suburb || _aiwState.property?.suburb || '').trim().toLowerCase();
+      if (!suburb) {
+        safe.suburb_check = null; // will be caught by missing-field check
+        safe._suburbWarning = 'Suburb not set — cannot determine house-washing classification';
+      } else {
+        const km = KILMORE_SUBURB_DISTANCES[suburb];
+        if (km === undefined) {
+          // Suburb not in lookup — cannot safely auto-classify
+          safe.suburb_check = null;
+          safe._suburbWarning = `Suburb "${suburb}" not found in distance list — manually verify house-washing eligibility`;
+        } else {
+          safe.suburb_check = km <= 30
+            ? 'Within 30km of Kilmore → In-person quote'
+            : 'More than 30km from Kilmore → Phone quote';
+        }
+      }
+    }
+
+    // — structures: ensure each item has the required sub-fields for calcQuote —
+    if (svc.serviceKey === 'gutter-cleaning' && Array.isArray(safe.structures)) {
+      const VALID_STRUCT_TYPES = ['Small shed (~20m guttering)','Medium shed (~28m guttering)','Large shed (~40m guttering)','Bungalow / Granny flat (~50m guttering)'];
+      safe.structures = safe.structures
+        .filter(s => s && VALID_STRUCT_TYPES.includes(s.type))
+        .map(s => ({
+          type: s.type,
+          gutter_guard: ['No','Yes'].includes(s.gutter_guard) ? s.gutter_guard : 'No',
+          debris: ['Less than 12 months','1–3 years ago','3+ years ago / never'].includes(s.debris) ? s.debris : null
+        }));
+    }
+
+    return safe;
+  } catch(e) {
+    console.error('[AIW] _aiwBuildSafeAnswers error:', e);
+    return null;
+  }
+}
+
+// Sync AI workspace customer/property state into clientInfo so calcTravel and calcQuote work
+function _aiwSyncToClientInfo() {
+  const c = _aiwState?.customer || {};
+  const p = _aiwState?.property || {};
+  if (c.name) clientInfo.name = c.name;
+  if (c.phone) clientInfo.phone = c.phone;
+  if (c.email) clientInfo.email = c.email;
+  if (p.suburb) clientInfo.suburb = p.suburb;
+  if (p.address) clientInfo.address = p.address;
+  // Update the manual form fields so they stay in sync
+  const fieldMap = { name:'client-name', phone:'client-phone', email:'client-email', suburb:'client-suburb', address:'client-address' };
+  Object.entries(fieldMap).forEach(([key, id]) => {
+    const el = document.getElementById(id);
+    const val = key === 'suburb' || key === 'address' ? p[key] : c[key];
+    if (el && val && !el.value) el.value = val;
+  });
+  // Recalculate travel based on suburb
+  if (clientInfo.suburb) calcTravel();
+}
+
+// ── Render the AI quote result panel ─────────────────────────────────────────
+
+function _aiwRenderQuoteResult(priceableItems, specialItems, grandTotal, travel) {
+  // Remove any previous result panel
+  const prev = document.getElementById('aiw-quote-result');
+  if (prev) prev.remove();
+
+  const hasNormal = priceableItems.length > 0;
+  const hasSpecial = specialItems.length > 0;
+
+  // Build service breakdown rows
+  let serviceRows = '';
+  priceableItems.forEach((item, idx) => {
+    const itemDisplayTotal = idx === 0 ? item.result.total + travel : item.result.total;
+    const lineRows = (item.result.lines || []).map(l =>
+      `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;border-bottom:1px solid #f5f5f5;">
+        <span style="color:var(--text3);">${_esc(l.label)}</span>
+        <span style="font-weight:600;">${_esc(l.value)}</span>
+      </div>`
+    ).join('');
+    const inclusions = (item.inclusions || []).map(i => `<div class="inclusion-item">${_esc(i)}</div>`).join('');
+    const scopeRow = item.scopeNotes
+      ? `<div style="font-size:11px;color:var(--text3);padding:4px 0;font-style:italic;">Notes: ${_esc(item.scopeNotes)}</div>`
+      : '';
+    serviceRows += `
+      <div style="background:var(--surface2);border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+        <div style="font-size:13px;font-weight:700;color:var(--ss-green);margin-bottom:6px;">${_esc(item.displayName)}</div>
+        ${lineRows}
+        ${idx === 0 && travel > 0 ? `<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #f5f5f5;"><span style="color:var(--text3);">Travel</span><span style="font-weight:600;">$${travel.toFixed(2)}</span></div>` : ''}
+        <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:800;padding:5px 0 0;color:var(--text);">
+          <span>Subtotal</span><span>$${itemDisplayTotal.toFixed(2)}</span>
+        </div>
+        ${scopeRow}
+        ${inclusions ? `<div class="inclusions-box" style="margin-top:8px;"><div class="inclusions-title">What's included</div>${inclusions}</div>` : ''}
+        ${item.result.note ? `<div class="quote-disclaimer" style="margin-top:6px;">⚠️ ${_esc(item.result.note)}</div>` : ''}
+      </div>`;
+  });
+
+  // Special results section
+  let specialRows = '';
+  specialItems.forEach(item => {
+    if (item.type === 'inPerson') {
+      specialRows += `<div class="alert alert-info" style="margin-bottom:8px;">
+        📍 <strong>${_esc(item.displayName || 'Service')}</strong>: In-person quote required — property is within 30km of Kilmore. Book a site visit with Simon.
+      </div>`;
+    } else if (item.type === 'customQuote') {
+      specialRows += `<div class="alert alert-custom" style="margin-bottom:8px;">
+        🚨 <strong>${_esc(item.displayName || 'Service')}</strong>: Custom quote required. ${_esc(item.reason || '')} Ask client to send photos to 0447 130 743 and contact Simon directly.
+      </div>`;
+    } else if (item.type === 'rerouted') {
+      specialRows += `<div style="background:var(--amber-bg);border:1px solid var(--amber);border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:12px;">
+        ↪️ <strong>${_esc(item.displayName || 'Service')}</strong> redirected to ${_esc(item.targetName || item.targetKey || '')}. ${_esc(item.message || '')}
+      </div>`;
+    } else if (item.type === 'error') {
+      specialRows += `<div class="alert alert-danger" style="margin-bottom:8px;">
+        ⚠ <strong>${_esc(item.displayName || 'Service')}</strong>: ${_esc(item.reason || 'Pricing failed')}
+      </div>`;
+    } else if (item.type === 'unknown') {
+      specialRows += `<div class="alert alert-danger" style="margin-bottom:8px;">⚠ Unrecognised service: ${_esc(item.serviceKey)}</div>`;
+    }
+  });
+
+  // Lead source picker (reuse existing)
+  const leadSourceHtml = `
+    <div style="background:#e8f0fe;border:1px solid #bfdbfe;border-radius:10px;padding:12px 14px;margin-top:12px;">
+      <div style="font-size:12px;font-weight:700;color:#1a56cc;margin-bottom:4px;">💬 Lead Source — Ask Before Closing</div>
+      <div style="font-size:12px;color:#1e3a5f;margin-bottom:8px;">"Just out of curiosity — how did you hear about us today?"</div>
+      <select onchange="(function(v){if(v){const s=document.getElementById('client-source');if(s){s.value=v;updateClientInfo();}}})(this.value)" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #bfdbfe;background:#fff;font-size:12px;font-family:inherit;">
+        <option value="">— Select source after asking —</option>
+        <option value="phone-call">📞 Inbound phone call</option>
+        <option value="meta-ad">📘 Meta / Facebook Ad</option>
+        <option value="google-ad">🔍 Google Ad</option>
+        <option value="website">🌐 Website</option>
+        <option value="referral">🤝 Referral / word of mouth</option>
+        <option value="repeat">🔁 Repeat customer</option>
+        <option value="other">❓ Other</option>
+      </select>
+    </div>`;
+
+  // Closing script
+  const firstServiceName = priceableItems.length > 0 ? priceableItems[0].displayName : 'service';
+  const suburb = clientInfo.suburb || _aiwState.property?.suburb || '[suburb]';
+  const closingScript = hasNormal
+    ? `<div class="closing-script" style="margin-top:12px;">
+        <div class="closing-script-title">💬 Closing Script</div>
+        <div class="closing-script-text">"So we're all good to go — that's <strong>$${grandTotal.toFixed(2)}</strong> all up for ${_esc(suburb)}. To lock it in I just need to grab a date that works for you. Are you flexible on timing, or is there a particular day or week that would suit?"</div>
+      </div>` : '';
+
+  // Warning if mixed priceable + special
+  const mixedWarning = (hasNormal && hasSpecial)
+    ? `<div style="background:var(--amber-bg);border:1px solid var(--amber);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--amber);font-weight:600;">
+        ⚠ This quote is not complete — some services require manual review. Total shown is for priceable services only.
+      </div>` : '';
+
+  // Action buttons
+  const actionHtml = hasNormal ? `
+    <div class="quote-actions" style="margin-top:12px;">
+      <button class="btn-primary" onclick="aiwFinaliseQuote()" style="background:#14532d;">✓ Quote Accepted — Book Job</button>
+      <button class="btn-primary" onclick="aiwSaveToCRM()">Save to CRM</button>
+      <button class="btn-secondary" onclick="aiwEmailQuote()">📧 Email Quote</button>
+      <button class="btn-secondary" onclick="aiwPrintQuote()">🖨️ Print / PDF</button>
+      <button class="btn-secondary" onclick="openAddFollowUp()">Add Follow-up</button>
+      <button class="btn-secondary" onclick="_aiwReturnToWorkspace()">← Back to Workspace</button>
+    </div>` : `
+    <div class="quote-actions" style="margin-top:12px;">
+      <button class="btn-secondary" onclick="_aiwReturnToWorkspace()">← Back to Workspace</button>
+    </div>`;
+
+  const panel = document.createElement('div');
+  panel.id = 'aiw-quote-result';
+  panel.className = 'card';
+  panel.style.cssText = 'margin-top:16px;';
+  panel.innerHTML = `
+    <div class="card-header" style="margin-bottom:12px;">
+      <div class="card-title">📋 Quote Summary</div>
+      ${hasNormal ? `<span class="aiw-pill ready">✓ Priced by existing engine</span>` : '<span class="aiw-pill escalate">Manual review required</span>'}
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:12px;">
+      <strong>${_esc(clientInfo.name || '—')}</strong>
+      ${clientInfo.phone ? ' · ' + _esc(clientInfo.phone) : ''}
+      ${clientInfo.suburb ? ' · ' + _esc(clientInfo.suburb) : ''}
+    </div>
+    ${mixedWarning}
+    ${serviceRows}
+    ${specialRows}
+    ${hasNormal ? `
+    <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:900;color:var(--ss-green);padding:12px;background:var(--green-bg);border-radius:8px;margin-top:4px;">
+      <span>Total (inc. GST)</span>
+      <span>$${grandTotal.toFixed(2)}</span>
+    </div>` : ''}
+    ${leadSourceHtml}
+    ${closingScript}
+    ${actionHtml}`;
+
+  // Append below the readiness card inside the right panel
+  const readinessCard = document.getElementById('aiw-readiness-card');
+  if (readinessCard && readinessCard.parentNode) {
+    readinessCard.parentNode.insertBefore(panel, readinessCard.nextSibling);
+  } else {
+    document.getElementById('aiw-right')?.appendChild(panel) || document.getElementById('ai-workspace-view')?.appendChild(panel);
+  }
+
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // Mark build button to show rebuild state
+  const buildBtn = document.getElementById('aiw-build-btn');
+  if (buildBtn) {
+    buildBtn.textContent = '🔄 Rebuild Quote';
+    buildBtn.disabled = false;
+  }
+  const hint = document.getElementById('aiw-build-hint');
+  if (hint) hint.textContent = 'Edit any field above and rebuild to update the price.';
+}
+
+function _aiwReturnToWorkspace() {
+  const result = document.getElementById('aiw-quote-result');
+  if (result) result.remove();
+  const buildBtn = document.getElementById('aiw-build-btn');
+  if (buildBtn) { buildBtn.disabled = false; buildBtn.textContent = '🏗️ Build Quote'; }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Mark quote as stale when any pricing field is edited post-build
+function _aiwMarkQuoteStale() {
+  if (!_aiwState?.preparedQuote) return;
+  _aiwState.preparedQuote.stale = true;
+  const result = document.getElementById('aiw-quote-result');
+  if (result) {
+    const staleEl = result.querySelector('#aiw-stale-warning');
+    if (!staleEl) {
+      const banner = document.createElement('div');
+      banner.id = 'aiw-stale-warning';
+      banner.style.cssText = 'background:var(--amber-bg);border:1px solid var(--amber);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--amber);font-weight:600;margin-bottom:8px;';
+      banner.textContent = '⚡ Fields changed — click "Rebuild Quote" to update the price.';
+      result.insertBefore(banner, result.firstChild.nextSibling); // after card-header
+    }
+    // Disable CRM/email/print until rebuilt
+    ['aiwSaveToCRM','aiwEmailQuote','aiwPrintQuote','aiwFinaliseQuote'].forEach(fn => {
+      result.querySelectorAll('button').forEach(btn => {
+        if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(fn)) {
+          btn.disabled = true;
+          btn.style.opacity = '0.5';
+        }
+      });
+    });
+  }
+}
+
+// Intercept aiwUpdateField to mark stale after build
+const _origAiwUpdateField = aiwUpdateField;
+aiwUpdateField = function(svcIdx, fieldName, value) {
+  _origAiwUpdateField(svcIdx, fieldName, value);
+  _aiwMarkQuoteStale();
+};
+
+// ── Quote actions — wired to existing engine ──────────────────────────────
+
+function aiwEmailQuote() {
+  if (!_aiwState?.preparedQuote) { showToast('Build the quote first', 'error'); return; }
+  if (_aiwState.preparedQuote.stale) { showToast('Rebuild the quote before emailing', 'error'); return; }
+  if (!multiServiceItems.length) { showToast('No priced services — rebuild the quote', 'error'); return; }
+  const grandTotal = _aiwState.preparedQuote.grandTotal;
+  if (typeof grandTotal !== 'number' || !Number.isFinite(grandTotal) || grandTotal <= 0) {
+    showToast('Invalid quote total — rebuild the quote', 'error'); return;
+  }
+  emailQuote(grandTotal);
+}
+
+function aiwPrintQuote() {
+  if (!_aiwState?.preparedQuote) { showToast('Build the quote first', 'error'); return; }
+  if (_aiwState.preparedQuote.stale) { showToast('Rebuild the quote before printing', 'error'); return; }
+  if (!multiServiceItems.length) { showToast('No priced services — rebuild the quote', 'error'); return; }
+  const grandTotal = _aiwState.preparedQuote.grandTotal;
+  if (typeof grandTotal !== 'number' || !Number.isFinite(grandTotal) || grandTotal <= 0) {
+    showToast('Invalid quote total — rebuild the quote', 'error'); return;
+  }
+  printQuote(grandTotal);
+}
+
+async function aiwSaveToCRM() {
+  if (!_aiwState?.preparedQuote) { showToast('Build the quote first', 'error'); return; }
+  if (_aiwState.preparedQuote.stale) { showToast('Rebuild the quote before saving', 'error'); return; }
+  if (!multiServiceItems.length) { showToast('No priced services — rebuild the quote', 'error'); return; }
+
+  const total = _aiwState.preparedQuote.grandTotal;
+  if (typeof total !== 'number' || !Number.isFinite(total) || total <= 0) {
+    showToast('Invalid quote total — rebuild the quote', 'error'); return;
+  }
+
+  // Verify multiServiceItems matches preparedQuote items (prevent inconsistent saves)
+  const preparedKeys = (_aiwState.preparedQuote.priceableItems || []).map(i => i.serviceKey).join(',');
+  const currentKeys = multiServiceItems.map(i => i.serviceKey).join(',');
+  if (preparedKeys !== currentKeys) {
+    showToast('Quote state inconsistent — rebuild before saving', 'error'); return;
+  }
+
+  const items = multiServiceItems;
+  const svcNames = items.map(i => i.name).join(' + ');
+  const _travel = clientInfo.travelCost || 0;
+
+  // Build line items — travel baked into first item per existing convention
+  const lineItems = items.map((item, idx) => {
+    let desc = item.name;
+    if (item.serviceKey === 'window-cleaning' && item.savedAnswers?.scope) {
+      desc = `${item.name} (${item.savedAnswers.scope})`;
+    }
+    return { description: desc, total: idx === 0 ? item.total + _travel : item.total };
+  });
+
+  // Audit block — uses runtime timestamp from preparedQuote.builtAt, not hardcoded
+  const auditBlock = _aiwBuildAuditBlock();
+  const baseNotes = `Phone quote via Call Dashboard (AI-assisted). Services: ${svcNames}. Address: ${clientInfo.address || clientInfo.suburb}. Travel: $${_travel.toFixed(2)}. Source: ${clientInfo.source || 'phone-call'}. Rep: ${currentRep ? currentRep.name : 'unknown'}.`;
+  const fullNotes = `${baseNotes}\n\n--- AI AUDIT ---\n${auditBlock}`;
+
+  await saveQuoteToCRMWithOverride(total, svcNames, lineItems, fullNotes);
+}
+
+function _aiwBuildAuditBlock() {
+  const state = _aiwState || {};
+  const pq = state.preparedQuote || {};
+  const lines = [
+    `Session: ${state.sessionId || 'unknown'}`,
+    `Rep: ${currentRep ? currentRep.name + ' (ID: ' + currentRep.id + ')' : 'unknown'}`,
+    `Built at: ${pq.builtAt || 'unknown'}`,
+    `Note batches: ${(state.notesHistory || []).length}`,
+  ];
+  (pq.priceableItems || []).forEach(item => {
+    lines.push(`Service: ${item.displayName} — $${item.total.toFixed(2)} (excl travel)`);
+  });
+  (pq.specialItems || []).forEach(item => {
+    lines.push(`Manual review: ${item.displayName} (${item.type}${item.reason ? ': ' + item.reason : ''})`);
+  });
+  lines.push('Pricing calculated by existing SERVICES calcQuote engine.');
+  return lines.join('\n');
+}
+
+// saveQuoteToCRMWithOverride — extended from original to accept a custom notes param.
+// The manual workflow passes no customNotes so defaults to original note string.
+async function saveQuoteToCRMWithOverride(total, svcLabel, lineItems, customNotes) {
+  try {
+    const quoteId = 'Q-' + Date.now();
+    let clientId = null;
+    const existingRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/clients?phone=eq.${encodeURIComponent(clientInfo.phone)}&select=id`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    const existing = await existingRes.json();
+    if (existing && existing.length > 0) {
+      clientId = existing[0].id;
+      if (clientInfo.address || clientInfo.email) {
+        await fetch(`${SUPABASE_URL}/rest/v1/clients?id=eq.${clientId}`, {
+          method: 'PATCH',
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...(clientInfo.address && { address: clientInfo.address }), ...(clientInfo.email && { email: clientInfo.email }) })
+        });
+      }
+    } else {
+      const nc = await fetch(`${SUPABASE_URL}/rest/v1/clients`, {
+        method: 'POST',
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+        body: JSON.stringify({ id: 'C-' + Date.now(), name: clientInfo.name, phone: clientInfo.phone, email: clientInfo.email || null, address: clientInfo.address || null, suburb: clientInfo.suburb, status: 'lead', source: clientInfo.source || 'phone-call', created_at: new Date().toISOString() })
+      });
+      const ncData = await nc.json();
+      if (ncData && ncData[0]) clientId = ncData[0].id;
+    }
+
+    const notes = customNotes || `Phone quote via Call Dashboard. Services: ${svcLabel}. Address: ${clientInfo.address || clientInfo.suburb}. Travel included. Source: ${clientInfo.source || 'phone-call'}. Rep: ${currentRep ? currentRep.name : 'unknown'}.`;
+
+    const quoteRes = await fetch(`${SUPABASE_URL}/rest/v1/quotes`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+      body: JSON.stringify({
+        id: quoteId, client: clientInfo.name, date: localToday(), total,
+        status: 'pending', items: lineItems,
+        notes,
+        created_at: new Date().toISOString()
+      })
+    });
+
+    if (!quoteRes.ok) { const e = await quoteRes.text(); console.error('Quote save error:', e); throw new Error(e); }
+    showToast('Quote saved to CRM ✓');
+    showMarketingHubPrompt(clientInfo.name, 'pending');
+    showQuoteSuccessScreen('saved');
+  } catch(e) {
+    showToast('Saved locally — check CRM connection');
+    console.error(e);
+  }
+}
+
+// ── Dedicated AI quote acceptance adapter ─────────────────────────────────
+// Does NOT use currentService, answers, or getMultiItems().
+// Uses _aiwState.preparedQuote and multiServiceItems directly — the exact
+// data the CSR reviewed. No prices are recalculated.
+
+async function aiwFinaliseQuote() {
+  // — Consistency checks —
+  if (!_aiwState?.preparedQuote) { showToast('Build the quote first', 'error'); return; }
+  if (_aiwState.preparedQuote.stale) { showToast('Rebuild the quote before accepting', 'error'); return; }
+  if (!multiServiceItems.length) { showToast('No priced services — rebuild the quote', 'error'); return; }
+
+  const pq = _aiwState.preparedQuote;
+  const total = pq.grandTotal;
+
+  // Verify displayed total matches prepared total (belt-and-braces)
+  const recomputedTotal = multiServiceItems.reduce((s, i) => s + i.total, 0) + (clientInfo.travelCost || 0);
+  if (Math.abs(recomputedTotal - total) > 0.01) {
+    showToast('Quote total mismatch — rebuild before accepting', 'error');
+    return;
+  }
+
+  if (typeof total !== 'number' || !Number.isFinite(total) || total <= 0) {
+    showToast('Invalid quote total — rebuild the quote', 'error');
+    return;
+  }
+
+  // — Require address before accepting (same rule as legacy path) —
+  if (!clientInfo.address || clientInfo.address.length < 5) {
+    _aiwShowAddressModalForFinalise(total);
+    return;
+  }
+
+  await _aiwDoAcceptQuote(total);
+}
+
+function _aiwShowAddressModalForFinalise(total) {
+  const existing = document.getElementById('address-required-modal');
+  if (existing) existing.remove();
+  const m = document.createElement('div');
+  m.id = 'address-required-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  m.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:24px;max-width:420px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+      <div style="font-size:22px;margin-bottom:8px;">📍</div>
+      <div style="font-size:17px;font-weight:800;margin-bottom:6px;">Full Property Address Required</div>
+      <div style="font-size:13px;color:#666;margin-bottom:16px;">This is needed to book the job correctly. Get the full street address from the client before confirming.</div>
+      <label style="font-size:12px;font-weight:600;color:#333;display:block;margin-bottom:6px;">Property Address *</label>
+      <input id="aiw-address-modal-input" class="form-input" placeholder="e.g. 12 Smith St, Kilmore" value="${clientInfo.address || ''}" style="width:100%;box-sizing:border-box;margin-bottom:16px;font-size:14px;padding:10px 12px;border:2px solid var(--ss-green);border-radius:8px;outline:none;">
+      <div style="display:flex;gap:8px;">
+        <button onclick="(async()=>{
+          const v = document.getElementById('aiw-address-modal-input').value.trim();
+          if (!v || v.length < 5) { document.getElementById('aiw-address-modal-input').style.borderColor='#dc2626'; return; }
+          clientInfo.address = v;
+          const addrEl = document.getElementById('client-address'); if (addrEl) addrEl.value = v;
+          const aiwEl = document.getElementById('aiw-f-address'); if (aiwEl) aiwEl.value = v;
+          if (_aiwState) _aiwState.property.address = v;
+          document.getElementById('address-required-modal').remove();
+          await _aiwDoAcceptQuote(${total});
+        })()" style="flex:1;background:var(--ss-green);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;">Confirm & Book Job</button>
+        <button onclick="document.getElementById('address-required-modal').remove()" style="background:#f3f4f6;border:none;border-radius:10px;padding:12px 16px;font-size:13px;cursor:pointer;color:#666;">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(m);
+  setTimeout(() => { const i = document.getElementById('aiw-address-modal-input'); if (i) i.focus(); }, 100);
+}
+
+async function _aiwDoAcceptQuote(total) {
+  const pq = _aiwState.preparedQuote;
+  const _travel = clientInfo.travelCost || 0;
+
+  // Build the combined label from the prepared items — do not use SERVICES[currentService]
+  const combinedLabel = multiServiceItems.map(i => i.name).join(' + ') || 'Service';
+
+  // Build CRM line items — travel baked into first item per existing convention
+  const lineItems = multiServiceItems.map((item, idx) => {
+    let desc = item.name;
+    if (item.serviceKey === 'window-cleaning' && item.savedAnswers?.scope) {
+      desc = `${item.name} (${item.savedAnswers.scope})`;
+    }
+    return { description: desc, total: idx === 0 ? item.total + _travel : item.total };
+  });
+
+  // Audit trail for acceptance
+  const auditBlock = _aiwBuildAuditBlock();
+  const acceptNotes = `Accepted on call (AI-assisted). Service: ${combinedLabel}. Address: ${clientInfo.address || clientInfo.suburb}. Source: ${clientInfo.source || 'phone-call'}. Travel: $${_travel.toFixed(2)}.\n\n--- AI AUDIT ---\n${auditBlock}`;
+
+  const quoteId = 'Q-' + Date.now();
+  const jobId = 'J-' + Date.now();
+
+  try {
+    // Upsert client
+    const existingRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/clients?phone=eq.${encodeURIComponent(clientInfo.phone)}&select=id`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    const existingClients = await existingRes.json();
+    if (existingClients && existingClients.length > 0) {
+      const clientId = existingClients[0].id;
+      if (clientInfo.address || clientInfo.email) {
+        await fetch(`${SUPABASE_URL}/rest/v1/clients?id=eq.${clientId}`, {
+          method: 'PATCH',
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...(clientInfo.address && { address: clientInfo.address }), ...(clientInfo.email && { email: clientInfo.email }) })
+        });
+      }
+    } else {
+      await fetch(`${SUPABASE_URL}/rest/v1/clients`, {
+        method: 'POST',
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+        body: JSON.stringify({ id: 'C-' + Date.now(), name: clientInfo.name, phone: clientInfo.phone, email: clientInfo.email || null, address: clientInfo.address || null, suburb: clientInfo.suburb, status: 'active', source: clientInfo.source || 'phone-call', created_at: new Date().toISOString() })
+      });
+    }
+
+    // Save accepted quote
+    await fetch(`${SUPABASE_URL}/rest/v1/quotes`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify({ id: quoteId, client: clientInfo.name, date: localToday(), total, status: 'approved', items: lineItems, notes: acceptNotes, created_at: new Date().toISOString() })
+    });
+
+    // Create job
+    await fetch(`${SUPABASE_URL}/rest/v1/jobs`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      body: JSON.stringify({ id: jobId, client: clientInfo.name, service: combinedLabel, description: `AI-assisted phone quote. Address: ${clientInfo.address || clientInfo.suburb}.`, status: 'Active', revenue: total, hours: 0, completion_date: null, notes: `Booked via Call Dashboard (AI workflow). Rep: ${currentRep ? currentRep.name : 'unknown'}. Quote: ${quoteId}.`, created_at: new Date().toISOString() })
+    });
+
+    showToast('Quote accepted ✓ — Job created in CRM');
+  } catch(e) {
+    showToast('CRM save error — check connection', 'error');
+    console.error(e);
+    return; // don't show success screen on CRM failure
+  }
+
+  // Marketing hub prompt
+  showMarketingHubPrompt(clientInfo.name, 'accepted');
+
+  // Show success screen using preparedQuote data — no getMultiItems() or calcQuote
+  _aiwShowAcceptSuccessScreen(total, combinedLabel, jobId);
+}
+
+function _aiwShowAcceptSuccessScreen(total, combinedLabel, jobId) {
+  const existing = document.getElementById('quote-success-screen');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.id = 'quote-success-screen';
+  div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:9990;display:flex;align-items:center;justify-content:center;padding:20px;';
+  div.innerHTML = `<div style="background:#fff;border-radius:16px;padding:28px;max-width:400px;width:100%;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,0.5);">
+    <div style="font-size:48px;margin-bottom:8px;">🎉</div>
+    <div style="font-size:20px;font-weight:900;color:#14532d;margin-bottom:6px;">Quote Accepted!</div>
+    <div style="font-size:13px;color:#555;margin-bottom:4px;">${_esc(clientInfo.name)} — ${_esc(combinedLabel)}</div>
+    <div style="font-size:22px;font-weight:800;color:var(--ss-green);margin-bottom:20px;">$${total.toFixed(2)}</div>
+    <div style="font-size:12px;color:#888;margin-bottom:20px;">Job created in CRM. Book a date with the client then send the email quote.</div>
+    <button onclick="document.getElementById('quote-success-screen').remove(); clearAndNewQuote();" style="width:100%;background:var(--ss-green);color:#fff;border:none;border-radius:10px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;margin-bottom:8px;">➕ Start New Quote</button>
+    <button onclick="document.getElementById('quote-success-screen').remove();" style="width:100%;background:#f3f4f6;border:none;border-radius:10px;padding:12px;font-size:13px;cursor:pointer;color:#555;">Stay on this quote</button>
+  </div>`;
+  document.body.appendChild(div);
+  // Calendar booking using combinedLabel directly (no SERVICES[currentService] dependency)
+  _aiwShowCalendarBookingModal(total, combinedLabel, jobId);
+}
+
+async function _aiwShowCalendarBookingModal(total, combinedLabel, jobId) {
+  const existing = document.getElementById('cal-booking-modal');
+  if (existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'cal-booking-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto;';
+  modal.innerHTML = `
+    <div style="background:var(--surface);border-radius:16px;padding:24px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.4);margin:auto;">
+      <div style="font-size:17px;font-weight:800;margin-bottom:4px;">📅 Book the Job</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:16px;">${_esc(clientInfo.name)} · ${_esc(combinedLabel)} · $${total.toFixed(2)}</div>
+      <div id="aiw-cal-booking-body">
+        <div style="text-align:center;padding:24px;">
+          <div style="font-size:32px;margin-bottom:12px;">📅</div>
+          <div style="font-size:14px;color:var(--text2);margin-bottom:16px;">Connect Google Calendar to check availability and book the job.</div>
+          <button onclick="aiwLoadCalBooking(${total},'${jobId}','${combinedLabel.replace(/'/g,"\\'")}')" style="background:var(--ss-green);color:#fff;border:none;padding:12px 24px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">Connect Google Calendar</button>
+        </div>
+      </div>
+      <button onclick="document.getElementById('cal-booking-modal').remove()" style="width:100%;background:transparent;border:1px solid var(--border);color:var(--text3);padding:10px;border-radius:8px;font-size:13px;cursor:pointer;margin-top:12px;">Skip — book manually later</button>
+    </div>`;
+  document.body.appendChild(modal);
+  const token = await getGoogleToken();
+  if (token) { await aiwLoadCalBooking(total, jobId, combinedLabel); }
+}
+
+async function aiwLoadCalBooking(total, jobId, combinedLabel) {
+  const body = document.getElementById('aiw-cal-booking-body');
+  if (!body) return;
+  body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3);">Connecting to Google Calendar…</div>';
+  let token = await getGoogleToken();
+  if (!token) { token = await signInGoogleCalendar(); }
+  if (!token) {
+    body.innerHTML = '<div style="text-align:center;padding:16px;color:var(--red);">Could not connect to Google Calendar. Book manually via the CRM.</div>';
+    return;
+  }
+  const days = [];
+  const today = new Date();
+  for (let i = 1; i <= 14; i++) {
+    const d = new Date(today); d.setDate(today.getDate() + i);
+    days.push(d.toISOString().split('T')[0]);
+  }
+  const busyByDay = {};
+  for (const dateStr of days) {
+    busyByDay[dateStr] = await loadCalendarFreeBusy(token, dateStr);
+  }
+  const dayCards = days.map(dateStr => {
+    const evts = busyByDay[dateStr] || [];
+    const d = new Date(dateStr + 'T12:00:00');
+    const label = d.toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' });
+    const isFree = evts.length === 0;
+    const badge = isFree
+      ? '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:2px 6px;border-radius:10px;font-weight:700;">FREE</span>'
+      : `<span style="font-size:10px;background:#fee2e2;color:#991b1b;padding:2px 6px;border-radius:10px;font-weight:700;">${evts.length} job${evts.length > 1 ? 's' : ''}</span>`;
+    return `<div onclick="aiwConfirmCalBooking('${dateStr}','${label}',${total},'${jobId}',${JSON.stringify(combinedLabel)})"
+      style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;cursor:pointer;background:${isFree ? '#f0fdf4' : '#fff'};transition:all 0.15s;"
+      onmouseover="this.style.borderColor='var(--ss-green)'" onmouseout="this.style.borderColor='var(--border)'">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-size:13px;font-weight:700;">${label}</div>${badge}
+      </div>
+    </div>`;
+  }).join('');
+  body.innerHTML = `<div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:10px;">Select a day to book:</div><div style="display:flex;flex-direction:column;gap:6px;max-height:340px;overflow-y:auto;">${dayCards}</div>`;
+}
+
+async function aiwConfirmCalBooking(dateStr, label, total, jobId, combinedLabel) {
+  const modal = document.getElementById('cal-booking-modal');
+  const body = document.getElementById('aiw-cal-booking-body');
+  if (body) body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3);">Booking…</div>';
+  const token = await getGoogleToken();
+  if (!token) { showToast('Calendar session expired — please reconnect'); if (modal) modal.remove(); return; }
+  // Use combinedLabel for calendar event — no SERVICES[currentService] dependency
+  const booked = await bookJobOnCalendar(token, dateStr, clientInfo.name, combinedLabel, clientInfo.suburb, total);
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/jobs?id=eq.${jobId}`, {
+      method: 'PATCH',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ completion_date: dateStr })
+    });
+  } catch(e) {}
+  if (modal) modal.remove();
+  showToast(booked ? `Job booked for ${label} ✓` : `Job saved in CRM — add to calendar manually`);
+}
+
+// Structures editor for gutter-cleaning in AI workspace
+function aiwEditStructures(svcIdx) {
+  const activeServices = (_aiwState?.services || []).filter(s => !s._removed);
+  const svc = activeServices[svcIdx];
+  if (!svc || svc.serviceKey !== 'gutter-cleaning') return;
+
+  const STRUCT_TYPES = ['Small shed (~20m guttering)','Medium shed (~28m guttering)','Large shed (~40m guttering)','Bungalow / Granny flat (~50m guttering)'];
+  const DEBRIS_OPTS = ['Less than 12 months','1–3 years ago','3+ years ago / never'];
+  const existing = Array.isArray(svc.answers?.structures) ? svc.answers.structures : [];
+
+  const existing_modal = document.getElementById('aiw-struct-modal');
+  if (existing_modal) existing_modal.remove();
+
+  const renderRows = (structs) => structs.map((s, i) => `
+    <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:6px;align-items:center;margin-bottom:4px;background:var(--surface2);padding:7px 10px;border-radius:7px;">
+      <span style="font-size:12px;font-weight:600;">${_esc(s.type || '—')}</span>
+      <span style="font-size:11px;color:var(--text3);">Guard: ${_esc(s.gutter_guard || 'No')}</span>
+      <span style="font-size:11px;color:var(--text3);">Debris: ${_esc(s.debris || '—')}</span>
+      <button onclick="aiwRemoveStructure(${svcIdx},${i})" style="border:none;background:var(--red-bg);color:var(--red);border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;">✕</button>
+    </div>`).join('');
+
+  const modal = document.createElement('div');
+  modal.id = 'aiw-struct-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML = `<div style="background:#fff;border-radius:14px;padding:22px;max-width:480px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="font-size:15px;font-weight:800;">🏚 Additional Structures</div>
+      <button onclick="document.getElementById('aiw-struct-modal').remove()" style="border:none;background:none;font-size:20px;cursor:pointer;">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Sheds, bungalows, or granny flats that also need gutters cleaned.</div>
+    <div id="aiw-struct-list">${renderRows(existing)}</div>
+    <div style="border-top:1px solid var(--border);margin:12px 0;padding-top:12px;">
+      <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.06em;">Add structure</div>
+      <div style="margin-bottom:8px;">
+        <label style="font-size:11px;font-weight:600;color:var(--text3);">Type</label>
+        <select id="aiw-struct-type" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px;margin-top:3px;">
+          ${STRUCT_TYPES.map(t => `<option value="${_esc(t)}">${_esc(t)}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text3);">Gutter guard</label>
+          <select id="aiw-struct-guard" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px;margin-top:3px;">
+            <option value="No">No</option><option value="Yes">Yes</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--text3);">Last cleaned</label>
+          <select id="aiw-struct-debris" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px;margin-top:3px;">
+            <option value="">— Unknown —</option>
+            ${DEBRIS_OPTS.map(d => `<option value="${_esc(d)}">${_esc(d)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <button onclick="aiwAddStructure(${svcIdx})" style="width:100%;background:var(--ss-green);color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer;">+ Add Structure</button>
+    </div>
+    <button onclick="document.getElementById('aiw-struct-modal').remove();_aiwRenderAll();" style="width:100%;background:#f3f4f6;border:none;border-radius:8px;padding:10px;font-size:13px;cursor:pointer;margin-top:8px;color:#555;">Done</button>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) { modal.remove(); _aiwRenderAll(); } });
+}
+
+function aiwAddStructure(svcIdx) {
+  const type = document.getElementById('aiw-struct-type')?.value;
+  const guard = document.getElementById('aiw-struct-guard')?.value || 'No';
+  const debris = document.getElementById('aiw-struct-debris')?.value || null;
+  if (!type) return;
+  const activeServices = (_aiwState?.services || []).filter(s => !s._removed);
+  const svc = activeServices[svcIdx];
+  if (!svc) return;
+  if (!svc.answers) svc.answers = {};
+  if (!Array.isArray(svc.answers.structures)) svc.answers.structures = [];
+  svc.answers.structures.push({ type, gutter_guard: guard, debris: debris || null });
+  _aiwSaveToLS();
+  _aiwMarkQuoteStale();
+  // Re-render just the list inside the modal
+  const list = document.getElementById('aiw-struct-list');
+  if (list) {
+    const STRUCT_TYPES = ['Small shed (~20m guttering)','Medium shed (~28m guttering)','Large shed (~40m guttering)','Bungalow / Granny flat (~50m guttering)'];
+    list.innerHTML = svc.answers.structures.map((s, i) => `
+      <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:6px;align-items:center;margin-bottom:4px;background:var(--surface2);padding:7px 10px;border-radius:7px;">
+        <span style="font-size:12px;font-weight:600;">${_esc(s.type || '—')}</span>
+        <span style="font-size:11px;color:var(--text3);">Guard: ${_esc(s.gutter_guard || 'No')}</span>
+        <span style="font-size:11px;color:var(--text3);">Debris: ${_esc(s.debris || '—')}</span>
+        <button onclick="aiwRemoveStructure(${svcIdx},${i})" style="border:none;background:var(--red-bg);color:var(--red);border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;">✕</button>
+      </div>`).join('');
+  }
+}
+
+function aiwRemoveStructure(svcIdx, structIdx) {
+  const activeServices = (_aiwState?.services || []).filter(s => !s._removed);
+  const svc = activeServices[svcIdx];
+  if (!svc || !Array.isArray(svc.answers?.structures)) return;
+  svc.answers.structures.splice(structIdx, 1);
+  _aiwSaveToLS();
+  _aiwMarkQuoteStale();
+  aiwEditStructures(svcIdx); // re-open modal refreshed
+}
+
+function aiwHandoffToManual() {
+  // Sync customer info from AI workspace to the manual quote form
+  const c = _aiwState?.customer || {};
+  const p = _aiwState?.property || {};
+  if (c.name) { const el = document.getElementById('client-name'); if (el && !el.value) { el.value = c.name; updateClientInfo(); } }
+  if (c.phone) { const el = document.getElementById('client-phone'); if (el && !el.value) { el.value = c.phone; updateClientInfo(); } }
+  if (c.email) { const el = document.getElementById('client-email'); if (el && !el.value) { el.value = c.email; updateClientInfo(); } }
+  if (p.suburb) { const el = document.getElementById('client-suburb'); if (el && !el.value) { el.value = p.suburb; updateClientInfo(); calcTravel(); } }
+  if (p.address) { const el = document.getElementById('client-address'); if (el && !el.value) { el.value = p.address; updateClientInfo(); } }
+
+  // Switch to manual mode with customer pre-filled
+  aiwSetMode('manual');
+  showToast('Customer details synced to manual quote. Select a service to continue.');
+}
+
+// ── Hook into clearAndNewQuote ─────────────────────────────────────────────
+
+const _origClearAndNewQuote = clearAndNewQuote;
+clearAndNewQuote = function() {
+  _origClearAndNewQuote.call(this);
+  aiwResetSession();
+};
+
+function aiwResetSession() {
+  _aiwClearLS();
+  _aiwState = _aiwNewState();
+  // Clear multiServiceItems so a fresh quote is clean
+  multiServiceItems = [];
+  const banner = document.getElementById('multi-svc-banner');
+  if (banner) banner.remove();
+  // Clear UI
+  const ta = document.getElementById('aiw-notes-textarea');
+  if (ta) ta.value = '';
+  aiwOnNotesInput();
+  _aiwHideStatus();
+  // Remove quote result panel if present
+  const resultEl = document.getElementById('aiw-quote-result');
+  if (resultEl) resultEl.remove();
+  // Remove struct modal if open
+  const structModal = document.getElementById('aiw-struct-modal');
+  if (structModal) structModal.remove();
+  document.getElementById('aiw-recovery-bar').style.display = 'none';
+  document.getElementById('aiw-empty-card').style.display = 'block';
+  document.getElementById('aiw-customer-card').style.display = 'none';
+  document.getElementById('aiw-services-section').style.display = 'none';
+  document.getElementById('aiw-missing-card').style.display = 'none';
+  document.getElementById('aiw-assumptions-card').style.display = 'none';
+  document.getElementById('aiw-readiness-card').style.display = 'none';
+  document.getElementById('aiw-history-card').style.display = 'none';
+  // Reset build button
+  const buildBtn = document.getElementById('aiw-build-btn');
+  if (buildBtn) { buildBtn.disabled = true; buildBtn.textContent = '🏗️ Build Quote'; }
+  const hint = document.getElementById('aiw-build-hint');
+  if (hint) hint.textContent = '';
+  // Clear customer fields in AI workspace
+  ['aiw-f-name','aiw-f-phone','aiw-f-email','aiw-f-suburb','aiw-f-address'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.value = ''; el.classList.remove('ai-filled','uncertain'); }
+  });
+  // Return to AI mode
+  if (_aiwCurrentMode === 'ai') {
+    document.getElementById('ai-workspace-view').style.display = 'block';
+    document.getElementById('service-select-view').style.display = 'none';
+  }
+}
+
+// ── Initialise on page load ────────────────────────────────────────────────
+
+(function aiwInit() {
+  // Default to AI Assisted mode — show workspace, hide manual grid
+  _aiwState = _aiwNewState();
+  document.getElementById('ai-workspace-view').style.display = 'block';
+  document.getElementById('service-select-view').style.display = 'none';
+  // Check for recoverable session
+  _aiwCheckRecovery();
+  // Init char count
+  aiwOnNotesInput();
+})();
+
 </script>
 </body>
 </html>
