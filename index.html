@@ -953,8 +953,20 @@ function updateClientInfo() {
   clientInfo.source = (document.getElementById('client-source') || {}).value || 'phone-call';
 }
 
+function normaliseSuburb(raw) {
+  if (!raw) return '';
+  return String(raw)
+    .trim()
+    .toLowerCase()
+    // Strip optional comma + state/territory suffix (e.g. ", VIC", " Victoria", " NSW")
+    .replace(/,?\s+(vic|nsw|qld|sa|wa|tas|act|nt|victoria|new south wales|queensland)\b.*$/, '')
+    // Strip trailing 4-digit postcode (e.g. " 3764")
+    .replace(/\s+\d{4}$/, '')
+    .trim();
+}
+
 function calcTravel() {
-  const suburb = document.getElementById('client-suburb').value.trim().toLowerCase();
+  const suburb = normaliseSuburb(document.getElementById('client-suburb').value);
   let km = KILMORE_SUBURB_DISTANCES[suburb];
   if (km === undefined) {
     // estimate unknown suburbs — default 40km one-way = 80km return
@@ -989,11 +1001,35 @@ function startService(serviceKey) {
   currentService = serviceKey;
   currentStep = 0;
   answers = {};
+  // House-washing: auto-derive suburb_check from clientInfo.suburb so the rep
+  // never needs to manually classify a suburb that is already in the lookup.
+  // When derived, advance currentStep to 1 so the selector is rendered as a
+  // completed step (hidden buttons, read-only notice shown by renderSteps).
+  // If suburb is blank or not in KILMORE_SUBURB_DISTANCES, suburb_check stays
+  // unset, currentStep stays 0, and the manual selector step is shown.
+  if (serviceKey === 'house-washing') {
+    const _normSuburb = normaliseSuburb(clientInfo.suburb);
+    if (_normSuburb) {
+      const _hwKm = KILMORE_SUBURB_DISTANCES[_normSuburb];
+      if (_hwKm !== undefined) {
+        answers.suburb_check = _hwKm <= 30
+          ? 'Within 30km of Kilmore → In-person quote'
+          : 'Beyond 30km → Phone quote';
+        currentStep = 1; // advance past the derived step
+      }
+    }
+  }
   document.getElementById('service-select-view').style.display = 'none';
   document.getElementById('call-flow-view').style.display = 'block';
   document.getElementById('flow-service-name').textContent = SERVICES[serviceKey].name;
   document.getElementById('quote-output').style.display = 'none';
   renderSteps();
+  // For in-person route: only the suburb_check step is visible and it is already
+  // completed (currentStep=1 >= 1 visible step). Auto-show the quote panel.
+  if (serviceKey === 'house-washing' && answers.suburb_check) {
+    const _visibleLen = getVisibleSteps().length;
+    if (currentStep >= _visibleLen) showQuote();
+  }
 }
 
 function backToServices() {
@@ -1293,6 +1329,23 @@ function renderSteps() {
   const steps = getVisibleSteps();
   const container = document.getElementById('flow-steps');
   container.innerHTML = '';
+
+  // House-washing: when suburb_check was auto-derived (currentStep > 0 means it was
+  // set before the rep interacted), show a read-only routing notice and keep the
+  // selector step hidden (it renders as 'completed' below with no input buttons).
+  if (currentService === 'house-washing' && answers.suburb_check && currentStep > 0) {
+    const _isInPerson = answers.suburb_check === 'Within 30km of Kilmore → In-person quote';
+    const _noticeText = _isInPerson
+      ? 'Service area detected: Within 30 km of Kilmore. An in-person quote is required.'
+      : 'Service area detected: Beyond 30 km from Kilmore. Phone quoting is available.';
+    const _noticeColour = _isInPerson ? '#1a56cc' : '#166534';
+    const _noticeBg     = _isInPerson ? '#e8f0fe'  : '#f0fdf4';
+    const _noticeBorder = _isInPerson ? '#bfdbfe'  : '#bbf7d0';
+    const _noticeDiv = document.createElement('div');
+    _noticeDiv.style.cssText = `background:${_noticeBg};border:1px solid ${_noticeBorder};border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:${_noticeColour};font-weight:500;`;
+    _noticeDiv.textContent = _noticeText;
+    container.appendChild(_noticeDiv);
+  }
 
   // Progress
   const completed = Object.keys(answers).length;
@@ -5731,7 +5784,7 @@ function _aiwBuildSafeAnswers(svc) {
     //   routing decisions (in-person vs phone quote) or pricing-path selection.
     //   Any AI-supplied suburb_check value in svc.answers is ignored here.
     if (svc.serviceKey === 'house-washing') {
-      const suburb = (clientInfo.suburb || _aiwState.property?.suburb || '').trim().toLowerCase();
+      const suburb = normaliseSuburb(clientInfo.suburb || _aiwState.property?.suburb || '');
       if (!suburb) {
         safe.suburb_check = null; // will be caught by missing-field check
         safe._suburbWarning = 'Suburb not set — cannot determine house-washing classification';

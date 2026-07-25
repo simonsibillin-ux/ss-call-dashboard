@@ -82,6 +82,7 @@ EVIDENCE:
 SUBURB HANDLING:
 - Wallan, Wandong, Broadford, Kilmore, Seymour, Lancefield, Pyalong, Broadford, Tallarook, Romsey, Riddells Creek are all within ~30–45km of Kilmore
 - For house-washing: suburbs within 30km of Kilmore trigger "Within 30km of Kilmore → In-person quote"
+- Return the suburb name only — no state abbreviation, no postcode (e.g. "Wallan" not "Wallan VIC" or "Wallan VIC 3756")
 
 HANDLING AMBIGUITY:
 - "medium debris" without a time reference → do NOT map to a debris/last-cleaned enum value; flag as missing with suggested question "When were the gutters last cleaned?"
