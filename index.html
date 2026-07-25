@@ -241,7 +241,9 @@
             <div class="form-row">
               <div class="form-group">
                 <label class="form-label">Suburb *</label>
-                <input class="form-input" id="client-suburb" placeholder="e.g. Kilmore" oninput="updateClientInfo(); calcTravel()">
+                <input class="form-input" id="client-suburb" placeholder="e.g. Kilmore"
+                  oninput="updateClientInfo(); calcTravel(this.value)"
+                  onblur="_refreshManualQuoteIfVisible()">
               </div>
               <div class="form-group">
                 <label class="form-label">Travel Estimate</label>
@@ -965,23 +967,38 @@ function normaliseSuburb(raw) {
     .trim();
 }
 
-function calcTravel() {
-  const suburb = normaliseSuburb(document.getElementById('client-suburb').value);
-  let km = KILMORE_SUBURB_DISTANCES[suburb];
+// calcTravel(rawSuburb)
+// The caller passes the authoritative suburb string.
+// Does not read the DOM or clientInfo — trusts the caller entirely.
+// Always overwrites clientInfo.travelKm and clientInfo.travelCost.
+function calcTravel(rawSuburb) {
+  const suburb = normaliseSuburb(rawSuburb);
+  const km = KILMORE_SUBURB_DISTANCES[suburb];
   if (km === undefined) {
-    // estimate unknown suburbs — default 40km one-way = 80km return
+    // Unknown suburb: default 40km one-way = 80km return at $1/km
     const returnKm = 80;
-    const cost = returnKm * 1;
-    clientInfo.travelKm = returnKm;
-    clientInfo.travelCost = cost;
-    document.getElementById('travel-display').value = `~${returnKm}km return — $${cost.toFixed(2)} est. (unknown suburb)`;
+    clientInfo.travelKm   = returnKm;
+    clientInfo.travelCost = returnKm;
+    document.getElementById('travel-display').value = `~${returnKm}km return — $${returnKm.toFixed(2)} est. (unknown suburb)`;
   } else {
     const returnKm = km * 2; // return trip
-    const cost = returnKm * 1;
-    clientInfo.travelKm = returnKm;
-    clientInfo.travelCost = cost;
-    document.getElementById('travel-display').value = km === 0 ? 'No travel charge' : `${returnKm}km return — $${cost.toFixed(2)}`;
+    clientInfo.travelKm   = returnKm;
+    clientInfo.travelCost = returnKm;
+    document.getElementById('travel-display').value = km === 0 ? 'No travel charge' : `${returnKm}km return — $${returnKm.toFixed(2)}`;
   }
+}
+
+// _refreshManualQuoteIfVisible()
+// Called from the client-suburb onblur handler — never from oninput.
+// Refreshes the manual single-service quote panel (quote-output) if visible,
+// so the displayed travel and total reflect the current suburb.
+// The AI quote panel (aiw-quote-result) uses _aiwMarkQuoteStale instead —
+// do NOT call this for AI quotes.
+function _refreshManualQuoteIfVisible() {
+  const qo = document.getElementById('quote-output');
+  if (!qo || qo.style.display === 'none') return;
+  if (!currentService || !SERVICES[currentService]) return;
+  showQuote(); // re-runs calcQuote(answers) with updated clientInfo.travelCost
 }
 
 // ============================================================
@@ -3721,9 +3738,9 @@ async function pqShowCalendarModal(total, jobId) {
   // Store original clientInfo and populate with quote's client
   const orig = { ...clientInfo };
   clientInfo.name = q.client;
-  clientInfo.travelCost = clientInfo.travelCost || 0;
+  clientInfo.travelCost = 0; // explicit reset — do not carry over previous quote's travel
 
-  // Fetch client details
+  // Fetch client details then recalculate travel from the loaded suburb
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/clients?name=eq.${encodeURIComponent(q.client)}&select=phone,email,address,suburb&limit=1`,
@@ -3732,13 +3749,15 @@ async function pqShowCalendarModal(total, jobId) {
     if (res.ok) {
       const data = await res.json();
       if (data && data[0]) {
-        clientInfo.phone = data[0].phone || '';
-        clientInfo.email = data[0].email || '';
+        clientInfo.phone   = data[0].phone   || '';
+        clientInfo.email   = data[0].email   || '';
         clientInfo.address = data[0].address || '';
-        clientInfo.suburb = data[0].suburb || '';
+        clientInfo.suburb  = data[0].suburb  || '';
       }
     }
   } catch(e) {}
+  // Recalculate travel from the now-loaded suburb (or blank → $80 fallback)
+  calcTravel(clientInfo.suburb);
 
   // Show calendar booking modal — when it closes, restore clientInfo and go back to list
   await showCalendarBookingModal(total, jobId);
@@ -4494,8 +4513,11 @@ function aiwRestoreSession() {
     if (saved.extraction || saved.services?.length) {
       _aiwRenderAll();
     }
-    // Sync customer fields
+    // Sync customer fields to AI workspace panel fields
     _aiwApplyCustomerToFields(saved.customer, saved.property);
+    // Sync to clientInfo and recalculate travel from the restored suburb
+    // This ensures travelCost is current before any quote actions are taken
+    _aiwSyncToClientInfo();
     document.getElementById('aiw-recovery-bar').style.display = 'none';
     showToast('Session restored ✓');
   } catch(e) {
@@ -4829,15 +4851,21 @@ function aiwSyncCustomerField(field, value) {
     suburb:  'client-suburb',
     address: 'client-address'
   };
+  // Always update clientInfo for suburb — regardless of DOM state
+  if (field === 'suburb') clientInfo.suburb = value;
+
+  // Mirror to manual form fields only if empty (preserve rep's manual entry)
   const targetId = mirrorMap[field];
   if (targetId) {
     const el = document.getElementById(targetId);
     if (el && !el.value) {
       el.value = value;
       updateClientInfo();
-      if (field === 'suburb') calcTravel();
     }
   }
+
+  // Travel: always recalculate from the AI field value directly — no DOM dependency
+  if (field === 'suburb') calcTravel(value);
 }
 
 // ── Render all right-panel content ─────────────────────────────────────────
@@ -5830,15 +5858,19 @@ function _aiwSyncToClientInfo() {
   if (c.email) clientInfo.email = c.email;
   if (p.suburb) clientInfo.suburb = p.suburb;
   if (p.address) clientInfo.address = p.address;
-  // Update the manual form fields so they stay in sync
+  // Update the manual form fields so they stay in sync (only if empty)
   const fieldMap = { name:'client-name', phone:'client-phone', email:'client-email', suburb:'client-suburb', address:'client-address' };
   Object.entries(fieldMap).forEach(([key, id]) => {
     const el = document.getElementById(id);
     const val = key === 'suburb' || key === 'address' ? p[key] : c[key];
     if (el && val && !el.value) el.value = val;
   });
-  // Recalculate travel based on suburb
-  if (clientInfo.suburb) calcTravel();
+  // Travel: pass the authoritative suburb from _aiwState directly — no DOM dependency
+  if (p.suburb) {
+    calcTravel(p.suburb);
+    // If an AI quote is currently displayed, mark it stale so rep knows to rebuild
+    _aiwMarkQuoteStale();
+  }
 }
 
 // ── Render the AI quote result panel ─────────────────────────────────────────
@@ -6538,7 +6570,12 @@ function aiwHandoffToManual() {
   if (c.name) { const el = document.getElementById('client-name'); if (el && !el.value) { el.value = c.name; updateClientInfo(); } }
   if (c.phone) { const el = document.getElementById('client-phone'); if (el && !el.value) { el.value = c.phone; updateClientInfo(); } }
   if (c.email) { const el = document.getElementById('client-email'); if (el && !el.value) { el.value = c.email; updateClientInfo(); } }
-  if (p.suburb) { const el = document.getElementById('client-suburb'); if (el && !el.value) { el.value = p.suburb; updateClientInfo(); calcTravel(); } }
+  if (p.suburb) {
+    clientInfo.suburb = p.suburb;
+    const el = document.getElementById('client-suburb');
+    if (el && !el.value) { el.value = p.suburb; updateClientInfo(); }
+    calcTravel(p.suburb); // always recalculate from the authoritative AI suburb
+  }
   if (p.address) { const el = document.getElementById('client-address'); if (el && !el.value) { el.value = p.address; updateClientInfo(); } }
 
   // Switch to manual mode with customer pre-filled
