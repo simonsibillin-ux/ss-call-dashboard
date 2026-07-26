@@ -97,17 +97,67 @@ OR when you have enough information to suggest adding something to the quote:
   "action": {
     "type": "add_line_item",
     "payload": {
-      "name": "Display name for this line item",
+      "name": "Display name for this line item (e.g. 'Hay Shed — Gutter Cleaning')",
       "serviceKey": "gutter-cleaning",
       "requiresConfirm": true,
+      "estimateNote": "Gutter length estimated at 40m based on large rural shed description",
       "gutterMetresEstimate": 40,
-      "storeys": "single",
+      "storeys": "double",
       "gutterGuard": false,
       "lastCleaned": "3+ years ago / never",
-      "note": "Estimate — confirm with customer",
+      "total": null,
       "lines": [
-        { "label": "Hay Shed (~40m, double storey, 3+ years)", "value": "est. 40m" }
-      ],
+        { "label": "Hay Shed (est. 40m, double storey, 3+ years)", "value": "~40m" }
+      ]
+    }
+  }
+}
+
+For roof cleaning line items:
+{
+  "action": {
+    "type": "add_line_item",
+    "payload": {
+      "name": "Workshop — Roof Cleaning",
+      "serviceKey": "roof-cleaning",
+      "requiresConfirm": true,
+      "estimateNote": "220sqm estimated for 4-bed split level with upper double storey section",
+      "roofSqmEstimate": 220,
+      "storeys": "double",
+      "roofMaterial": "Colorbond",
+      "roofAge": "14",
+      "biocide": false,
+      "total": null
+    }
+  }
+}
+
+For pressure washing:
+{
+  "action": {
+    "type": "add_line_item",
+    "payload": {
+      "name": "Rear Patio — Pressure Washing",
+      "serviceKey": "pressure-washing",
+      "areaSqmEstimate": 60,
+      "lastWash": "3+ years ago / never done",
+      "biocide": false,
+      "total": null
+    }
+  }
+}
+
+For solar cleaning:
+{
+  "action": {
+    "type": "add_line_item",
+    "payload": {
+      "name": "Garage Roof — Solar Cleaning",
+      "serviceKey": "solar-cleaning",
+      "panelCount": 6,
+      "storeys": "single",
+      "lastCleaned": "2–4 years ago",
+      "difficultAccess": false,
       "total": null
     }
   }

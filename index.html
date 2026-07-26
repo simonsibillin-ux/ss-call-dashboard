@@ -4150,7 +4150,12 @@ async function chatSend() {
     _chatSetWaiting(false);
 
     // Handle response
-    _chatHandleResponse(data);
+    try {
+      _chatHandleResponse(data);
+    } catch(actionErr) {
+      // The message was already shown — only log the action error, don't alarm the rep
+      console.error('[chat] action handling error:', actionErr);
+    }
 
   } catch(e) {
     typingEl.remove();
@@ -4233,28 +4238,230 @@ function _chatHandleResponse(data) {
 // ── Confirm: add line item to quote ───────────────────────
 function _chatConfirmAddLineItem(payload) {
   _chat.pendingAction = null;
-  const { name, total, lines, note, serviceKey } = payload;
+  const { name, serviceKey, note } = payload;
 
-  // Push into multiServiceItems so it appears in the quote output
+  // ── Translate AI measurements → calcQuote answers ──────
+  // The API always returns total:null. We call the pricing engine here
+  // so the price is always deterministic and never invented by the AI.
+  const answers = _chatMeasurementsToAnswers(payload);
+  let result = null;
+  let total = 0;
+  let lines = payload.lines || [];
+
+  if (answers && serviceKey && SERVICES[serviceKey]) {
+    try {
+      result = SERVICES[serviceKey].calcQuote(answers);
+      if (result && typeof result.total === 'number' && Number.isFinite(result.total)) {
+        total = result.total;
+        lines = result.lines || lines;
+      } else if (result && (result.inPerson || result.customQuote || result.rerouteToService)) {
+        // Special result — can't auto-price
+        _chatAppendBot(`⚠️ This one needs a manual check — ${result.message || 'contact Simon for pricing'}.`);
+        return;
+      }
+    } catch(e) {
+      console.warn('[chat] calcQuote error for custom item:', e.message);
+    }
+  }
+
+  if (!total || total <= 0) {
+    _chatAppendBot(`I couldn't calculate an exact price for <strong>${_escHtml(name)}</strong>. Please add it manually or give me more details.`);
+    return;
+  }
+
+  // Push into multiServiceItems
   multiServiceItems.push({
     serviceKey: serviceKey || 'custom',
     name,
-    lines: lines || [{ label: name, value: '$' + total.toFixed(2) }],
+    lines,
     total,
-    note: note || null,
-    inclusions: [],
-    savedAnswers: {},
-    scopeNotes: '',
+    note: note || (result?.note) || null,
+    inclusions: result?.inclusions || [],
+    savedAnswers: answers || {},
+    scopeNotes: payload.estimateNote || '',
     isCustom: true
   });
 
-  // Re-render the combined summary if it exists
-  if (typeof renderCombinedSummary === 'function' && multiServiceItems.length > 0) {
-    renderCombinedSummary({ total });
+  // Refresh the multi-service banner if it exists
+  if (typeof renderMultiServiceBanner === 'function') renderMultiServiceBanner();
+
+  const travelNote = clientInfo.travelCost > 0 ? ` (+ $${clientInfo.travelCost} travel, charged once)` : '';
+  _chatAppendBot(`✓ <strong>${_escHtml(name)}</strong> — <strong>$${total.toFixed(2)}</strong> added to the quote${travelNote}.`);
+  showToast(name + ' added — $' + total.toFixed(2));
+}
+
+// ── Map AI payload fields → calcQuote answers shape ────────
+// The AI returns measurements in plain language; this translates them
+// to the exact field names and enum values calcQuote expects.
+// Structure names and categories never affect pricing here.
+function _chatMeasurementsToAnswers(payload) {
+  const svc = payload.serviceKey;
+  if (!svc) return null;
+
+  // Helper: normalise storeys string to what calcQuote expects
+  function _storeys(raw) {
+    if (!raw) return 'Single storey';
+    const s = String(raw).toLowerCase();
+    if (s.includes('double') || s.includes('two') || s === '2') return 'Double storey';
+    return 'Single storey';
   }
 
-  _chatAppendBot(`✓ <strong>${_escHtml(name)}</strong> ($${total.toFixed(2)}) added to the quote.`);
-  showToast(name + ' added to quote');
+  // Helper: normalise lastCleaned / debris to calcQuote enum
+  function _debris(raw) {
+    if (!raw) return 'Less than 12 months';
+    const s = String(raw).toLowerCase();
+    if (s.includes('never') || s.includes('3+') || s.includes('3 +') || s.includes('never')) return '3+ years ago / never';
+    if (s.includes('1-3') || s.includes('1–3') || s.includes('one') || s.includes('two')) return '1–3 years ago';
+    return 'Less than 12 months';
+  }
+
+  // Helper: normalise last_clean (solar/bird) to calcQuote enum
+  function _lastClean(raw) {
+    if (!raw) return '1–2 years ago';
+    const s = String(raw).toLowerCase();
+    if (s.includes('never') || s.includes('4+')) return '4+ years ago / never cleaned';
+    if (s.includes('2-4') || s.includes('2–4')) return '2–4 years ago';
+    if (s.includes('1-2') || s.includes('1–2')) return '1–2 years ago';
+    return 'Less than 1 year ago';
+  }
+
+  // Helper: last_wash (pressure washing)
+  function _lastWash(raw) {
+    if (!raw) return '1–3 years ago';
+    const s = String(raw).toLowerCase();
+    if (s.includes('never') || s.includes('3+')) return '3+ years ago / never done';
+    if (s.includes('1-3') || s.includes('1–3')) return '1–3 years ago';
+    return 'Less than 1 year ago';
+  }
+
+  // Helper: roof age to calcQuote enum
+  function _roofAge(raw) {
+    if (!raw) return '10–20 years';
+    const s = String(raw).toLowerCase();
+    const num = parseInt(s);
+    if (num < 10) return 'Under 10 years';
+    if (num <= 20) return '10–20 years';
+    return '20+ years';
+  }
+
+  // Helper: roof material to calcQuote enum
+  function _roofType(raw) {
+    if (!raw) return 'Concrete tiles';
+    const s = String(raw).toLowerCase();
+    if (s.includes('terra') || s.includes('terracotta')) return 'Terra cotta tiles';
+    if (s.includes('color') || s.includes('colour') || s.includes('metal') || s.includes('steel') || s.includes('iron')) return 'Colorbond / metal';
+    return 'Concrete tiles';
+  }
+
+  if (svc === 'gutter-cleaning') {
+    const metres = Number(payload.gutterMetresEstimate) || Number(payload.gutterMetres) || null;
+    if (!metres) return null;
+    return {
+      gutterMetresExact: metres,
+      storeys:     _storeys(payload.storeys),
+      gutter_guard: (payload.gutterGuard === true || payload.gutterGuard === 'Yes') ? 'Yes' : 'No',
+      debris:      _debris(payload.lastCleaned || payload.debris),
+      access:      (payload.difficultAccess || payload.hardAccess) ? 'Yes — difficult access' : 'No',
+      structures:  []
+    };
+  }
+
+  if (svc === 'gutter-softwash') {
+    const metres = Number(payload.gutterMetresEstimate) || Number(payload.gutterMetres) || null;
+    if (!metres) return null;
+    return {
+      gutterMetresExact: metres,
+      storeys: _storeys(payload.storeys)
+    };
+  }
+
+  if (svc === 'roof-cleaning') {
+    const sqm = Number(payload.roofSqmEstimate) || Number(payload.roofSqm) || null;
+    if (!sqm) return null;
+    return {
+      roofSqmExact: sqm,
+      storeys:   _storeys(payload.storeys),
+      roof_type: _roofType(payload.roofMaterial || payload.roofType),
+      age:       _roofAge(payload.roofAge || payload.age),
+      biocide:   (payload.biocide === true || payload.biocide === 'Yes') ? 'Yes — add biocide treatment' : 'No thanks'
+    };
+  }
+
+  if (svc === 'roof-biocide') {
+    const sqm = Number(payload.roofSqmEstimate) || Number(payload.roofSqm) || null;
+    if (!sqm) return null;
+    return {
+      roofSqmExact: sqm,
+      storeys: _storeys(payload.storeys)
+    };
+  }
+
+  if (svc === 'pressure-washing') {
+    const sqm = Number(payload.areaSqmEstimate) || Number(payload.areaSqm) || null;
+    if (!sqm) return null;
+    return {
+      areaSqmExact: sqm,
+      surface_type: payload.surfaceType || 'Entertaining area / patio',
+      last_wash:    _lastWash(payload.lastWash || payload.lastCleaned),
+      biocide:      (payload.biocide === true || payload.biocide === 'Yes') ? 'Yes — add biocide post-treatment' : 'No thanks'
+    };
+  }
+
+  if (svc === 'solar-cleaning') {
+    const panels = Number(payload.panelCount) || Number(payload.panels) || null;
+    if (!panels) return null;
+    return {
+      panels,
+      storeys:    _storeys(payload.storeys),
+      last_clean: _lastClean(payload.lastCleaned || payload.lastClean),
+      hard_access: (payload.difficultAccess || payload.hardAccess) ? 'Yes — difficult access' : 'No — standard access'
+    };
+  }
+
+  if (svc === 'window-cleaning') {
+    const windows = Number(payload.windowCount) || Number(payload.windows) || null;
+    if (!windows) return null;
+    return {
+      windows,
+      storeys:          _storeys(payload.storeys),
+      scope:            payload.interior ? 'Interior + exterior' : 'Exterior only',
+      post_construction: payload.postConstruction ? 'Yes — post-construction' : 'No — standard clean',
+      flyscreens:       payload.flyscreens ? 'Yes — include flyscreens' : 'No',
+      tracks:           payload.tracks ? 'Yes — deep clean tracks' : 'No'
+    };
+  }
+
+  if (svc === 'house-washing') {
+    // Suburb routing — derived from clientInfo, never from name
+    const normSuburb = normaliseSuburb(clientInfo.suburb || '');
+    const km = KILMORE_SUBURB_DISTANCES[normSuburb];
+    const suburbCheck = (km !== undefined && km <= 30)
+      ? 'Within 30km of Kilmore → In-person quote'
+      : 'Beyond 30km → Phone quote';
+    return {
+      suburb_check: suburbCheck,
+      storeys:  _storeys(payload.storeys),
+      staining: payload.staining || 'Organic growth only (moss, algae, dirt)',
+      patio:    payload.patio || 'No patio'
+    };
+  }
+
+  if (svc === 'bird-proofing') {
+    const metres = Number(payload.gutterMetresEstimate) || Number(payload.gutterMetres) || null;
+    const panels = Number(payload.panelCount) || Number(payload.panels) || null;
+    if (!metres || !panels) return null;
+    return {
+      gutterMetresExact: metres,
+      panels,
+      storeys:     _storeys(payload.storeys),
+      gutter_guard: (payload.gutterGuard === true || payload.gutterGuard === 'Yes') ? 'Yes' : 'No',
+      debris:      _debris(payload.lastCleaned || payload.debris),
+      last_clean:  _lastClean(payload.panelLastClean || payload.lastClean),
+      nesting:     (payload.nesting === true || payload.nesting === 'Yes') ? 'Yes — birds currently nesting' : 'No'
+    };
+  }
+
+  return null;
 }
 
 // ── Context builder ────────────────────────────────────────
