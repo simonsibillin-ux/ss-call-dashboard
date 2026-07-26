@@ -84,12 +84,22 @@ const SERVICES = {
       let structureLines = [];
       let structureTotal = 0;
       structures.forEach(s => {
-        const sMetres = STRUCTURE_METRES[s.type] || 20;
+        // New: explicit gutterMetres field takes priority over legacy type label.
+        // Legacy presets still carry a 'type' string and use STRUCTURE_METRES.
+        // Custom structures carry an explicit gutterMetres number.
+        // The || 20 fallback is intentionally removed — the adapter guarantees
+        // only confirmed measurements reach here. If somehow neither path
+        // resolves, the structure is skipped (sMetres === null means skip).
+        const sMetres = (s.gutterMetres !== undefined && s.gutterMetres !== null)
+          ? Number(s.gutterMetres)
+          : (STRUCTURE_METRES[s.type] != null ? STRUCTURE_METRES[s.type] : null);
+        if (sMetres === null || !Number.isFinite(sMetres)) return; // skip incomplete
         const sGuardMult = s.gutter_guard === 'Yes' ? 2 : guardMult;
         const sDebrisMult = s.debris === '1–3 years ago' ? 1.5 : s.debris === '3+ years ago / never' ? 2 : debrisMult;
         const sTotal = sMetres * 3.00 * sGuardMult * sDebrisMult;
         structureTotal += sTotal;
-        structureLines.push({ label: `${s.type} (~${sMetres}m${s.gutter_guard === 'Yes' ? ', guard ×2' : ''})`, value: `$${sTotal.toFixed(2)}` });
+        const sLabel = s.name || s.type || `Structure (~${sMetres}m)`;
+        structureLines.push({ label: `${sLabel} (~${sMetres}m${s.gutter_guard === 'Yes' ? ', guard ×2' : ''})`, value: `$${sTotal.toFixed(2)}` });
       });
       return {
         lines: [
@@ -384,8 +394,12 @@ const SERVICES = {
       if (a.roof_type === 'Terra cotta tiles') {
         return { rerouteToService: 'roof-biocide', message: 'Terra cotta roof — redirect to Roof Biocide Treatment only. Explain this is the recommended and safer option for their roof type.' };
       }
-      const bedroomKey = a.bedrooms === '5+ bed' ? '5+' : a.bedrooms.replace(' bed','');
-      const sqm = BEDROOM_TO_SQM[bedroomKey] || 160;
+      const bedroomKey = a.bedrooms ? (a.bedrooms === '5+ bed' ? '5+' : a.bedrooms.replace(' bed','')) : null;
+      // roofSqmExact: explicit confirmed roof area from property model. Takes priority over bedroom proxy.
+      const _exactRoofSqm = Number(a.roofSqmExact);
+      const sqm = (Number.isFinite(_exactRoofSqm) && _exactRoofSqm > 0)
+        ? Math.round(_exactRoofSqm)
+        : (BEDROOM_TO_SQM[bedroomKey] || 160);
       const isDouble = a.storeys === 'Double storey';
       const ageRateMap = { 'Under 10 years': isDouble ? 5.00 : 4.00, '10–20 years': isDouble ? 6.00 : 5.00, '20+ years': isDouble ? 7.00 : 6.00 };
       const rate = ageRateMap[a.age] || 5.00;
@@ -451,8 +465,12 @@ const SERVICES = {
       'Before and after photos'
     ],
     calcQuote: (a) => {
-      const bedroomKey = a.bedrooms === '5+ bed' ? '5+' : a.bedrooms.replace(' bed','');
-      const sqm = BEDROOM_TO_SQM[bedroomKey] || 160;
+      const bedroomKey = a.bedrooms ? (a.bedrooms === '5+ bed' ? '5+' : a.bedrooms.replace(' bed','')) : null;
+      // roofSqmExact: explicit confirmed roof area from property model. Takes priority over bedroom proxy.
+      const _exactBioSqm = Number(a.roofSqmExact);
+      const sqm = (Number.isFinite(_exactBioSqm) && _exactBioSqm > 0)
+        ? Math.round(_exactBioSqm)
+        : (BEDROOM_TO_SQM[bedroomKey] || 160);
       const rate = a.storeys === 'Double storey' ? 3.25 : 2.00;
       const base = sqm * rate;
       return {
@@ -534,7 +552,11 @@ const SERVICES = {
       const rateMap = { 'Less than 1 year ago': 4.00, '1–3 years ago': 4.50, '3+ years ago / never done': 5.00 };
       const rate = rateMap[a.last_wash] || 4.50;
       let sqm = 0;
-      if (a.bedrooms) {
+      // areaSqmExact: explicit confirmed surface area from property model. Takes priority.
+      const _exactAreaSqm = Number(a.areaSqmExact);
+      if (Number.isFinite(_exactAreaSqm) && _exactAreaSqm > 0) {
+        sqm = Math.round(_exactAreaSqm);
+      } else if (a.bedrooms) {
         const key = a.bedrooms === '5+ bed' ? '5+' : a.bedrooms.replace(' bed','');
         sqm = a.surface_type === 'Driveway' ? BEDROOM_TO_SQM[key] * 0.4 : BEDROOM_TO_SQM[key] * 0.3;
         sqm = Math.round(sqm);
@@ -585,13 +607,17 @@ const SERVICES = {
       'Before and after photos'
     ],
     calcQuote: (a) => {
-      const bedroomKey = a.bedrooms === '5+ bed' ? '5+' : a.bedrooms.replace(' bed','');
-      const metres = BEDROOM_TO_METRES[bedroomKey] || 62;
+      const bedroomKey = a.bedrooms ? (a.bedrooms === '5+ bed' ? '5+' : a.bedrooms.replace(' bed','')) : null;
+      // gutterMetresExact override for property-model adapter
+      const _exactSoftMetres = Number(a.gutterMetresExact);
+      const metres = (Number.isFinite(_exactSoftMetres) && _exactSoftMetres > 0)
+        ? Math.round(_exactSoftMetres)
+        : (BEDROOM_TO_METRES[bedroomKey] || 62);
       const rate = a.storeys === 'Single storey' ? 3.00 : 5.00;
       const base = metres * rate;
       return {
         lines: [
-          { label: `Est. linear metres (${bedroomKey} bed avg)`, value: `${metres}m` },
+          { label: `Est. linear metres (${bedroomKey || '?'} bed avg)`, value: `${metres}m` },
           { label: `Rate (${a.storeys})`, value: `$${rate.toFixed(2)}/m` },
           { label: 'Service subtotal', value: `$${Math.max(150, base).toFixed(2)}` },
         ],
@@ -682,8 +708,12 @@ const SERVICES = {
     ],
     calcQuote: (a) => {
       const panels = parseInt(a.panels) || 0;
-      const bedroomKey = a.bedrooms === '5+ bed' ? '5+' : (a.bedrooms || '3 bed').replace(' bed','');
-      const gutterMetres = BEDROOM_TO_METRES[bedroomKey] || 62;
+      const bedroomKey = a.bedrooms ? (a.bedrooms === '5+ bed' ? '5+' : a.bedrooms.replace(' bed','')) : '3';
+      // gutterMetresExact override for property-model adapter
+      const _exactBirdMetres = Number(a.gutterMetresExact);
+      const gutterMetres = (Number.isFinite(_exactBirdMetres) && _exactBirdMetres > 0)
+        ? Math.round(_exactBirdMetres)
+        : (BEDROOM_TO_METRES[bedroomKey] || 62);
       const isDouble = a.storeys === 'Double storey';
       const gutterRate = isDouble ? 6.00 : 3.00;
       const guardMult = a.gutter_guard === 'Yes' ? 2 : 1;

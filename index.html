@@ -172,6 +172,41 @@
                 </div>
               </div>
 
+              <!-- Property Structures panel (OP-2B) -->
+              <div class="card" id="aiw-structures-card" style="display:none;">
+                <div class="card-header" style="margin-bottom:10px;">
+                  <div class="card-title">🏠 Property Structures</div>
+                  <button class="aiw-clear-btn" style="font-size:11px;padding:5px 10px;" onclick="aiwShowAddStructure()">＋ Add</button>
+                </div>
+                <!-- Quick-add presets -->
+                <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;" id="aiw-struct-presets">
+                  <button class="aiw-preset-btn" onclick="aiwAddStructurePreset('Small Shed','shed',20)">＋ Small Shed</button>
+                  <button class="aiw-preset-btn" onclick="aiwAddStructurePreset('Medium Shed','shed',28)">＋ Medium Shed</button>
+                  <button class="aiw-preset-btn" onclick="aiwAddStructurePreset('Large Shed','shed',40)">＋ Large Shed</button>
+                  <button class="aiw-preset-btn" onclick="aiwAddStructurePreset('Granny Flat','outbuilding',50)">＋ Granny Flat</button>
+                </div>
+                <!-- Structure list -->
+                <div id="aiw-structures-list"></div>
+                <!-- Add structure form (hidden by default) -->
+                <div id="aiw-add-structure-form" style="display:none;background:var(--surface2);border-radius:8px;padding:12px;margin-top:8px;">
+                  <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;">New Structure</div>
+                  <input id="aiw-new-struct-name" class="aiw-field-input" type="text" placeholder="Name (e.g. Hay Shed, Workshop)" style="width:100%;margin-bottom:8px;">
+                  <select id="aiw-new-struct-cat" class="aiw-field-input" style="width:100%;margin-bottom:10px;">
+                    <option value="other">— Category (optional) —</option>
+                    <option value="house">House</option>
+                    <option value="shed">Shed</option>
+                    <option value="garage">Garage</option>
+                    <option value="outbuilding">Outbuilding</option>
+                    <option value="surface">Surface (driveway, patio…)</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <div style="display:flex;gap:6px;">
+                    <button class="btn-primary" style="flex:1;padding:8px;" onclick="aiwConfirmAddStructure()">Add Structure</button>
+                    <button class="btn-secondary" style="flex:1;padding:8px;" onclick="document.getElementById('aiw-add-structure-form').style.display='none'">Cancel</button>
+                  </div>
+                </div>
+              </div>
+
               <!-- Services section (populated dynamically) -->
               <div id="aiw-services-section" style="display:none;">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
@@ -4229,7 +4264,7 @@ function _aiwNewState() {
     extraction:     null, // Last validated extraction from API
     manualEdits:    {},   // reserved
     customer:       { name: null, phone: null, email: null },
-    property:       { address: null, suburb: null },
+    property:       { address: null, suburb: null, structures: [] },
     services:       [],   // working list of service objects
     lastAnalysedAt: null,
     preparedQuote:  null, // set after Build Quote
@@ -4239,8 +4274,203 @@ function _aiwNewState() {
     // Tracks whether the CSR has dismissed a structure-mention warning for a gutter service.
     // Key: svc.serviceKey (always 'gutter-cleaning'). Value: true = dismissed.
     // Cleared when new notes explicitly add a structure.
-    dismissedStructureMention: {}
+    dismissedStructureMention: {},
+    // Migration version — incremented when schema changes require data migration
+    _schemaVersion: 2
   };
+}
+
+// ============================================================
+// PROPERTY MODEL — OP-2A
+// Universal structure schema, constructors, normalisers, migration
+// ============================================================
+
+// ── Value record ────────────────────────────────────────────
+// Every measured or assessed value carried by a structure uses this shape.
+// pricingStatus controls whether the value may enter calcQuote.
+// source records where the value came from — preserved after confirmation.
+
+const _VALID_SOURCES = ['customer','csr','ai-estimate','legacy-preset','crm-record','web-research','calculated'];
+const _VALID_PRICING_STATUS = ['confirmed','approved-proxy','unconfirmed','rejected','missing'];
+
+function createValueRecord(value, source, opts) {
+  const o = opts || {};
+  return {
+    value:         value !== undefined ? value : null,
+    unit:          o.unit          || null,
+    estimateRange: o.estimateRange || null,   // { low, high } for ranged estimates
+    source:        _VALID_SOURCES.includes(source) ? source : 'csr',
+    confidence:    o.confidence    || null,   // 'high'|'medium'|'low'
+    pricingStatus: _VALID_PRICING_STATUS.includes(o.pricingStatus) ? o.pricingStatus : 'unconfirmed',
+    confirmedBy:   o.confirmedBy   || null,   // 'csr'|'customer'
+    confirmedAt:   o.confirmedAt   || null
+  };
+}
+
+function normaliseValueRecord(v) {
+  // Returns a safe value record even if v is malformed or null
+  if (!v || typeof v !== 'object') return createValueRecord(null, 'csr');
+  return {
+    value:         (v.value !== undefined) ? v.value : null,
+    unit:          (typeof v.unit === 'string') ? v.unit : null,
+    estimateRange: (v.estimateRange && typeof v.estimateRange === 'object') ? v.estimateRange : null,
+    source:        _VALID_SOURCES.includes(v.source) ? v.source : 'csr',
+    confidence:    ['high','medium','low'].includes(v.confidence) ? v.confidence : null,
+    pricingStatus: _VALID_PRICING_STATUS.includes(v.pricingStatus) ? v.pricingStatus : 'unconfirmed',
+    confirmedBy:   (typeof v.confirmedBy === 'string') ? v.confirmedBy : null,
+    confirmedAt:   (typeof v.confirmedAt === 'string') ? v.confirmedAt : null
+  };
+}
+
+function _isPriceable(valueRecord) {
+  // Returns true if this value record is cleared to enter calcQuote
+  if (!valueRecord || typeof valueRecord !== 'object') return false;
+  return valueRecord.pricingStatus === 'confirmed' || valueRecord.pricingStatus === 'approved-proxy';
+}
+
+// ── Structure constructor ───────────────────────────────────
+
+const _VALID_CATEGORIES = ['house','shed','garage','outbuilding','surface','other'];
+
+function createEmptyStructure(id, name, category) {
+  return {
+    id:       id || ('STR-' + Date.now() + '-' + Math.random().toString(36).slice(2,6)),
+    name:     (typeof name === 'string' && name.trim()) ? name.trim() : 'Structure',
+    category: _VALID_CATEGORIES.includes(category) ? category : 'other',
+    notes:    '',
+    // Shared physical attributes — service-agnostic facts about the building
+    attributes: {
+      storeys:      null,   // ValueRecord | null — 'single'|'double'|'mixed'
+      gutterMetres: null,   // ValueRecord | null — number
+      roofSqm:      null,   // ValueRecord | null — number
+      wallSqm:      null,   // ValueRecord | null — number
+      areaSqm:      null,   // ValueRecord | null — for surfaces (driveways, patios)
+      roofMaterial: null,   // ValueRecord | null — string
+      roofType:     null,   // ValueRecord | null — 'concrete-tiles'|'terra-cotta'|'colorbond'|'other'
+      roofAge:      null,   // ValueRecord | null — string matching calcQuote enum
+      panelArrays:  [],     // [{ location, count: ValueRecord, lastCleaned: ValueRecord, hardAccess: ValueRecord }]
+      windowCounts: null    // ValueRecord | null — number
+    },
+    // Shared physical features — binary facts about the building
+    features: {
+      gutterGuard:   null,  // ValueRecord | null — boolean
+      skylights:     null,  // ValueRecord | null — boolean
+      laserlite:     null,  // ValueRecord | null — boolean
+      roofAnchor:    null,  // ValueRecord | null — boolean
+      leafDiverters: null,  // ValueRecord | null — boolean
+      solarPanels:   null   // ValueRecord | null — boolean
+    },
+    // Service-specific scope and condition — only present for applicable services
+    // Each key is a serviceKey. Values contain:
+    //   included, exclusionDecision, readiness metadata, service-specific condition fields
+    serviceScopes: {}
+  };
+}
+
+function normaliseStructure(raw) {
+  // Returns a safe structure even if raw is malformed
+  if (!raw || typeof raw !== 'object') return createEmptyStructure();
+  const s = createEmptyStructure(raw.id, raw.name, raw.category);
+  s.notes = (typeof raw.notes === 'string') ? raw.notes : '';
+
+  // Normalise attributes
+  const ra = raw.attributes || {};
+  const attrKeys = ['storeys','gutterMetres','roofSqm','wallSqm','areaSqm','roofMaterial','roofType','roofAge','windowCounts'];
+  attrKeys.forEach(k => {
+    s.attributes[k] = ra[k] ? normaliseValueRecord(ra[k]) : null;
+  });
+  s.attributes.panelArrays = Array.isArray(ra.panelArrays) ? ra.panelArrays : [];
+
+  // Normalise features
+  const rf = raw.features || {};
+  const featKeys = ['gutterGuard','skylights','laserlite','roofAnchor','leafDiverters','solarPanels'];
+  featKeys.forEach(k => {
+    s.features[k] = rf[k] ? normaliseValueRecord(rf[k]) : null;
+  });
+
+  // Normalise serviceScopes — preserve any valid service entries
+  if (raw.serviceScopes && typeof raw.serviceScopes === 'object') {
+    Object.keys(raw.serviceScopes).forEach(svcKey => {
+      const scope = raw.serviceScopes[svcKey];
+      if (scope && typeof scope === 'object') {
+        s.serviceScopes[svcKey] = scope; // pass through — validated by service-specific code
+      }
+    });
+  }
+
+  return s;
+}
+
+function normalisePropertyStructures(property) {
+  // Ensures property.structures is a valid array of normalised structures.
+  // Safe to call on any property object, even malformed ones.
+  if (!property || typeof property !== 'object') return [];
+  const raw = property.structures;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(item => item && typeof item === 'object')  // drop null/non-object entries
+    .map(normaliseStructure)
+    .filter(s => s && s.id);
+}
+
+// ── Legacy migration (OP-2F) ────────────────────────────────
+// STRUCTURE_METRES_LEGACY maps old type strings to metres for migration
+const STRUCTURE_METRES_LEGACY = {
+  'Small shed (~20m guttering)': 20,
+  'Medium shed (~28m guttering)': 28,
+  'Large shed (~40m guttering)': 40,
+  'Bungalow / Granny flat (~50m guttering)': 50
+};
+
+function _migrateSessionIfNeeded(saved) {
+  // Idempotent — safe to call multiple times. Returns (possibly mutated) saved object.
+  if (!saved || typeof saved !== 'object') return saved;
+  const version = saved._schemaVersion || 1;
+  if (version >= 2) return saved; // already migrated
+
+  // Ensure property.structures exists
+  if (!saved.property) saved.property = {};
+  if (!Array.isArray(saved.property.structures)) saved.property.structures = [];
+
+  const existingIds = new Set(saved.property.structures.map(s => s.id));
+
+  // Scan service answers for old-format structures arrays
+  (saved.services || []).forEach(svc => {
+    if (!svc || !svc.answers || !Array.isArray(svc.answers.structures)) return;
+    svc.answers.structures.forEach(legacyS => {
+      if (!legacyS || typeof legacyS !== 'object') return;
+      const legacyMetres = STRUCTURE_METRES_LEGACY[legacyS.type];
+      const migId = 'STR-mig-' + (legacyS.type || 'unknown').replace(/\W/g,'').slice(0,10) + '-' + Date.now();
+      if ([...existingIds].some(id => id.startsWith('STR-mig-' + (legacyS.type || '').replace(/\W/g,'').slice(0,10)))) return;
+
+      const structure = createEmptyStructure(migId, legacyS.type || 'Structure', 'shed');
+      if (legacyMetres !== undefined) {
+        structure.attributes.gutterMetres = createValueRecord(legacyMetres, 'legacy-preset', {
+          unit: 'metres', pricingStatus: 'approved-proxy'
+        });
+      } else if (legacyS.gutterMetres !== undefined) {
+        structure.attributes.gutterMetres = createValueRecord(legacyS.gutterMetres, 'csr', {
+          unit: 'metres', pricingStatus: 'confirmed'
+        });
+      }
+      // Migrate gutter guard
+      if (legacyS.gutter_guard !== undefined) {
+        const guardVal = legacyS.gutter_guard === 'Yes' || legacyS.gutter_guard === true;
+        structure.features.gutterGuard = createValueRecord(guardVal, 'legacy-preset', { pricingStatus: 'approved-proxy' });
+      }
+      // Set gutter-cleaning scope
+      structure.serviceScopes['gutter-cleaning'] = {
+        included: true,
+        lastCleaned: legacyS.debris ? createValueRecord(legacyS.debris, 'legacy-preset', { pricingStatus: 'approved-proxy' }) : null,
+        exclusionDecision: null
+      };
+      saved.property.structures.push(structure);
+      existingIds.add(migId);
+    });
+  });
+
+  saved._schemaVersion = 2;
+  return saved;
 }
 
 // ── Single authoritative readiness evaluator ────────────────────────────────
@@ -4503,7 +4733,13 @@ function aiwRestoreSession() {
   try {
     const raw = localStorage.getItem(AIW_LS_SESSION);
     if (!raw) return;
-    const saved = JSON.parse(raw);
+    let saved = JSON.parse(raw);
+    // Run schema migration (idempotent — safe to call on any version)
+    saved = _migrateSessionIfNeeded(saved);
+    // Normalise property structures defensively
+    if (saved.property) {
+      saved.property.structures = normalisePropertyStructures(saved.property);
+    }
     _aiwState = saved;
     // Restore textarea
     const ta = document.getElementById('aiw-notes-textarea');
@@ -4516,12 +4752,14 @@ function aiwRestoreSession() {
     // Sync customer fields to AI workspace panel fields
     _aiwApplyCustomerToFields(saved.customer, saved.property);
     // Sync to clientInfo and recalculate travel from the restored suburb
-    // This ensures travelCost is current before any quote actions are taken
     _aiwSyncToClientInfo();
+    // Re-render structures panel
+    _aiwRenderStructures();
     document.getElementById('aiw-recovery-bar').style.display = 'none';
     showToast('Session restored ✓');
   } catch(e) {
     showToast('Could not restore session', 'error');
+    console.error('[restore]', e);
   }
 }
 
@@ -4868,12 +5106,260 @@ function aiwSyncCustomerField(field, value) {
   if (field === 'suburb') calcTravel(value);
 }
 
+// ============================================================
+// PROPERTY STRUCTURES UI — OP-2B
+// ============================================================
+
+const _STRUCT_SERVICE_LABELS = {
+  'gutter-cleaning':  'Gutter Cleaning',
+  'solar-cleaning':   'Solar Cleaning',
+  'window-cleaning':  'Window Cleaning',
+  'house-washing':    'House Washing',
+  'roof-cleaning':    'Roof Cleaning',
+  'roof-biocide':     'Roof Biocide',
+  'pressure-washing': 'Pressure Washing',
+  'gutter-softwash':  'Softwash',
+  'bird-proofing':    'Bird Proofing'
+};
+
+function _getStructures() {
+  if (!_aiwState || !_aiwState.property) return [];
+  if (!Array.isArray(_aiwState.property.structures)) _aiwState.property.structures = [];
+  return _aiwState.property.structures;
+}
+
+function _statusBadge(pricingStatus, source) {
+  if (pricingStatus === 'confirmed')      return '<span class="aiw-status-badge confirmed">✓ Confirmed</span>';
+  if (pricingStatus === 'approved-proxy') return '<span class="aiw-status-badge proxy">◆ Preset</span>';
+  if (source === 'customer')              return '<span class="aiw-status-badge customer">Customer supplied</span>';
+  if (source === 'ai-estimate')           return '<span class="aiw-status-badge ai-est">⚠ AI estimate</span>';
+  if (pricingStatus === 'missing')        return '<span class="aiw-status-badge missing">✗ Missing</span>';
+  return '<span class="aiw-status-badge missing">Unconfirmed</span>';
+}
+
+function _renderStructureRow(s, idx) {
+  const structs = _getStructures();
+  // Build attribute rows
+  const attrRows = [];
+  const gm = s.attributes?.gutterMetres;
+  if (gm) {
+    const badge = _statusBadge(gm.pricingStatus, gm.source);
+    const editId = `st-gm-${s.id}`;
+    attrRows.push(`
+      <div class="aiw-struct-field-row">
+        <span class="aiw-struct-field-label">Gutter metres</span>
+        <span class="aiw-struct-field-value">${gm.value !== null ? gm.value + 'm' : '—'}</span>
+        ${badge}
+        ${(gm.pricingStatus === 'unconfirmed') ? `
+          <button class="aiw-struct-confirm-btn" onclick="aiwConfirmStructureAttr('${s.id}','attributes','gutterMetres')">Use ${gm.value}m</button>
+          <input class="aiw-struct-edit-inline" id="${editId}" type="number" min="1" placeholder="or enter m" onchange="aiwOverrideStructureAttr('${s.id}','attributes','gutterMetres',this.value)">
+        ` : `<button class="aiw-struct-action-btn" onclick="aiwEditStructureAttrInline('${s.id}','attributes','gutterMetres')">Edit</button>`}
+      </div>`);
+  }
+  const rs = s.attributes?.roofSqm;
+  if (rs) {
+    const badge = _statusBadge(rs.pricingStatus, rs.source);
+    attrRows.push(`
+      <div class="aiw-struct-field-row">
+        <span class="aiw-struct-field-label">Roof area</span>
+        <span class="aiw-struct-field-value">${rs.value !== null ? rs.value + 'sqm' : '—'}</span>
+        ${badge}
+        ${(rs.pricingStatus === 'unconfirmed') ? `
+          <button class="aiw-struct-confirm-btn" onclick="aiwConfirmStructureAttr('${s.id}','attributes','roofSqm')">Use ${rs.value}sqm</button>
+          <input class="aiw-struct-edit-inline" id="st-rs-${s.id}" type="number" min="1" placeholder="or sqm" onchange="aiwOverrideStructureAttr('${s.id}','attributes','roofSqm',this.value)">
+        ` : `<button class="aiw-struct-action-btn" onclick="aiwEditStructureAttrInline('${s.id}','attributes','roofSqm')">Edit</button>`}
+      </div>`);
+  }
+  const ar = s.attributes?.areaSqm;
+  if (ar) {
+    const badge = _statusBadge(ar.pricingStatus, ar.source);
+    attrRows.push(`
+      <div class="aiw-struct-field-row">
+        <span class="aiw-struct-field-label">Surface area</span>
+        <span class="aiw-struct-field-value">${ar.value !== null ? ar.value + 'sqm' : '—'}</span>
+        ${badge}
+      </div>`);
+  }
+  const gg = s.features?.gutterGuard;
+  if (gg) {
+    const badge = _statusBadge(gg.pricingStatus, gg.source);
+    attrRows.push(`
+      <div class="aiw-struct-field-row">
+        <span class="aiw-struct-field-label">Gutter guard</span>
+        <span class="aiw-struct-field-value">${gg.value ? 'Yes' : 'No'}</span>
+        ${badge}
+      </div>`);
+  }
+
+  // Service scope tags
+  const scopeTags = Object.keys(_STRUCT_SERVICE_LABELS).map(svcKey => {
+    const scoped = s.serviceScopes[svcKey]?.included;
+    return `<span class="aiw-scope-tag ${scoped ? '' : 'inactive'}" onclick="aiwToggleStructureService('${s.id}','${svcKey}')">${_STRUCT_SERVICE_LABELS[svcKey]}</span>`;
+  }).join('');
+
+  return `
+    <div class="aiw-struct-row" id="aiw-struct-row-${s.id}">
+      <div class="aiw-struct-row-header">
+        <span class="aiw-struct-name">${_esc(s.name)}<span style="font-size:10px;color:var(--text3);font-weight:400;margin-left:6px;">${s.category}</span></span>
+        <div class="aiw-struct-actions">
+          <button class="aiw-struct-action-btn" onclick="aiwEditStructureMeta('${s.id}')">Edit</button>
+          <button class="aiw-struct-action-btn danger" onclick="aiwRemoveStructure('${s.id}')">Remove</button>
+        </div>
+      </div>
+      ${attrRows.join('')}
+      <div style="margin-top:6px;font-size:11px;color:var(--text3);margin-bottom:3px;">Services:</div>
+      <div class="aiw-struct-scope-tags">${scopeTags}</div>
+    </div>`;
+}
+
+function _aiwRenderStructures() {
+  const card = document.getElementById('aiw-structures-card');
+  const list = document.getElementById('aiw-structures-list');
+  if (!card || !list) return;
+  const structs = _getStructures();
+  const hasData = _aiwState && (_aiwState.services.length > 0 || _aiwState.customer.name || _aiwState.property.suburb || structs.length > 0);
+  card.style.display = hasData ? 'block' : 'none';
+  if (!structs.length) {
+    list.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:4px 0;">No structures added yet. Use the buttons above to add buildings or surfaces.</div>';
+    return;
+  }
+  list.innerHTML = structs.map((s, i) => _renderStructureRow(s, i)).join('');
+}
+
+// ── Add structure ───────────────────────────────────────────
+
+function aiwShowAddStructure() {
+  const form = document.getElementById('aiw-add-structure-form');
+  if (form) { form.style.display = 'block'; document.getElementById('aiw-new-struct-name').focus(); }
+}
+
+function aiwConfirmAddStructure() {
+  const nameEl = document.getElementById('aiw-new-struct-name');
+  const catEl  = document.getElementById('aiw-new-struct-cat');
+  const name = (nameEl?.value || '').trim();
+  if (!name) { showToast('Enter a structure name', 'error'); return; }
+  const cat = catEl?.value || 'other';
+  const structs = _getStructures();
+  const s = createEmptyStructure('STR-' + Date.now(), name, cat);
+  structs.push(s);
+  if (nameEl) nameEl.value = '';
+  document.getElementById('aiw-add-structure-form').style.display = 'none';
+  _aiwSaveToLS();
+  _aiwRenderStructures();
+  _aiwMarkQuoteStale();
+  showToast('Structure added: ' + name);
+}
+
+function aiwAddStructurePreset(name, category, metres) {
+  const structs = _getStructures();
+  const s = createEmptyStructure('STR-' + Date.now(), name, category);
+  s.attributes.gutterMetres = createValueRecord(metres, 'legacy-preset', {
+    unit: 'metres', pricingStatus: 'approved-proxy'
+  });
+  s.serviceScopes['gutter-cleaning'] = { included: true, exclusionDecision: null };
+  structs.push(s);
+  _aiwSaveToLS();
+  _aiwRenderStructures();
+  _aiwMarkQuoteStale();
+  showToast('Added: ' + name + ' (' + metres + 'm)');
+}
+
+// ── Remove structure ───────────────────────────────────────
+
+function aiwRemoveStructure(structId) {
+  if (!_aiwState?.property?.structures) return;
+  _aiwState.property.structures = _aiwState.property.structures.filter(s => s.id !== structId);
+  _aiwSaveToLS();
+  _aiwRenderStructures();
+  _aiwMarkQuoteStale();
+}
+
+// ── Edit structure meta ───────────────────────────────────
+
+function aiwEditStructureMeta(structId) {
+  const structs = _getStructures();
+  const s = structs.find(x => x.id === structId);
+  if (!s) return;
+  const newName = prompt('Structure name:', s.name);
+  if (newName === null) return;
+  if (!newName.trim()) { showToast('Name cannot be empty', 'error'); return; }
+  s.name = newName.trim();
+  _aiwSaveToLS();
+  _aiwRenderStructures();
+  _aiwMarkQuoteStale();
+}
+
+// ── Toggle service scope ───────────────────────────────────
+
+function aiwToggleStructureService(structId, svcKey) {
+  const structs = _getStructures();
+  const s = structs.find(x => x.id === structId);
+  if (!s) return;
+  if (!s.serviceScopes[svcKey]) {
+    s.serviceScopes[svcKey] = { included: true, exclusionDecision: null };
+  } else {
+    s.serviceScopes[svcKey].included = !s.serviceScopes[svcKey].included;
+  }
+  _aiwSaveToLS();
+  _aiwRenderStructures();
+  _aiwMarkQuoteStale();
+}
+
+// ── Confirm / override attribute ───────────────────────────
+
+function aiwConfirmStructureAttr(structId, group, attrKey) {
+  const structs = _getStructures();
+  const s = structs.find(x => x.id === structId);
+  if (!s || !s[group] || !s[group][attrKey]) return;
+  const vr = s[group][attrKey];
+  vr.pricingStatus = 'confirmed';
+  vr.confirmedBy   = 'csr';
+  vr.confirmedAt   = new Date().toISOString();
+  _aiwSaveToLS();
+  _aiwRenderStructures();
+  _aiwMarkQuoteStale();
+}
+
+function aiwOverrideStructureAttr(structId, group, attrKey, rawValue) {
+  const num = parseFloat(rawValue);
+  if (!Number.isFinite(num) || num <= 0) { showToast('Enter a valid number', 'error'); return; }
+  const structs = _getStructures();
+  const s = structs.find(x => x.id === structId);
+  if (!s) return;
+  if (!s[group]) s[group] = {};
+  s[group][attrKey] = createValueRecord(Math.round(num), 'csr', {
+    unit: attrKey.includes('Sqm') ? 'sqm' : 'metres',
+    pricingStatus: 'confirmed',
+    confirmedBy: 'csr',
+    confirmedAt: new Date().toISOString()
+  });
+  _aiwSaveToLS();
+  _aiwRenderStructures();
+  _aiwMarkQuoteStale();
+}
+
+function aiwEditStructureAttrInline(structId, group, attrKey) {
+  const structs = _getStructures();
+  const s = structs.find(x => x.id === structId);
+  if (!s || !s[group] || !s[group][attrKey]) return;
+  const current = s[group][attrKey].value;
+  const newVal = prompt('Enter new value (metres):', current);
+  if (newVal === null) return;
+  aiwOverrideStructureAttr(structId, group, attrKey, newVal);
+}
+
+// ── Quick add gutter metres to a structure ─────────────────
+// Called from outstanding questions UI
+function aiwSetStructureGutterMetres(structId, metres) {
+  aiwOverrideStructureAttr(structId, 'attributes', 'gutterMetres', metres);
+}
+
 // ── Render all right-panel content ─────────────────────────────────────────
 
 function _aiwRenderAll() {
   if (!_aiwState) return;
 
-  const hasData = _aiwState.services.length > 0 || _aiwState.customer.name || _aiwState.property.suburb;
+  const hasData = _aiwState.services.length > 0 || _aiwState.customer.name || _aiwState.property.suburb || _getStructures().length > 0;
 
   // Show/hide empty card
   document.getElementById('aiw-empty-card').style.display = hasData ? 'none' : 'block';
@@ -4881,6 +5367,9 @@ function _aiwRenderAll() {
   // Customer card
   document.getElementById('aiw-customer-card').style.display = hasData ? 'block' : 'none';
   _aiwRenderCustomerPill();
+
+  // Property structures
+  _aiwRenderStructures();
 
   // Services
   document.getElementById('aiw-services-section').style.display = hasData ? 'block' : 'none';
@@ -5218,6 +5707,443 @@ function aiwRemoveService(idx) {
   svc._removed = true;
   _aiwSaveToLS();
   _aiwRenderAll();
+}
+
+// ============================================================
+// STRUCTURE ADAPTER & READINESS — OP-2C
+// ============================================================
+// These functions translate property.structures into answers objects
+// for calcQuote. They are the ONLY path from structures to pricing.
+// No structure name or category ever reaches calcQuote.
+
+// ── Pricing-critical field rules per service ───────────────
+// 'required-no-default': block if missing/unconfirmed
+// 'required-proxy-ok':   allow approved-proxy or confirmed
+// 'affecting-no-default': block if missing/unconfirmed
+// 'affecting-safe-default': allow with documented default when missing
+const _STRUCT_FIELD_RULES = {
+  'gutter-cleaning': {
+    // Main house fields (from answers, not structure):
+    //   storeys: required-no-default, gutterMetres: required-proxy-ok
+    //   debris/lastCleaned: affecting-no-default
+    //   gutterGuard: affecting-safe-default (default: No guard)
+    //   access: affecting-safe-default (default: No difficulty)
+    // Per structure (additional structures array):
+    structureFields: {
+      gutterMetres: 'required-no-default',   // no fallback for custom structures
+      gutterGuard:  'affecting-safe-default', // inherits main house if absent
+      lastCleaned:  'affecting-no-default'    // must be confirmed
+    }
+  },
+  'solar-cleaning': {
+    structureFields: {
+      panelCount:  'required-no-default',
+      lastCleaned: 'affecting-safe-default',  // default: 6.75/panel midpoint
+      storeys:     'affecting-safe-default',
+      hardAccess:  'affecting-safe-default'
+    }
+  },
+  'window-cleaning': {
+    structureFields: {
+      windowCount:      'required-no-default',
+      storeys:          'affecting-no-default',
+      scope:            'affecting-no-default',
+      postConstruction: 'affecting-no-default',
+      flyscreens:       'affecting-safe-default',
+      tracks:           'affecting-safe-default'
+    }
+  },
+  'house-washing': {
+    structureFields: {
+      // suburb_check derived from property.suburb — never from structure
+      storeys:  'required-no-default',
+      staining: 'affecting-no-default'
+      // patio: affecting-safe-default (default: No patio)
+    }
+  },
+  'roof-cleaning': {
+    structureFields: {
+      storeys:      'required-no-default',
+      roofType:     'required-no-default',    // needed for terra-cotta check
+      roofSqm:      'required-proxy-ok',      // bedroom proxy acceptable
+      roofAge:      'affecting-no-default',   // affects rate map
+      biocide:      'affecting-safe-default'
+    }
+  },
+  'roof-biocide': {
+    structureFields: {
+      storeys: 'required-no-default',
+      roofSqm: 'required-proxy-ok'
+    }
+  },
+  'pressure-washing': {
+    structureFields: {
+      areaSqm:   'required-no-default',
+      lastWash:  'affecting-safe-default',
+      biocide:   'affecting-safe-default'
+    }
+  },
+  'gutter-softwash': {
+    structureFields: {
+      storeys:      'required-no-default',
+      gutterMetres: 'required-proxy-ok'
+    }
+  },
+  'bird-proofing': {
+    structureFields: {
+      gutterMetres: 'required-proxy-ok',
+      panelCount:   'required-no-default',
+      storeys:      'affecting-safe-default',
+      gutterGuard:  'affecting-safe-default',
+      lastCleaned:  'affecting-safe-default',
+      panelLastClean: 'affecting-safe-default'
+    }
+  }
+};
+
+// ── isStructureReadyForService ─────────────────────────────
+function isStructureReadyForService(serviceKey, structure, property) {
+  // Returns { ready: bool, blockingFields: [], warnings: [], exclusionDecision: null|string }
+  const result = { ready: false, blockingFields: [], warnings: [], exclusionDecision: null };
+  if (!structure || !serviceKey) return result;
+
+  // Check exclusion decision first
+  const scope = structure.serviceScopes?.[serviceKey];
+  if (scope?.exclusionDecision) {
+    result.exclusionDecision = scope.exclusionDecision;
+    return result; // excluded structures are NOT blocking — they are resolved
+  }
+
+  const rules = _STRUCT_FIELD_RULES[serviceKey]?.structureFields || {};
+  const attrs = structure.attributes || {};
+  const feats = structure.features  || {};
+
+  // Helper: get the value record for a logical field
+  function getVR(field) {
+    if (field === 'gutterMetres')    return attrs.gutterMetres;
+    if (field === 'roofSqm')         return attrs.roofSqm;
+    if (field === 'areaSqm')         return attrs.areaSqm;
+    if (field === 'roofAge')         return attrs.roofAge;
+    if (field === 'roofType')        return attrs.roofType;
+    if (field === 'storeys')         return attrs.storeys;
+    if (field === 'gutterGuard')     return feats.gutterGuard;
+    if (field === 'lastCleaned')     return scope?.lastCleaned || null;
+    if (field === 'panelCount')      return attrs.panelArrays?.[0]?.count || null;
+    if (field === 'panelLastClean')  return attrs.panelArrays?.[0]?.lastCleaned || null;
+    if (field === 'windowCount')     return attrs.windowCounts;
+    if (field === 'hardAccess')      return scope?.accessDifficult || null;
+    if (field === 'staining')        return scope?.staining || null;
+    if (field === 'lastWash')        return scope?.lastWash || null;
+    if (field === 'biocide')         return scope?.biocideRequested || null;
+    if (field === 'scope')           return scope?.windowScope || null;
+    if (field === 'postConstruction') return scope?.postConstruction || null;
+    if (field === 'flyscreens')      return scope?.flyscreens || null;
+    if (field === 'tracks')          return scope?.tracks || null;
+    return null;
+  }
+
+  Object.entries(rules).forEach(([field, rule]) => {
+    const vr = getVR(field);
+    if (rule === 'required-no-default') {
+      if (!vr || !_isPriceable(vr)) result.blockingFields.push(field);
+    } else if (rule === 'required-proxy-ok') {
+      if (!vr || !_isPriceable(vr)) result.blockingFields.push(field);
+    } else if (rule === 'affecting-no-default') {
+      if (vr && !_isPriceable(vr)) result.blockingFields.push(field);
+      else if (!vr) result.blockingFields.push(field);
+    } else if (rule === 'affecting-safe-default') {
+      if (vr && !_isPriceable(vr)) result.warnings.push(field + ' unconfirmed — default applied');
+    }
+  });
+
+  result.ready = result.blockingFields.length === 0;
+  return result;
+}
+
+// ── getOutstandingStructureQuestions ──────────────────────
+function getOutstandingStructureQuestions(serviceKey, structure, property) {
+  const questions = [];
+  const readiness = isStructureReadyForService(serviceKey, structure, property);
+  const n = _esc(structure?.name || 'Structure');
+  readiness.blockingFields.forEach(f => {
+    switch(f) {
+      case 'gutterMetres': questions.push({ structId: structure.id, svcKey: serviceKey, field: f, text: `Confirm gutter length for ${n}`, placeholder: 'e.g. 28' }); break;
+      case 'roofSqm':      questions.push({ structId: structure.id, svcKey: serviceKey, field: f, text: `Confirm roof area for ${n}`, placeholder: 'sqm' }); break;
+      case 'areaSqm':      questions.push({ structId: structure.id, svcKey: serviceKey, field: f, text: `Enter surface area for ${n}`, placeholder: 'sqm' }); break;
+      case 'storeys':      questions.push({ structId: structure.id, svcKey: serviceKey, field: f, text: `How many storeys is ${n}?`, isEnum: true, options: ['single','double'] }); break;
+      case 'roofType':     questions.push({ structId: structure.id, svcKey: serviceKey, field: f, text: `Roof type for ${n}?`, isEnum: true, options: ['Concrete tiles','Terra cotta tiles','Colorbond / metal'] }); break;
+      case 'roofAge':      questions.push({ structId: structure.id, svcKey: serviceKey, field: f, text: `Approximate age of roof on ${n}?`, isEnum: true, options: ['Under 10 years','10–20 years','20+ years'] }); break;
+      case 'panelCount':   questions.push({ structId: structure.id, svcKey: serviceKey, field: f, text: `How many solar panels on ${n}?`, placeholder: 'count' }); break;
+      case 'windowCount':  questions.push({ structId: structure.id, svcKey: serviceKey, field: f, text: `How many windows on ${n}?`, placeholder: 'count' }); break;
+      case 'lastCleaned':  questions.push({ structId: structure.id, svcKey: serviceKey, field: f, text: `When were gutters on ${n} last cleaned?`, isEnum: true, options: ['Less than 12 months','1–3 years ago','3+ years ago / never'] }); break;
+      case 'staining':     questions.push({ structId: structure.id, svcKey: serviceKey, field: f, text: `Any staining on ${n}?`, isEnum: true, options: ['Organic growth only (moss, algae, dirt)','Non-organic staining (rust, oil, paint, etc.)'] }); break;
+      case 'lastWash':     questions.push({ structId: structure.id, svcKey: serviceKey, field: f, text: `When was ${n} last pressure washed?`, isEnum: true, options: ['Less than 1 year ago','1–3 years ago','3+ years ago / never done'] }); break;
+      case 'scope':        questions.push({ structId: structure.id, svcKey: serviceKey, field: f, text: `Window cleaning scope for ${n}?`, isEnum: true, options: ['Exterior only','Interior + exterior'] }); break;
+      case 'postConstruction': questions.push({ structId: structure.id, svcKey: serviceKey, field: f, text: `Post-construction clean for ${n}?`, isEnum: true, options: ['No — standard clean','Yes — post-construction'] }); break;
+      default: questions.push({ structId: structure.id, svcKey: serviceKey, field: f, text: `Confirm ${f} for ${n}` }); break;
+    }
+  });
+  return questions;
+}
+
+// ── buildAnswersFromStructures ─────────────────────────────
+// Translates confirmed property structures into a calcQuote answers object.
+// Returns null if any required field is missing/unconfirmed (blocks pricing).
+function buildAnswersFromStructures(serviceKey, structuresInScope, property) {
+  // structuresInScope: all structures where serviceScopes[serviceKey].included === true
+  // Returns: answers object for calcQuote | null if not ready
+
+  if (!structuresInScope || structuresInScope.length === 0) return null;
+
+  if (serviceKey === 'gutter-cleaning') {
+    // Main structure is the first; rest become the structures[] array
+    const main = structuresInScope[0];
+    const mainAttrs = main.attributes || {};
+    const mainFeats = main.features  || {};
+    const mainScope = main.serviceScopes?.['gutter-cleaning'] || {};
+
+    const storeys = mainAttrs.storeys;
+    if (!storeys || !_isPriceable(storeys)) return null; // required-no-default
+    const gmVR = mainAttrs.gutterMetres;
+    if (!gmVR || !_isPriceable(gmVR)) return null; // required-proxy-ok
+    const lastCleanedVR = mainScope.lastCleaned;
+    if (!lastCleanedVR || !_isPriceable(lastCleanedVR)) return null; // affecting-no-default
+
+    const ggVR = mainFeats.gutterGuard;
+    const accessVR = mainScope.accessDifficult;
+
+    const answers = {
+      gutterMetresExact: gmVR.value,
+      storeys: storeys.value === 'double' ? 'Double storey' : 'Single storey',
+      gutter_guard: (ggVR && _isPriceable(ggVR) && ggVR.value) ? 'Yes' : 'No',
+      debris: lastCleanedVR.value,
+      access: (accessVR && _isPriceable(accessVR) && accessVR.value) ? 'Yes — difficult access' : 'No',
+      structures: []
+    };
+
+    // Additional structures
+    for (let i = 1; i < structuresInScope.length; i++) {
+      const s = structuresInScope[i];
+      const scope = s.serviceScopes?.['gutter-cleaning'] || {};
+      if (scope.exclusionDecision) continue; // explicitly excluded
+      const sGmVR = s.attributes?.gutterMetres;
+      if (!sGmVR || !_isPriceable(sGmVR)) return null; // required-no-default
+      const sLcVR = scope.lastCleaned;
+      if (!sLcVR || !_isPriceable(sLcVR)) return null; // affecting-no-default
+      const sGgVR = s.features?.gutterGuard;
+      answers.structures.push({
+        gutterMetres:  sGmVR.value,
+        name:          s.name,             // for display only — never in pricing formula
+        gutter_guard:  (sGgVR && _isPriceable(sGgVR) && sGgVR.value) ? 'Yes' : 'No',
+        debris:        sLcVR.value
+      });
+    }
+    return answers;
+  }
+
+  if (serviceKey === 'roof-cleaning' || serviceKey === 'roof-biocide') {
+    // Single structure per call — caller loops for multi-structure
+    const s = structuresInScope[0];
+    const attrs = s.attributes || {};
+    const scope = s.serviceScopes?.[serviceKey] || {};
+    const storeys = attrs.storeys;
+    if (!storeys || !_isPriceable(storeys)) return null;
+    const roofSqmVR = attrs.roofSqm;
+    if (!roofSqmVR || !_isPriceable(roofSqmVR)) return null;
+    const answers = {
+      roofSqmExact: roofSqmVR.value,
+      storeys: storeys.value === 'double' ? 'Double storey' : 'Single storey'
+    };
+    if (serviceKey === 'roof-cleaning') {
+      const rtVR = attrs.roofType;
+      if (!rtVR || !_isPriceable(rtVR)) return null;
+      const ageVR = attrs.roofAge;
+      if (!ageVR || !_isPriceable(ageVR)) return null;
+      answers.roof_type = rtVR.value;
+      answers.age = ageVR.value;
+      answers.biocide = (scope.biocideRequested && _isPriceable(scope.biocideRequested) && scope.biocideRequested.value)
+        ? 'Yes — add biocide treatment' : 'No thanks';
+    }
+    return answers;
+  }
+
+  if (serviceKey === 'pressure-washing') {
+    const s = structuresInScope[0];
+    const attrs = s.attributes || {};
+    const scope = s.serviceScopes?.['pressure-washing'] || {};
+    const areaSqmVR = attrs.areaSqm;
+    if (!areaSqmVR || !_isPriceable(areaSqmVR)) return null;
+    const lwVR = scope.lastWash;
+    const answers = {
+      areaSqmExact: areaSqmVR.value,
+      surface_type: (scope.surfaceType && _isPriceable(scope.surfaceType)) ? scope.surfaceType.value : 'Entertaining area / patio',
+      last_wash: (lwVR && _isPriceable(lwVR)) ? lwVR.value : '1–3 years ago',
+      biocide: (scope.biocideRequested && _isPriceable(scope.biocideRequested) && scope.biocideRequested.value) ? 'Yes — add biocide post-treatment' : 'No thanks'
+    };
+    return answers;
+  }
+
+  if (serviceKey === 'gutter-softwash') {
+    const main = structuresInScope[0];
+    const attrs = main.attributes || {};
+    const storeys = attrs.storeys;
+    if (!storeys || !_isPriceable(storeys)) return null;
+    const gmVR = attrs.gutterMetres;
+    if (!gmVR || !_isPriceable(gmVR)) return null;
+    return {
+      gutterMetresExact: gmVR.value,
+      storeys: storeys.value === 'double' ? 'Double storey' : 'Single storey'
+    };
+  }
+
+  if (serviceKey === 'solar-cleaning') {
+    // Aggregate homogeneous arrays, calculate heterogeneous separately
+    // For MVP: single structure, first panelArray
+    const s = structuresInScope[0];
+    const arr = s.attributes?.panelArrays?.[0] || {};
+    const countVR = arr.count;
+    if (!countVR || !_isPriceable(countVR)) return null;
+    const lcVR = arr.lastCleaned;
+    const storeys = s.attributes?.storeys;
+    const accessVR = arr.hardAccess;
+    return {
+      panels: countVR.value,
+      storeys: (storeys && _isPriceable(storeys) && storeys.value === 'double') ? 'Double storey' : 'Single storey',
+      last_clean: (lcVR && _isPriceable(lcVR)) ? lcVR.value : '1–2 years ago',
+      hard_access: (accessVR && _isPriceable(accessVR) && accessVR.value) ? 'Yes — difficult access' : 'No — standard access'
+    };
+  }
+
+  if (serviceKey === 'window-cleaning') {
+    const s = structuresInScope[0];
+    const attrs = s.attributes || {};
+    const scope = s.serviceScopes?.['window-cleaning'] || {};
+    const wcVR = attrs.windowCounts;
+    if (!wcVR || !_isPriceable(wcVR)) return null;
+    const storeys = attrs.storeys;
+    if (!storeys || !_isPriceable(storeys)) return null;
+    const scopeVR   = scope.windowScope;
+    const postVR    = scope.postConstruction;
+    if (!scopeVR || !_isPriceable(scopeVR)) return null;
+    if (!postVR  || !_isPriceable(postVR))  return null;
+    return {
+      windows: wcVR.value,
+      storeys: storeys.value === 'double' ? 'Double storey' : 'Single storey',
+      scope: scopeVR.value,
+      post_construction: postVR.value,
+      flyscreens: (scope.flyscreens && _isPriceable(scope.flyscreens) && scope.flyscreens.value) ? 'Yes — include flyscreens' : 'No',
+      tracks: (scope.tracks && _isPriceable(scope.tracks) && scope.tracks.value) ? 'Yes — deep clean tracks' : 'No'
+    };
+  }
+
+  if (serviceKey === 'house-washing') {
+    // Suburb routing is always from property.suburb — never from a structure
+    const suburbCheck = _deriveSuburbCheck(property?.suburb);
+    if (!suburbCheck) return null;
+    const s = structuresInScope[0];
+    const attrs = s.attributes || {};
+    const scope = s.serviceScopes?.['house-washing'] || {};
+    const storeys = attrs.storeys;
+    if (!storeys || !_isPriceable(storeys)) return null;
+    const stainingVR = scope.staining;
+    if (!stainingVR || !_isPriceable(stainingVR)) return null;
+    const patioVR = scope.patio;
+    return {
+      suburb_check: suburbCheck,
+      storeys: storeys.value === 'double' ? 'Double storey' : 'Single storey',
+      staining: stainingVR.value,
+      patio: (patioVR && _isPriceable(patioVR)) ? patioVR.value : 'No patio'
+    };
+  }
+
+  if (serviceKey === 'bird-proofing') {
+    const s = structuresInScope[0];
+    const attrs = s.attributes || {};
+    const scope = s.serviceScopes?.['bird-proofing'] || {};
+    const gmVR = attrs.gutterMetres;
+    if (!gmVR || !_isPriceable(gmVR)) return null;
+    const arr = attrs.panelArrays?.[0] || {};
+    const panelVR = arr.count;
+    if (!panelVR || !_isPriceable(panelVR)) return null;
+    const storeys = attrs.storeys;
+    const ggVR = s.features?.gutterGuard;
+    const lcVR = scope.lastCleaned;
+    const lcPanelVR = arr.lastCleaned;
+    const nestVR = scope.nesting;
+    return {
+      gutterMetresExact: gmVR.value,
+      storeys: (storeys && _isPriceable(storeys) && storeys.value === 'double') ? 'Double storey' : 'Single storey',
+      gutter_guard: (ggVR && _isPriceable(ggVR) && ggVR.value) ? 'Yes' : 'No',
+      debris: (lcVR && _isPriceable(lcVR)) ? lcVR.value : 'Less than 12 months',
+      panels: panelVR.value,
+      last_clean: (lcPanelVR && _isPriceable(lcPanelVR)) ? lcPanelVR.value : '1–2 years ago',
+      nesting: (nestVR && _isPriceable(nestVR) && nestVR.value) ? 'Yes — birds currently nesting' : 'No'
+    };
+  }
+
+  return null;
+}
+
+// ── groupStructuresForCalculation ─────────────────────────
+// Returns groups that should each get one calcQuote call.
+// For homogeneous services (same rate for all structures), returns one group.
+// For heterogeneous services, returns one structure per group.
+function groupStructuresForCalculation(serviceKey, structures) {
+  const included = structures.filter(s =>
+    s.serviceScopes?.[serviceKey]?.included && !s.serviceScopes?.[serviceKey]?.exclusionDecision
+  );
+
+  // Services that calculate per-structure and sum
+  const perStructure = ['roof-cleaning','roof-biocide','pressure-washing','gutter-softwash','house-washing','window-cleaning'];
+  if (perStructure.includes(serviceKey)) return included.map(s => [s]);
+
+  // Gutter-cleaning: main + all additionals in one calcQuote call
+  if (serviceKey === 'gutter-cleaning') return included.length > 0 ? [included] : [];
+
+  // Solar-cleaning: check homogeneity
+  if (serviceKey === 'solar-cleaning') {
+    if (included.length <= 1) return included.map(s => [s]);
+    // Homogeneous if all have same storeys and access profile
+    const first = included[0];
+    const fStoreys = first.attributes?.storeys?.value;
+    const fAccess  = first.serviceScopes?.['solar-cleaning']?.accessDifficult?.value;
+    const allSame = included.every(s => s.attributes?.storeys?.value === fStoreys &&
+      s.serviceScopes?.['solar-cleaning']?.accessDifficult?.value === fAccess);
+    return allSame ? [included] : included.map(s => [s]);
+  }
+
+  // Bird-proofing: MVP — single composite
+  if (serviceKey === 'bird-proofing') return included.length > 0 ? [[included[0]]] : [];
+
+  return included.map(s => [s]);
+}
+
+// ── summariseStructureExclusions ──────────────────────────
+function summariseStructureExclusions(serviceKey, structures) {
+  const lines = [];
+  (structures || []).forEach(s => {
+    const scope = s.serviceScopes?.[serviceKey];
+    if (!scope || !scope.exclusionDecision) return;
+    const svcLabel = _STRUCT_SERVICE_LABELS[serviceKey] || serviceKey;
+    switch(scope.exclusionDecision) {
+      case 'exclude-this-quote':  lines.push(`${s.name} — ${svcLabel}: excluded from this quote`); break;
+      case 'inspect-required':    lines.push(`${s.name} — ${svcLabel}: site inspection required`); break;
+      case 'quote-separately':    lines.push(`${s.name} — ${svcLabel}: quoted separately`); break;
+    }
+  });
+  return lines;
+}
+
+// ── _deriveSuburbCheck ────────────────────────────────────
+// Private helper — derives suburb_check from property.suburb.
+// Mirrors the logic in _aiwBuildSafeAnswers and startService.
+function _deriveSuburbCheck(rawSuburb) {
+  if (!rawSuburb) return null;
+  const suburb = normaliseSuburb(rawSuburb);
+  if (!suburb) return null;
+  const km = KILMORE_SUBURB_DISTANCES[suburb];
+  if (km === undefined) return null;
+  return km <= 30 ? 'Within 30km of Kilmore → In-person quote' : 'Beyond 30km → Phone quote';
 }
 
 function aiwShowAddService() {
@@ -5659,14 +6585,128 @@ function aiwBuildQuote() {
     const specialItems = [];   // inPerson | customQuote | rerouteToService
     const rerouted = new Set(); // prevent reroute loops
 
+    // — OP-2E: Check for in-scope structures with unresolved incomplete data —
+    // Any structure that is included in a service scope but has missing required
+    // data AND no exclusionDecision blocks quote creation.
+    const allStructures = _getStructures();
+    const structureBlockers = [];
+    activeServices.forEach(svc => {
+      const inScope = allStructures.filter(s => s.serviceScopes?.[svc.serviceKey]?.included);
+      inScope.forEach(s => {
+        const scope = s.serviceScopes[svc.serviceKey];
+        if (scope.exclusionDecision) return; // explicitly resolved — not a blocker
+        const readiness = isStructureReadyForService(svc.serviceKey, s, _aiwState.property);
+        if (!readiness.ready && readiness.blockingFields.length > 0) {
+          const svcLabel = _STRUCT_SERVICE_LABELS[svc.serviceKey] || svc.serviceKey;
+          structureBlockers.push(`${s.name} — ${svcLabel}: confirm ${readiness.blockingFields.join(', ')}`);
+        }
+      });
+    });
+    if (structureBlockers.length > 0 && !isOwner) {
+      showToast('Incomplete structures block quote — confirm or exclude them', 'error');
+      structureBlockers.forEach(b => console.warn('[OP-2E structure blocker]', b));
+      return;
+    }
+
     for (const svc of activeServices) {
       if (!AIW_VALID_SERVICE_KEYS.includes(svc.serviceKey)) {
         specialItems.push({ type: 'unknown', serviceKey: svc.serviceKey, displayName: svc.serviceKey });
         continue;
       }
 
-      // Build a clean, safe answers clone
-      const safeAnswers = _aiwBuildSafeAnswers(svc);
+      // — OP-2E: Try structure-driven pricing when structures are in scope for this service —
+      const structuresForService = allStructures.filter(s =>
+        s.serviceScopes?.[svc.serviceKey]?.included &&
+        !s.serviceScopes[svc.serviceKey]?.exclusionDecision
+      );
+
+      let safeAnswers;
+      let structureExclusions = [];
+
+      if (structuresForService.length > 0) {
+        // Use the adapter to build answers from confirmed structures.
+        // Per-structure calculation path for applicable services.
+        const groups = groupStructuresForCalculation(svc.serviceKey, structuresForService);
+        // Collect structure exclusions for display
+        const allInScopeForService = allStructures.filter(s => s.serviceScopes?.[svc.serviceKey]?.included);
+        structureExclusions = summariseStructureExclusions(svc.serviceKey, allInScopeForService);
+
+        if (groups.length === 0) {
+          specialItems.push({ type: 'error', serviceKey: svc.serviceKey,
+            displayName: SERVICES[svc.serviceKey]?.name || svc.serviceKey,
+            reason: 'No confirmed structures in scope' });
+          continue;
+        }
+
+        // Multi-group: calculate per group, sum totals
+        let groupTotals = 0;
+        let groupLines = [];
+        let groupInclusions = [];
+        let hadSpecial = false;
+        let firstResult = null;
+
+        for (const group of groups) {
+          const groupAnswers = buildAnswersFromStructures(svc.serviceKey, group, _aiwState.property);
+          if (!groupAnswers) {
+            specialItems.push({ type: 'error', serviceKey: svc.serviceKey,
+              displayName: SERVICES[svc.serviceKey]?.name || svc.serviceKey,
+              reason: `Structure "${group[0]?.name}" has missing required data` });
+            hadSpecial = true;
+            break;
+          }
+          let groupResult;
+          try {
+            groupResult = SERVICES[svc.serviceKey].calcQuote(groupAnswers);
+          } catch(e) {
+            specialItems.push({ type: 'error', serviceKey: svc.serviceKey,
+              displayName: SERVICES[svc.serviceKey]?.name || svc.serviceKey,
+              reason: 'Pricing engine error: ' + e.message });
+            hadSpecial = true;
+            break;
+          }
+          if (!groupResult) { hadSpecial = true; break; }
+
+          // Handle special results (inPerson, customQuote, reroute) — delegate to existing logic
+          if (groupResult.inPerson || groupResult.customQuote || groupResult.rerouteToService) {
+            // Treat the whole service as special when any structure triggers it
+            if (groupResult.inPerson)      specialItems.push({ type:'inPerson', serviceKey:svc.serviceKey, displayName:SERVICES[svc.serviceKey]?.name });
+            if (groupResult.customQuote)   specialItems.push({ type:'customQuote', serviceKey:svc.serviceKey, displayName:SERVICES[svc.serviceKey]?.name, reason:groupResult.reason });
+            if (groupResult.rerouteToService) specialItems.push({ type:'rerouted', serviceKey:svc.serviceKey, displayName:SERVICES[svc.serviceKey]?.name, targetKey:groupResult.rerouteToService, message:groupResult.message });
+            hadSpecial = true;
+            break;
+          }
+
+          if (!firstResult) firstResult = groupResult;
+          groupTotals += groupResult.total;
+          groupLines = groupLines.concat(groupResult.lines || []);
+          if (groupResult.inclusions) groupInclusions = groupResult.inclusions; // take last
+        }
+
+        if (hadSpecial) continue;
+
+        // Job-level minimum: if combined total < $150, raise to $150
+        const jobTotal = Math.max(150, groupTotals);
+        const combinedResult = {
+          ...firstResult,
+          total: jobTotal,
+          lines: groupLines,
+          inclusions: groupInclusions.length ? groupInclusions : (SERVICES[svc.serviceKey].inclusions || []),
+          structureExclusions
+        };
+
+        priceableItems.push({
+          svc, result: combinedResult,
+          displayName: SERVICES[svc.serviceKey].name,
+          serviceKey: svc.serviceKey,
+          inclusions: combinedResult.inclusions,
+          scopeNotes: svc.scopeNotes,
+          structureExclusions
+        });
+        continue; // skip the legacy safeAnswers path
+      }
+
+      // — Legacy path: no structures in scope → use existing _aiwBuildSafeAnswers —
+      safeAnswers = _aiwBuildSafeAnswers(svc);
       if (!safeAnswers) {
         specialItems.push({ type: 'error', serviceKey: svc.serviceKey, displayName: AIW_CATALOGUE[svc.serviceKey]?.displayName || svc.serviceKey, reason: 'Could not build safe answers object' });
         continue;
@@ -5700,13 +6740,12 @@ function aiwBuildQuote() {
         if (!rerouted.has(svc.serviceKey) && AIW_VALID_SERVICE_KEYS.includes(targetKey) && SERVICES[targetKey]) {
           rerouted.add(svc.serviceKey);
           specialItems.push({ type: 'rerouted', serviceKey: svc.serviceKey, displayName: SERVICES[svc.serviceKey]?.name, targetKey, targetName: SERVICES[targetKey]?.name, message: result.message });
-          // Try to price the rerouted service with compatible answers
           try {
             const reroutedResult = SERVICES[targetKey].calcQuote(safeAnswers);
             if (reroutedResult && !reroutedResult.inPerson && !reroutedResult.customQuote && !reroutedResult.rerouteToService) {
-              priceableItems.push({ svc, result: reroutedResult, displayName: SERVICES[targetKey].name, serviceKey: targetKey, inclusions: reroutedResult.inclusions || SERVICES[targetKey].inclusions || [], scopeNotes: svc.scopeNotes });
+              priceableItems.push({ svc, result: reroutedResult, displayName: SERVICES[targetKey].name, serviceKey: targetKey, inclusions: reroutedResult.inclusions || SERVICES[targetKey].inclusions || [], scopeNotes: svc.scopeNotes, structureExclusions: [] });
             }
-          } catch(e) { /* rerouted service also failed — show original special item only */ }
+          } catch(e) { /* rerouted service also failed */ }
         } else {
           specialItems.push({ type: 'rerouted', serviceKey: svc.serviceKey, displayName: SERVICES[svc.serviceKey]?.name, targetKey, message: result.message });
         }
@@ -5744,7 +6783,8 @@ function aiwBuildQuote() {
         note: item.result.note || null,
         inclusions: item.inclusions,
         savedAnswers: item.svc.answers ? { ...item.svc.answers } : {},
-        scopeNotes: item.scopeNotes || ''
+        scopeNotes: item.scopeNotes || '',
+        structureExclusions: item.structureExclusions || []
       });
     });
 
@@ -5908,6 +6948,7 @@ function _aiwRenderQuoteResult(priceableItems, specialItems, grandTotal, travel)
         ${scopeRow}
         ${inclusions ? `<div class="inclusions-box" style="margin-top:8px;"><div class="inclusions-title">What's included</div>${inclusions}</div>` : ''}
         ${item.result.note ? `<div class="quote-disclaimer" style="margin-top:6px;">⚠️ ${_esc(item.result.note)}</div>` : ''}
+        ${(item.structureExclusions && item.structureExclusions.length) ? `<div class="quote-disclaimer" style="margin-top:6px;background:#f3f4f6;color:var(--text2);">Excluded from this quote:<br>${item.structureExclusions.map(l => `• ${_esc(l)}`).join('<br>')}</div>` : ''}
       </div>`;
   });
 
@@ -6648,6 +7689,7 @@ function aiwResetSession() {
   document.getElementById('aiw-recovery-bar').style.display = 'none';
   document.getElementById('aiw-empty-card').style.display = 'block';
   document.getElementById('aiw-customer-card').style.display = 'none';
+  document.getElementById('aiw-structures-card').style.display = 'none';
   document.getElementById('aiw-services-section').style.display = 'none';
   document.getElementById('aiw-missing-card').style.display = 'none';
   document.getElementById('aiw-assumptions-card').style.display = 'none';

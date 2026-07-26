@@ -1307,3 +1307,115 @@
   }
   .aiw-recovery-bar button:hover { background: var(--amber-bg); }
 
+
+  /* ── OP-2B Property Structures ───────────────────── */
+  .aiw-preset-btn {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface2);
+    color: var(--text2);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .aiw-preset-btn:hover { border-color: var(--ss-green); color: var(--ss-green); }
+
+  .aiw-struct-row {
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    border: 1px solid var(--border);
+  }
+  .aiw-struct-row-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .aiw-struct-name {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text1);
+  }
+  .aiw-struct-actions { display: flex; gap: 6px; }
+  .aiw-struct-action-btn {
+    font-size: 11px;
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: #fff;
+    color: var(--text2);
+    cursor: pointer;
+  }
+  .aiw-struct-action-btn:hover { border-color: var(--ss-green); color: var(--ss-green); }
+  .aiw-struct-action-btn.danger:hover { border-color: var(--red); color: var(--red); }
+
+  .aiw-status-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 10px;
+    vertical-align: middle;
+    margin-left: 6px;
+  }
+  .aiw-status-badge.confirmed  { background: var(--green-bg); color: var(--green); }
+  .aiw-status-badge.proxy      { background: #e8f0fe; color: #1a56cc; }
+  .aiw-status-badge.customer   { background: #f0fdf4; color: #166534; }
+  .aiw-status-badge.ai-est     { background: var(--amber-bg); color: var(--amber); }
+  .aiw-status-badge.missing    { background: var(--red-bg); color: var(--red); }
+  .aiw-status-badge.excluded   { background: #f3f4f6; color: var(--text3); }
+  .aiw-status-badge.inspect    { background: #fff3e0; color: #e65100; }
+
+  .aiw-struct-field-row {
+    display: flex;
+    align-items: center;
+    font-size: 12px;
+    color: var(--text2);
+    padding: 2px 0;
+    gap: 8px;
+  }
+  .aiw-struct-field-label { color: var(--text3); min-width: 110px; }
+  .aiw-struct-field-value { font-weight: 600; color: var(--text1); }
+  .aiw-struct-confirm-btn {
+    font-size: 11px;
+    padding: 2px 8px;
+    border: 1px solid var(--ss-green);
+    border-radius: 5px;
+    background: var(--green-bg);
+    color: var(--ss-green);
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .aiw-struct-edit-inline {
+    font-size: 12px;
+    padding: 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    width: 70px;
+  }
+
+  .aiw-struct-scope-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+  }
+  .aiw-scope-tag {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--ss-green);
+    color: var(--ss-green);
+    background: var(--green-bg);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .aiw-scope-tag.inactive {
+    border-color: var(--border);
+    color: var(--text3);
+    background: var(--surface2);
+  }
