@@ -4282,12 +4282,29 @@ function _chatConfirmAddLineItem(payload) {
     isCustom: true
   });
 
-  // Refresh the multi-service banner if it exists
-  if (typeof renderMultiServiceBanner === 'function') renderMultiServiceBanner();
+  // Make the result visible.
+  // If we're in an active service flow, add to the combined summary and stay there.
+  // Otherwise, switch to the service selector so the multi-service banner shows.
+  if (typeof renderMultiServiceBanner === 'function') {
+    // Ensure service-select-view is visible so the banner has somewhere to render
+    const ssv = document.getElementById('service-select-view');
+    const cfv = document.getElementById('call-flow-view');
+    if (ssv && ssv.style.display === 'none' && (!cfv || cfv.style.display === 'none')) {
+      // Neither view is open — show the service selector
+      ssv.style.display = 'block';
+    }
+    renderMultiServiceBanner();
+  }
+
+  // If the quote output panel is visible (rep already built a quote), refresh it
+  const qo = document.getElementById('quote-output');
+  if (qo && qo.style.display !== 'none' && currentService && SERVICES[currentService]) {
+    showQuote();
+  }
 
   const travelNote = clientInfo.travelCost > 0 ? ` (+ $${clientInfo.travelCost} travel, charged once)` : '';
   _chatAppendBot(`✓ <strong>${_escHtml(name)}</strong> — <strong>$${total.toFixed(2)}</strong> added to the quote${travelNote}.`);
-  showToast(name + ' added — $' + total.toFixed(2));
+  showToast(name + ' — $' + total.toFixed(2) + ' added');
 }
 
 // ── Map AI payload fields → calcQuote answers shape ────────
