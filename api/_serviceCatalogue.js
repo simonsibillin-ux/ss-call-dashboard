@@ -312,21 +312,11 @@ const SERVICE_CATALOGUE = {
         allowedValues: ['2 bed', '3 bed', '4 bed', '5+ bed'],
         extractionHints: ['Used to estimate roof sqm'],
         suggestedQuestion: 'How many bedrooms does the property have?'
-      },
-      biocide: {
-        required: false,
-        type: 'enum',
-        allowedValues: ['No thanks', 'Yes — add biocide treatment'],
-        extractionHints: [
-          'Biocide add-on prevents lichen regrowth for 2–4 years',
-          'Only set to Yes if client explicitly requests it'
-        ],
-        suggestedQuestion: 'Would you like to add a long-term lichen preventative biocide treatment?'
       }
     },
     requiredForPricing: ['storeys', 'roof_type', 'age', 'bedrooms'],
     recommendedForPricing: [],
-    optionalForPricing: ['biocide'],
+    optionalForPricing: [],
     escalationTriggers: [
       { field: 'storeys', value: '3+ storeys', action: 'custom-quote' },
       { field: 'storeys', value: 'Commercial / Industrial', action: 'custom-quote' },

@@ -373,22 +373,13 @@ const SERVICES = {
         script: '"How many bedrooms does the property have?"',
         type: 'options',
         options: ['2 bed', '3 bed', '4 bed', '5+ bed']
-      },
-      {
-        id: 'biocide',
-        label: 'Would you like to add a long-term lichen preventative treatment?',
-        script: '"We also offer a long-term lichen preventative treatment as an add-on. Once we\'ve completed the clean, we apply a biocide solution that kills any remaining spores and prevents regrowth for up to 2 to 4 years. It\'s the difference between just cleaning your roof and actually protecting it long term. Would you like me to include that in your quote?"',
-        type: 'options',
-        options: ['No thanks', 'Yes — add biocide treatment']
       }
     ],
     inclusions: [
       'Complete killing and removal of lichen, moss, algae, and organic material',
       'Softwash method — safe for all roof types',
       'All methods comply with manufacturer specifications',
-      'Terra cotta roofs: biocide treatment only (no pressure wash)',
-      'Before and after photos',
-      'Optional: long-term lichen preventative biocide treatment (2–4 years protection)'
+      'Before and after photos'
     ],
     calcQuote: (a) => {
       if (a.roof_type === 'Terra cotta tiles') {
@@ -404,29 +395,22 @@ const SERVICES = {
       const ageRateMap = { 'Under 10 years': isDouble ? 5.00 : 4.00, '10–20 years': isDouble ? 6.00 : 5.00, '20+ years': isDouble ? 7.00 : 6.00 };
       const rate = ageRateMap[a.age] || 5.00;
       const base = sqm * rate;
-      const biocideRate = isDouble ? 3.25 : 2.00;
-      const biocide = a.biocide === 'Yes — add biocide treatment' ? sqm * biocideRate : 0;
       const dynamicInclusions = [
         'Complete killing and removal of lichen, moss, algae, and organic material',
         'Softwash method — safe for all roof types',
         'All methods comply with manufacturer specifications',
-        'Terra cotta roofs: biocide treatment only (no pressure wash)',
         'Before and after photos',
       ];
-      if (biocide > 0) {
-        dynamicInclusions.push('Long-term lichen preventative biocide treatment (2–4 years protection) — INCLUDED');
-      }
       return {
         lines: [
           { label: `Est. roof sqm (${bedroomKey} bed avg)`, value: `${sqm}sqm` },
           { label: `Softwash rate (${a.age})`, value: `$${rate.toFixed(2)}/sqm` },
           { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
-          biocide > 0 ? { label: `Biocide treatment (${sqm}sqm × $${biocideRate})`, value: `$${biocide.toFixed(2)}` } : null,
-          (base + biocide) < 150 ? { label: 'Minimum call-out applied', value: '$150.00' } : null,
+          base < 150 ? { label: 'Minimum call-out applied', value: '$150.00' } : null,
         ].filter(Boolean),
         inclusions: dynamicInclusions,
         travel: clientInfo.travelCost,
-        total: Math.max(150, base + biocide)
+        total: Math.max(150, base)
       };
     }
   },
