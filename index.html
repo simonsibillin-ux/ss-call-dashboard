@@ -4219,13 +4219,14 @@ let _chat = {
   open: false,
   history: [],      // [{ role: 'user'|'assistant', content: string }]
   waiting: false,
-  pendingAction: null  // { type, payload } — e.g. add line item awaiting confirm
+  pendingAction: null,  // { type, payload } — e.g. add line item awaiting confirm
+  lastUserText: ''
 };
 let _chatDetectedServices = [];
 
 const CHAT_SERVICE_KEYWORDS = {
   'gutter-cleaning': ['gutter cleaning', 'clean gutters', 'gutters cleaned', 'gutter clean'],
-  'solar-cleaning': ['solar cleaning', 'solar panel', 'panels cleaned', 'clean panels'],
+  'solar-cleaning': ['solar cleaning', 'solar clean', 'solar panel', 'solar panels', 'panel clean', 'panel quote', 'panels cleaned', 'clean panels'],
   'window-cleaning': ['window cleaning', 'windows cleaned', 'clean windows'],
   'house-washing': ['house wash', 'house washing', 'soft wash house', 'exterior wash'],
   'roof-cleaning': ['roof cleaning', 'roof clean', 'clean roof', 'roof wash'],
@@ -4251,6 +4252,7 @@ function chatReset() {
   _chat.history = [];
   _chat.waiting = false;
   _chat.pendingAction = null;
+  _chat.lastUserText = '';
   _chatDetectedServices = [];
   window._chatQueuedNotes = [];
   window._chatPdfCustomizations = [];
@@ -4277,6 +4279,7 @@ async function chatSend() {
 
   _chatAppendUser(text);
   _chat.history.push({ role: 'user', content: text });
+  _chat.lastUserText = text;
   detectServicesFromText(text);
   renderSuggestedQuestions();
 
@@ -4297,7 +4300,7 @@ async function chatSend() {
     });
 
     if (!res.ok) throw new Error('API error ' + res.status);
-    const data = await res.json();
+    const data = _chatPatchResponseForLatestIntent(await res.json());
 
     typingEl.remove();
     _chatSetWaiting(false);
@@ -4325,7 +4328,9 @@ function _chatHandleResponse(data) {
   // Always show the message text
   if (message) {
     _chat.history.push({ role: 'assistant', content: message });
+    detectServicesFromText(message);
     _chatAppendBot(message);
+    renderSuggestedQuestions();
   }
 
   if (!action) return;
@@ -4389,6 +4394,89 @@ function _chatHandleResponse(data) {
   }
 }
 
+function _chatPatchResponseForLatestIntent(data) {
+  const latest = String(_chat.lastUserText || '').toLowerCase();
+  const latestWantsSolar = /\b(solar|panels?|panel quote|panel clean)\b/.test(latest);
+  const action = data && data.action;
+  if (!latestWantsSolar || !action || action.type !== 'add_line_item') return data;
+  if (action.payload && action.payload.serviceKey === 'solar-cleaning') return data;
+
+  const solarPayload = _chatBuildSolarPayloadFromConversation();
+  if (!solarPayload) {
+    return {
+      message: 'Got it — this is for solar panel cleaning. I need the panel count, whether it is single or double storey, and when the panels were last cleaned.',
+      action: { type: 'ask_more', payload: {} }
+    };
+  }
+  return {
+    message: `Got it — I’ll add the solar panel clean using ${solarPayload.panelCount} panels, ${solarPayload.storeys}, ${solarPayload.lastCleaned}.`,
+    action: {
+      type: 'add_line_item',
+      payload: solarPayload
+    }
+  };
+}
+
+function _chatBuildSolarPayloadFromConversation() {
+  const userMessages = _chat.history.filter(m => m.role === 'user').map(m => m.content);
+  const combined = userMessages.join('\n').toLowerCase();
+  const panelMentionAt = Math.max(combined.lastIndexOf('panel'), combined.lastIndexOf('solar'));
+  if (panelMentionAt < 0) return null;
+  const recentSolarContext = combined.slice(panelMentionAt);
+  const allPanelContext = combined.slice(Math.max(0, panelMentionAt - 160));
+
+  const countMatch = allPanelContext.match(/(\d+)\s*(?:solar\s*)?panels?\b/);
+  const panelCount = countMatch ? Number(countMatch[1]) : null;
+  if (!panelCount) return null;
+
+  const storeys = recentSolarContext.includes('double') || recentSolarContext.includes('two storey') || recentSolarContext.includes('2 storey')
+    ? 'double'
+    : recentSolarContext.includes('single') || recentSolarContext.includes('one storey') || recentSolarContext.includes('1 storey')
+      ? 'single'
+      : _chatInferStoreysFromQuote();
+
+  const lastCleaned = recentSolarContext.includes('never') || recentSolarContext.includes('4+') || recentSolarContext.includes('not been cleaned')
+    ? '4+ years ago / never cleaned'
+    : recentSolarContext.includes('2-4') || recentSolarContext.includes('2–4')
+      ? '2–4 years ago'
+      : recentSolarContext.includes('1-2') || recentSolarContext.includes('1–2')
+        ? '1–2 years ago'
+        : recentSolarContext.includes('less than') || recentSolarContext.includes('last year')
+          ? 'Less than 1 year ago'
+          : null;
+
+  if (!storeys || !lastCleaned) return null;
+
+  return {
+    name: 'Home — Solar Panel Cleaning',
+    serviceKey: 'solar-cleaning',
+    requiresConfirm: true,
+    panelCount,
+    storeys,
+    lastCleaned,
+    difficultAccess: false,
+    total: null,
+    lines: [{ label: `${panelCount} solar panels`, value: `${panelCount} panels` }]
+  };
+}
+
+function _chatInferStoreysFromQuote() {
+  const existing = multiServiceItems.find(i => i.savedAnswers && i.savedAnswers.storeys);
+  if (!existing) return null;
+  return String(existing.savedAnswers.storeys).toLowerCase().includes('double') ? 'double' : 'single';
+}
+
+function _chatQuoteItemSignature(item) {
+  const answers = item.savedAnswers || {};
+  return [
+    item.serviceKey || '',
+    item.name || '',
+    answers.gutterMetresExact || answers.roofSqmExact || answers.areaSqmExact || answers.panels || answers.windows || '',
+    answers.storeys || '',
+    answers.debris || answers.last_clean || answers.last_wash || ''
+  ].join('|').toLowerCase();
+}
+
 // ── Confirm: add line item to quote ───────────────────────
 function _chatConfirmAddLineItem(payload) {
   _chat.pendingAction = null;
@@ -4431,8 +4519,7 @@ function _chatConfirmAddLineItem(payload) {
     return;
   }
 
-  // Push into multiServiceItems
-  multiServiceItems.push({
+  const newItem = {
     serviceKey: serviceKey || 'custom',
     name,
     lines,
@@ -4442,7 +4529,16 @@ function _chatConfirmAddLineItem(payload) {
     savedAnswers: answers || {},
     scopeNotes: payload.estimateNote || '',
     isCustom: true
-  });
+  };
+  const duplicate = multiServiceItems.some(item => _chatQuoteItemSignature(item) === _chatQuoteItemSignature(newItem));
+  if (duplicate) {
+    _chatAppendBot(`<strong>${_escHtml(name)}</strong> is already in the quote, so I didn’t add it again.`);
+    renderChatQuoteItems();
+    return;
+  }
+
+  // Push into multiServiceItems
+  multiServiceItems.push(newItem);
 
   if (serviceKey && SERVICES[serviceKey] && !_chatDetectedServices.includes(serviceKey)) {
     _chatDetectedServices.push(serviceKey);
