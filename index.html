@@ -211,12 +211,153 @@
   border-top: 1px solid var(--border);
   padding-top: 12px;
 }
+.calendar-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 18px;
+  align-items: start;
+}
+.todo-notepad {
+  background: #fffdf2;
+  border: 1px solid #eadfbd;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(74, 61, 28, 0.08);
+  overflow: hidden;
+  position: relative;
+}
+.todo-notepad::before {
+  content: "";
+  position: absolute;
+  left: 42px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(239, 68, 68, 0.18);
+}
+.todo-pad-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px 12px 56px;
+  background: #fff8d9;
+  border-bottom: 1px solid #eadfbd;
+}
+.todo-pad-title {
+  font-size: 16px;
+  font-weight: 900;
+  color: #2f2a1d;
+}
+.todo-pad-count {
+  font-size: 11px;
+  font-weight: 800;
+  color: #4b7f3b;
+  background: #edf8e8;
+  border: 1px solid #cbe7bf;
+  border-radius: 999px;
+  padding: 4px 9px;
+  white-space: nowrap;
+}
+.todo-add-row {
+  display: flex;
+  gap: 8px;
+  padding: 13px 14px 13px 56px;
+  border-bottom: 1px solid rgba(234, 223, 189, 0.75);
+}
+.todo-input {
+  flex: 1;
+  border: 1px solid #e1d5ae;
+  border-radius: 8px;
+  background: #fffef8;
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+.todo-input:focus { border-color: var(--ss-green); }
+.todo-list {
+  min-height: 210px;
+  padding: 4px 0 8px;
+  background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 37px, rgba(91, 76, 38, 0.10) 38px, rgba(91, 76, 38, 0.10) 39px);
+}
+.todo-item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  gap: 8px;
+  align-items: start;
+  min-height: 39px;
+  padding: 8px 10px 7px 56px;
+}
+.todo-check {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--ss-green);
+  cursor: pointer;
+}
+.todo-text {
+  min-height: 22px;
+  border: none;
+  background: transparent;
+  color: #332f24;
+  font-size: 13px;
+  line-height: 1.45;
+  outline: none;
+  padding: 0;
+  word-break: break-word;
+}
+.todo-item.done .todo-text {
+  color: #928a70;
+  text-decoration: line-through;
+}
+.todo-delete {
+  border: none;
+  background: transparent;
+  color: #a15c55;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 3px 0;
+}
+.todo-delete:hover { background: rgba(161, 92, 85, 0.12); }
+.todo-empty {
+  padding: 22px 18px 22px 56px;
+  color: #8c836a;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.todo-pad-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 14px 13px 56px;
+  background: rgba(255, 248, 217, 0.68);
+  border-top: 1px solid rgba(234, 223, 189, 0.75);
+}
+.todo-reminder-list {
+  margin: 12px 0 18px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.todo-reminder-list li {
+  background: #fffdf2;
+  border: 1px solid #eadfbd;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 13px;
+  color: #332f24;
+}
 
 @media (max-width: 480px) {
   #chat-bubble { bottom: 16px; right: 16px; }
 }
 @media (max-width: 900px) {
   .chat-workspace { grid-template-columns: 1fr; }
+  .calendar-layout { grid-template-columns: 1fr; }
   .chat-side-panel { min-height: auto; }
   #chat-panel { min-height: 520px; }
 }
@@ -418,15 +559,37 @@
             <button class="btn-primary" style="width:auto;" onclick="openAddFollowUp()">+ Add Follow-up</button>
           </div>
         </div>
-        <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:16px;">
-          <!-- Rendered by JS -->
-        </div>
-        <div id="cal-day-detail" style="display:none;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-            <div id="cal-day-title" style="font-size:15px;font-weight:700;"></div>
-            <button onclick="document.getElementById('cal-day-detail').style.display='none'" style="border:none;background:none;cursor:pointer;font-size:18px;color:var(--text3);">✕</button>
+        <div class="calendar-layout">
+          <div>
+            <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:16px;">
+              <!-- Rendered by JS -->
+            </div>
+            <div id="cal-day-detail" style="display:none;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <div id="cal-day-title" style="font-size:15px;font-weight:700;"></div>
+                <button onclick="document.getElementById('cal-day-detail').style.display='none'" style="border:none;background:none;cursor:pointer;font-size:18px;color:var(--text3);">✕</button>
+              </div>
+              <div id="cal-day-items"></div>
+            </div>
           </div>
-          <div id="cal-day-items"></div>
+          <div class="todo-notepad">
+            <div class="todo-pad-header">
+              <div>
+                <div class="todo-pad-title">Call To-Do List</div>
+                <div style="font-size:12px;color:#7b735d;margin-top:2px;">Notes for the team to action</div>
+              </div>
+              <div class="todo-pad-count" id="todo-count">0 open</div>
+            </div>
+            <div class="todo-add-row">
+              <input class="todo-input" id="todo-input" placeholder="Add a task..." onkeydown="if(event.key==='Enter'){addTodoItem()}">
+              <button class="btn-primary" onclick="addTodoItem()" style="width:auto;padding:9px 12px;">Add</button>
+            </div>
+            <div class="todo-list" id="todo-list"></div>
+            <div class="todo-pad-footer">
+              <button class="btn-secondary" onclick="clearCompletedTodos()" style="width:auto;font-size:12px;">Clear Done</button>
+              <button class="btn-secondary" onclick="clearAllTodos()" style="width:auto;font-size:12px;color:#a15c55;">Clear All</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -622,6 +785,19 @@
   </div><!-- /main -->
 </div><!-- /app -->
 
+<!-- TO-DO REMINDER MODAL -->
+<div class="modal-overlay" id="todo-reminder-modal">
+  <div class="modal" style="width:440px;">
+    <div class="modal-title">Call To-Do Reminder</div>
+    <div class="modal-subtitle">There are items on the team to-do list to address.</div>
+    <ul class="todo-reminder-list" id="todo-reminder-list"></ul>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeTodoReminder()">Dismiss</button>
+      <button class="btn-primary" onclick="closeTodoReminder(); showPageFromTodoReminder();">Open Call Calendar</button>
+    </div>
+  </div>
+</div>
+
 <!-- ADD FOLLOW-UP MODAL -->
 <div class="modal-overlay" id="followup-modal">
   <div class="modal">
@@ -748,6 +924,8 @@ let clientInfo = { name: '', phone: '', suburb: '', email: '', address: '', sour
 let followUps = [];
 let currentRep = null; // { id, name, pin }
 let isOwner = false;
+let todoItems = [];
+const TODO_STORAGE_KEY = 'ss_call_calendar_todos';
 
 
 // ============================================================
@@ -980,15 +1158,17 @@ async function loadPerformance() {
 // ============================================================
 // NAVIGATION
 // ============================================================
-function showPage(page) {
+function showPage(page, navItem) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-' + page).classList.add('active');
-  event.currentTarget.classList.add('active');
+  const activeNav = navItem || (typeof event !== 'undefined' ? event.currentTarget : null);
+  if (activeNav) activeNav.classList.add('active');
   if (page === 'calendar' || page === 'followups') {
     const bd = document.getElementById('fu-browse-date');
     if (bd && !bd.value) bd.value = localToday();
     renderFollowUps();
+    renderTodoList();
   }
   if (page === 'pendingquotes') {
     loadPendingQuotesTab();
@@ -2804,6 +2984,129 @@ async function loadFollowUps() {
 }
 
 // ============================================================
+// CALL CALENDAR TO-DO LIST
+// ============================================================
+function loadTodos() {
+  try {
+    const saved = localStorage.getItem(TODO_STORAGE_KEY);
+    todoItems = saved ? JSON.parse(saved) : [];
+    if (!Array.isArray(todoItems)) todoItems = [];
+  } catch(e) {
+    todoItems = [];
+  }
+  renderTodoList();
+}
+
+function saveTodos() {
+  localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(todoItems));
+}
+
+function addTodoItem() {
+  const input = document.getElementById('todo-input');
+  const text = (input?.value || '').trim();
+  if (!text) return;
+  todoItems.unshift({
+    id: 'TODO-' + Date.now(),
+    text,
+    done: false,
+    createdAt: new Date().toISOString()
+  });
+  input.value = '';
+  saveTodos();
+  renderTodoList();
+  showToast('To-do added');
+}
+
+function updateTodoText(id, text) {
+  const item = todoItems.find(t => t.id === id);
+  if (!item) return;
+  item.text = String(text || '').trim();
+  if (!item.text) {
+    todoItems = todoItems.filter(t => t.id !== id);
+  }
+  saveTodos();
+  renderTodoList();
+}
+
+function toggleTodoItem(id, checked) {
+  const item = todoItems.find(t => t.id === id);
+  if (!item) return;
+  item.done = !!checked;
+  saveTodos();
+  renderTodoList();
+}
+
+function deleteTodoItem(id) {
+  todoItems = todoItems.filter(t => t.id !== id);
+  saveTodos();
+  renderTodoList();
+}
+
+function clearCompletedTodos() {
+  const before = todoItems.length;
+  todoItems = todoItems.filter(t => !t.done);
+  saveTodos();
+  renderTodoList();
+  if (before !== todoItems.length) showToast('Completed to-dos cleared');
+}
+
+function clearAllTodos() {
+  if (!todoItems.length) return;
+  if (!confirm('Clear all to-do items?')) return;
+  todoItems = [];
+  saveTodos();
+  renderTodoList();
+  closeTodoReminder();
+}
+
+function getOpenTodos() {
+  return todoItems.filter(t => !t.done && String(t.text || '').trim());
+}
+
+function renderTodoList() {
+  const list = document.getElementById('todo-list');
+  const count = document.getElementById('todo-count');
+  if (!list || !count) return;
+
+  const openCount = getOpenTodos().length;
+  count.textContent = `${openCount} open`;
+
+  if (!todoItems.length) {
+    list.innerHTML = '<div class="todo-empty">No to-dos yet. Add quick reminders for calls, CRM cleanup, or anything the CSR needs to action.</div>';
+    return;
+  }
+
+  list.innerHTML = todoItems.map(item => `
+    <div class="todo-item ${item.done ? 'done' : ''}">
+      <input class="todo-check" type="checkbox" ${item.done ? 'checked' : ''} onchange="toggleTodoItem('${item.id}', this.checked)">
+      <div class="todo-text" contenteditable="true" spellcheck="true" onblur="updateTodoText('${item.id}', this.textContent)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">${_escHtml(item.text)}</div>
+      <button class="todo-delete" title="Delete to-do" onclick="deleteTodoItem('${item.id}')">x</button>
+    </div>
+  `).join('');
+}
+
+function showTodoReminderIfNeeded() {
+  const openTodos = getOpenTodos();
+  if (!openTodos.length) return;
+  const list = document.getElementById('todo-reminder-list');
+  const modal = document.getElementById('todo-reminder-modal');
+  if (!list || !modal) return;
+  list.innerHTML = openTodos.slice(0, 8).map(item => `<li>${_escHtml(item.text)}</li>`).join('');
+  if (openTodos.length > 8) {
+    list.innerHTML += `<li>+ ${openTodos.length - 8} more item${openTodos.length - 8 === 1 ? '' : 's'}</li>`;
+  }
+  modal.classList.add('open');
+}
+
+function closeTodoReminder() {
+  document.getElementById('todo-reminder-modal')?.classList.remove('open');
+}
+
+function showPageFromTodoReminder() {
+  showPage('calendar', document.querySelector(".nav-item[onclick=\"showPage('calendar')\"]"));
+}
+
+// ============================================================
 // VISUAL CALENDAR
 // ============================================================
 let calViewDate = new Date();
@@ -3512,6 +3815,7 @@ function showToast(msg) {
 }
 
 // Init
+loadTodos();
 initRep();
 document.getElementById('fu-date').valueAsDate = new Date();
 document.getElementById('fu-browse-date').value = localToday();
@@ -3520,6 +3824,7 @@ const today = new Date();
 const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 document.getElementById('perf-from').value = firstOfMonth.toISOString().split('T')[0];
 document.getElementById('perf-to').value = today.toISOString().split('T')[0];
+setTimeout(showTodoReminderIfNeeded, 400);
 
 // ============================================================
 // PENDING QUOTES TAB
