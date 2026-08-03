@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useAppContext } from "../context/AppContext.jsx";
 import { G, LOGO, supabase } from "../utils/constants.js";
 import { Topbar, Badge, Avatar, Card, StatCard, Modal, Field, BtnRow, showToast, showConfirm, showPrompt } from "../utils/ui.jsx";
@@ -53,9 +53,19 @@ export default function Receipts() {
   } = ctx;
 
   const navigate = useNavigate();
+  const { receiptId } = useParams();
   const closeModal = () => setModal(null);
   const toggle = (id) => setExpandedId(p => p===id ? null : id);
   const [receiptSearch, setReceiptSearch] = useState("");
+
+  useEffect(() => {
+    if (!receiptId) return;
+    window.requestAnimationFrame(() => {
+      setReceiptSearch("");
+      setExpandedReceipt(receiptId);
+      document.getElementById(`receipt-card-${receiptId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [receiptId, invoices, setExpandedReceipt]);
 
   return (
     <>
@@ -82,7 +92,8 @@ export default function Receipts() {
           </div>
         )}
         {filtered.map((inv)=>(
-          <Card key={inv.id}>
+          <Card key={inv.id} style={{scrollMargin:"90px"}} onClick={undefined}>
+        <div id={`receipt-card-${inv.id}`}>
         <div onClick={()=>setExpandedReceipt(expandedReceipt===inv.id?null:inv.id)} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 14px",cursor:"pointer"}}>
           <Avatar name={inv.client} size={34}/>
           <div style={{flex:1,minWidth:0}}>
@@ -115,6 +126,7 @@ export default function Receipts() {
             }} style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:7,padding:"7px 14px",fontSize:12,cursor:"pointer"}}>Email receipt</button>
           </div>
         </div>}
+        </div>
       </Card>
         ))}
       </>);

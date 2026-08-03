@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useAppContext } from "../context/AppContext.jsx";
 import { G, LOGO, supabase } from "../utils/constants.js";
 import { Topbar, Badge, Avatar, Card, StatCard, Modal, Field, BtnRow, showToast, showConfirm, showPrompt } from "../utils/ui.jsx";
@@ -53,8 +53,20 @@ export default function Jobs() {
   } = ctx;
 
   const navigate = useNavigate();
+  const { jobId, recurringJobId } = useParams();
   const closeModal = () => setModal(null);
   const toggle = (id) => setExpandedId(p => p===id ? null : id);
+
+  useEffect(() => {
+    const targetId = jobId || recurringJobId;
+    if (!targetId) return;
+    window.requestAnimationFrame(() => {
+      setJobStatusFilter("all");
+      setJobSearch("");
+      if (jobId) setExpandedJob(jobId);
+      document.getElementById(`${recurringJobId ? "recurring-job" : "job"}-card-${targetId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [jobId, recurringJobId, jobs, recurringJobs, setExpandedJob, setJobSearch, setJobStatusFilter]);
 
   return (
     <>
@@ -69,7 +81,7 @@ export default function Jobs() {
   <div style={{flex:1,overflow:"auto",padding:isMobile?10:16,paddingBottom:isMobile?90:24,display:"flex",flexDirection:"column",gap:8}}>
     <input value={jobSearch} onChange={e=>setJobSearch(e.target.value)} placeholder="Search by client or service…" style={{border:`1px solid ${G.border}`,borderRadius:9,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"inherit",flexShrink:0,boxSizing:"border-box"}}/>
     <div style={{display:"flex",gap:6,flexWrap:"wrap",flexShrink:0}}>{["all","Active","Invoiced","Paid","Quoted"].map(s=><button key={s} onClick={()=>setJobStatusFilter(s)} style={{padding:"5px 14px",borderRadius:20,border:`1px solid ${jobStatusFilter===s?G.green:G.border}`,background:jobStatusFilter===s?"#e8f5e9":"#fff",color:jobStatusFilter===s?G.dark:"#555",fontSize:12,fontWeight:jobStatusFilter===s?700:500,cursor:"pointer",whiteSpace:"nowrap"}}>{s==="all"?"All":s}{s!=="all"&&<span style={{marginLeft:4,opacity:.7}}>({jobs.filter(x=>x.status===s).length})</span>}</button>)}</div>
-    {(()=>{const filteredJobs=jobs.filter(j=>jobStatusFilter==="all"||j.status===jobStatusFilter).filter(j=>{const q=jobSearch.toLowerCase();return !jobSearch||(j.client||"").toLowerCase().includes(q)||(j.service||"").toLowerCase().includes(q);});return(<>{filteredJobs.map((j,i)=><div key={j.id||i} style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:12}}>
+    {(()=>{const filteredJobs=jobs.filter(j=>jobStatusFilter==="all"||j.status===jobStatusFilter).filter(j=>{const q=jobSearch.toLowerCase();return !jobSearch||(j.client||"").toLowerCase().includes(q)||(j.service||"").toLowerCase().includes(q);});return(<>{filteredJobs.map((j,i)=><div id={`job-card-${j.id}`} key={j.id||i} style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:12}}>
       <div onClick={()=>setExpandedJob(expandedJob===j.id?null:j.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",cursor:"pointer"}}>
         <Avatar name={j.client} size={32}/>
         <div style={{flex:1,minWidth:0}}>
@@ -107,7 +119,7 @@ export default function Jobs() {
     {/* Recurring jobs section */}
     {recurringJobs.length>0&&<>
       <div style={{fontWeight:700,fontSize:13,color:G.muted,textTransform:"uppercase",letterSpacing:0.5,marginTop:8,marginBottom:6}}>🔁 Recurring jobs ({recurringJobs.filter(r=>r.active).length} active)</div>
-      {recurringJobs.map((r,i)=><div key={r.id||i} style={{background:"#fff",border:`2px dashed ${G.border}`,borderRadius:12}}>
+      {recurringJobs.map((r,i)=><div id={`recurring-job-card-${r.id}`} key={r.id||i} style={{background:"#fff",border:`2px dashed ${G.border}`,borderRadius:12}}>
         <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px"}}>
           <div style={{width:32,height:32,borderRadius:8,background:"#e3f2fd",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>🔁</div>
           <div style={{flex:1,minWidth:0}}>

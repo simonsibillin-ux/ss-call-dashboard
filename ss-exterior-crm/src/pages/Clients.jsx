@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAppContext } from "../context/AppContext.jsx";
 import { Topbar, Badge, Avatar, Card, showConfirm, showToast } from "../utils/ui.jsx";
@@ -32,17 +32,171 @@ function RecordList({ records, empty, render }) {
   return <div style={{display:"flex",flexDirection:"column",gap:8}}>{records.map(render)}</div>;
 }
 
+function ClickableRecordCard({ children, onClick, style = {} }) {
+  const onKeyDown = (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onClick();
+    }
+  };
+  return (
+    <Card
+      onClick={onClick}
+      style={{
+        cursor: "pointer",
+        transition: "border-color .15s, box-shadow .15s, transform .15s",
+        ...style,
+      }}
+    >
+      <div role="button" tabIndex={0} onKeyDown={onKeyDown}>
+        {children}
+      </div>
+    </Card>
+  );
+}
+
+function RelationshipPanel({ client, G, supabase, setClients }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    phone: client.phone || "",
+    email: client.email || "",
+    address: client.address || "",
+    suburb: client.suburb || "",
+    source: client.source || "",
+    notes: client.notes || "",
+    status: client.status || "active",
+  });
+
+  useEffect(() => {
+    setForm({
+      phone: client.phone || "",
+      email: client.email || "",
+      address: client.address || "",
+      suburb: client.suburb || "",
+      source: client.source || "",
+      notes: client.notes || "",
+      status: client.status || "active",
+    });
+    setEditing(false);
+  }, [client.id]);
+
+  const update = (key) => (event) => setForm(prev => ({ ...prev, [key]: event.target.value }));
+  const save = async () => {
+    setSaving(true);
+    const { error } = await supabase.from("clients").update(form).eq("id", client.id);
+    setSaving(false);
+    if (error) {
+      showToast("Could not save relationship details: " + error.message, "error");
+      return;
+    }
+    setClients(items => items.map(item => item.id === client.id ? { ...item, ...form } : item));
+    setEditing(false);
+    showToast("Relationship details saved", "success");
+  };
+
+  if (editing) {
+    const inputStyle = {width:"100%",border:`1px solid ${G.border}`,borderRadius:8,padding:"8px 10px",fontSize:13,fontFamily:"inherit",boxSizing:"border-box",outline:"none",background:"#fff"};
+    return (
+      <Card>
+        <div style={{padding:14}}>
+          <SectionTitle action={<button onClick={()=>setEditing(false)} style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:7,padding:"6px 10px",fontSize:12,fontWeight:800,cursor:"pointer"}}>Cancel</button>}>Relationship</SectionTitle>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}}>
+            <label style={{fontSize:12,fontWeight:800,color:G.muted}}>Phone<input value={form.phone} onChange={update("phone")} style={{...inputStyle,marginTop:4}}/></label>
+            <label style={{fontSize:12,fontWeight:800,color:G.muted}}>Email<input value={form.email} onChange={update("email")} style={{...inputStyle,marginTop:4}}/></label>
+            <label style={{fontSize:12,fontWeight:800,color:G.muted,gridColumn:"1/-1"}}>Street address<input value={form.address} onChange={update("address")} style={{...inputStyle,marginTop:4}}/></label>
+            <label style={{fontSize:12,fontWeight:800,color:G.muted}}>Suburb<input value={form.suburb} onChange={update("suburb")} style={{...inputStyle,marginTop:4}}/></label>
+            <label style={{fontSize:12,fontWeight:800,color:G.muted}}>Status<select value={form.status} onChange={update("status")} style={{...inputStyle,marginTop:4}}><option value="active">active</option><option value="pending">pending</option><option value="follow-up">follow-up</option><option value="overdue">overdue</option><option value="inactive">inactive</option><option value="completed">completed</option></select></label>
+            <label style={{fontSize:12,fontWeight:800,color:G.muted,gridColumn:"1/-1"}}>Lead source<input value={form.source} onChange={update("source")} style={{...inputStyle,marginTop:4}}/></label>
+            <label style={{fontSize:12,fontWeight:800,color:G.muted,gridColumn:"1/-1"}}>Important notes<textarea value={form.notes} onChange={update("notes")} rows={3} style={{...inputStyle,marginTop:4,resize:"vertical"}}/></label>
+          </div>
+          <div style={{display:"flex",justifyContent:"flex-end",marginTop:12}}>
+            <button onClick={save} disabled={saving} style={{background:G.green,color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",fontSize:13,fontWeight:900,cursor:"pointer",opacity:saving ? .7 : 1}}>{saving ? "Saving..." : "Save details"}</button>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  const details = [
+    ["Phone", client.phone],
+    ["Email", client.email],
+    ["Address", [client.address, client.suburb].filter(Boolean).join(", ")],
+    ["Source", client.source],
+    ["Notes", client.notes],
+  ].filter(([, value]) => value);
+
+  return (
+    <Card>
+      <div style={{padding:14}}>
+        <SectionTitle action={<button onClick={()=>setEditing(true)} style={{background:"#e8f5e9",color:G.dark,border:"none",borderRadius:7,padding:"6px 10px",fontSize:12,fontWeight:900,cursor:"pointer"}}>Edit details</button>}>Relationship</SectionTitle>
+        {details.map(([label,value]) => <div key={label} style={{marginBottom:10}}><div style={{fontSize:11,fontWeight:800,color:G.muted}}>{label}</div><div style={{fontSize:13,lineHeight:1.4}}>{value}</div></div>)}
+        {!details.length && <div style={{fontSize:13,color:G.muted}}>Add contact and property details so reps have the essentials before creating work.</div>}
+      </div>
+    </Card>
+  );
+}
+
+function NotesPanel({ client, notes, setClientNotes, G, supabase }) {
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    const note = text.trim();
+    if (!note || saving) return;
+    setSaving(true);
+    const payload = {
+      id: `NOTE-${Date.now()}`,
+      client_id: client.id,
+      client_name: client.name,
+      note,
+      created_by: "CRM",
+      created_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.from("client_notes").insert(payload);
+    setSaving(false);
+    if (error) {
+      showToast("Could not save note: " + error.message, "error");
+      return;
+    }
+    setClientNotes(items => [payload, ...items]);
+    setText("");
+    showToast("Note added", "success");
+  };
+  return (
+    <Card>
+      <div style={{padding:14}}>
+        <SectionTitle>Add Note</SectionTitle>
+        <textarea value={text} onChange={event=>setText(event.target.value)} rows={3} placeholder="Add a call note, access instruction, follow-up detail..." style={{width:"100%",border:`1px solid ${G.border}`,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit",resize:"vertical",boxSizing:"border-box",outline:"none"}}/>
+        <div style={{display:"flex",justifyContent:"flex-end",marginTop:8}}>
+          <button onClick={save} disabled={saving || !text.trim()} style={{background:G.green,color:"#fff",border:"none",borderRadius:8,padding:"8px 14px",fontSize:13,fontWeight:900,cursor:"pointer",opacity:saving || !text.trim() ? .55 : 1}}>{saving ? "Saving..." : "Add note"}</button>
+        </div>
+        <div style={{marginTop:12}}>
+          <RecordList
+            records={notes}
+            empty="No internal notes yet."
+            render={note => <div key={note.id} style={{border:"1px solid #e3e8e1",borderRadius:8,padding:10,background:"#fff"}}><div style={{fontSize:12,color:G.muted,fontWeight:800,marginBottom:4}}>{shortDate((note.created_at || "").split("T")[0])}</div><div style={{fontSize:13,lineHeight:1.45}}>{note.note}</div></div>}
+          />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export default function Clients() {
   const ctx = useAppContext();
   const {
     G, isMobile, clients, setClients, jobs, quotes, invoices, recurringJobs,
-    messages, bookingRequests, clientDocuments, setClientDocuments, supabase,
-    clientSearch, setClientSearch, setModal, setEditItem, shareClientPortal,
-    setTab, goAI, supportsClientIds,
+    messages, clientDocuments, setClientDocuments, clientNotes, setClientNotes, supabase,
+    clientSearch, setClientSearch, setModal, shareClientPortal,
+    setTab, goAI,
   } = ctx;
   const navigate = useNavigate();
   const { clientId } = useParams();
   const [profileTab, setProfileTab] = useState("overview");
+
+  useEffect(() => {
+    setTab("clients");
+  }, [setTab]);
 
   const sortedClients = useMemo(() => [...clients].sort((a,b)=>(a.name||"").localeCompare(b.name||"")), [clients]);
   const filteredClients = useMemo(() => {
@@ -65,19 +219,36 @@ export default function Clients() {
     const clientInvoices = invoices.filter(r => recordBelongsToClient(r, selectedClient));
     const clientRecurring = recurringJobs.filter(r => recordBelongsToClient(r, selectedClient));
     const clientMessages = messages.filter(r => recordBelongsToClient(r, selectedClient));
+    const notes = clientNotes.filter(r => recordBelongsToClient(r, selectedClient));
     const clientDocs = clientDocuments.filter(r => recordBelongsToClient(r, selectedClient));
     const paidJobs = clientJobs.filter(j => j.status === "Paid");
     const outstanding = clientInvoices.filter(i => i.status !== "paid").reduce((s,i)=>s + Number(i.total || 0), 0);
     const lastJob = [...paidJobs].sort((a,b)=>String(b.completionDate || b.completion_date || "").localeCompare(String(a.completionDate || a.completion_date || "")))[0];
     const nextJob = [...clientJobs].filter(j => j.status !== "Paid" && (j.completionDate || j.completion_date)).sort((a,b)=>String(a.completionDate || a.completion_date || "").localeCompare(String(b.completionDate || b.completion_date || "")))[0];
-    const activity = buildClientActivity(selectedClient, { jobs, quotes, invoices, recurringJobs, messages, documents: clientDocuments });
-    return { clientJobs, clientQuotes, clientInvoices, clientRecurring, clientMessages, clientDocs, paidJobs, outstanding, lastJob, nextJob, activity };
-  }, [selectedClient, jobs, quotes, invoices, recurringJobs, messages, clientDocuments]);
+    const activity = buildClientActivity(selectedClient, { jobs, quotes, invoices, recurringJobs, messages, documents: clientDocuments, notes: clientNotes });
+    return { clientJobs, clientQuotes, clientInvoices, clientRecurring, clientMessages, notes, clientDocs, paidJobs, outstanding, lastJob, nextJob, activity };
+  }, [selectedClient, jobs, quotes, invoices, recurringJobs, messages, clientDocuments, clientNotes]);
 
   const openClient = (client) => {
     setProfileTab("overview");
     setTab("clients");
     navigate("/clients/" + client.id);
+  };
+
+  const recordPath = (record) => {
+    if (!record?.id || !profileData) return null;
+    if (profileData.clientJobs.some(item => item.id === record.id)) return "/jobs/" + record.id;
+    if (profileData.clientRecurring.some(item => item.id === record.id)) return "/jobs/recurring/" + record.id;
+    if (profileData.clientQuotes.some(item => item.id === record.id)) return "/quotes/" + record.id;
+    if (profileData.clientInvoices.some(item => item.id === record.id)) {
+      return record.status === "paid" ? "/receipts/" + record.id : "/invoices/" + record.id;
+    }
+    return null;
+  };
+
+  const openRecord = (record) => {
+    const path = recordPath(record);
+    if (path) navigate(path);
   };
 
   const deleteClient = async (client) => {
@@ -100,16 +271,10 @@ export default function Clients() {
     }}>
       <div style={{padding:12,borderBottom:`1px solid ${G.border}`,display:"flex",flexDirection:"column",gap:8}}>
         <input value={clientSearch} onChange={e=>setClientSearch(e.target.value)} placeholder="Search name, phone, email, address…" style={{border:`1px solid ${G.border}`,borderRadius:8,padding:"10px 12px",fontSize:13,outline:"none",fontFamily:"inherit"}}/>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:12,color:G.muted}}>
-          <span>{filteredClients.length} of {clients.length} clients</span>
-          <span>{supportsClientIds ? "ID links on" : "Name fallback"}</span>
-        </div>
+        <div style={{fontSize:12,color:G.muted}}>{filteredClients.length} of {clients.length} clients</div>
       </div>
       <div style={{overflow:"auto",padding:10,display:"flex",flexDirection:"column",gap:8}}>
         {filteredClients.slice(0,200).map(client => {
-          const clientJobs = jobs.filter(r => recordBelongsToClient(r, client));
-          const paid = clientJobs.filter(j=>j.status==="Paid").reduce((s,j)=>s+Number(j.revenue||0),0);
-          const last = [...clientJobs].sort((a,b)=>String(b.completionDate || b.completion_date || "").localeCompare(String(a.completionDate || a.completion_date || "")))[0];
           return (
             <button key={client.id} id={`client-card-${client.id}`} onClick={()=>openClient(client)} style={{
               border:`1px solid ${selectedClient?.id===client.id ? G.green : G.border}`,
@@ -127,7 +292,6 @@ export default function Clients() {
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontWeight:800,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{client.name}</div>
                 <div style={{fontSize:11,color:G.muted,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{[client.suburb, client.phone].filter(Boolean).join(" - ") || "No contact details"}</div>
-                <div style={{fontSize:10,color:"#2e7d32",fontWeight:700,marginTop:2}}>{clientJobs.length} jobs - {money(paid)} paid{last ? " - last " + shortDate(last.completionDate || last.completion_date) : ""}</div>
               </div>
               <Badge s={client.status || "active"}/>
             </button>
@@ -149,7 +313,6 @@ export default function Clients() {
               <div style={{fontSize:13,color:"#66736a",marginTop:5}}>{[selectedClient.suburb, selectedClient.address].filter(Boolean).join(" - ") || "No property address"}</div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
                 <Badge s={selectedClient.status || "active"}/>
-                <span style={{fontSize:11,fontWeight:800,color:"#2e7d32",background:"#e8f5e9",borderRadius:20,padding:"3px 9px"}}>{selectedClient.id}</span>
               </div>
             </div>
           </div>
@@ -157,7 +320,7 @@ export default function Clients() {
             <button onClick={()=>goAI(`Build a quote for ${selectedClient.name}${selectedClient.address ? " at " + selectedClient.address : ""}`)} style={{background:G.green,color:"#fff",border:"none",borderRadius:8,padding:"9px 13px",fontSize:13,fontWeight:800,cursor:"pointer"}}>Create quote</button>
             <button onClick={()=>setModal("addJob")} style={{background:"#e3f2fd",color:"#1565c0",border:"none",borderRadius:8,padding:"9px 13px",fontSize:13,fontWeight:800,cursor:"pointer"}}>Create job</button>
             <button onClick={()=>shareClientPortal(selectedClient)} style={{background:"#fff3e0",color:"#e65100",border:"none",borderRadius:8,padding:"9px 13px",fontSize:13,fontWeight:800,cursor:"pointer"}}>Share portal</button>
-            <button onClick={()=>{setEditItem(selectedClient);setModal("editClient");}} style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:8,padding:"9px 13px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Edit</button>
+            <button onClick={()=>deleteClient(selectedClient)} style={{background:"#fce4ec",color:"#c62828",border:"none",borderRadius:8,padding:"9px 13px",fontSize:13,fontWeight:800,cursor:"pointer"}}>Delete client</button>
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(5,minmax(0,1fr))",gap:8,padding:12,borderTop:`1px solid ${G.border}`,background:"#fbfdf9"}}>
@@ -176,20 +339,8 @@ export default function Clients() {
       </div>
 
       {profileTab === "overview" && (
-        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"minmax(260px,.9fr) minmax(320px,1.2fr) minmax(260px,.9fr)",gap:12}}>
-          <Card>
-            <div style={{padding:14}}>
-              <SectionTitle>Relationship</SectionTitle>
-              {[
-                ["Phone", selectedClient.phone],
-                ["Email", selectedClient.email],
-                ["Address", [selectedClient.address, selectedClient.suburb].filter(Boolean).join(", ")],
-                ["Source", selectedClient.source],
-                ["Notes", selectedClient.notes],
-              ].map(([label,value]) => value ? <div key={label} style={{marginBottom:10}}><div style={{fontSize:11,fontWeight:800,color:G.muted}}>{label}</div><div style={{fontSize:13,lineHeight:1.4}}>{value}</div></div> : null)}
-              {!selectedClient.phone && !selectedClient.email && !selectedClient.address && <div style={{fontSize:13,color:G.muted}}>Add contact and property details so reps have the essentials before creating work.</div>}
-            </div>
-          </Card>
+        <div style={{display:"grid",gridTemplateColumns:"1fr",gap:12}}>
+          <RelationshipPanel client={selectedClient} G={G} supabase={supabase} setClients={setClients}/>
           <Card>
             <div style={{padding:14}}>
               <SectionTitle>Current Work</SectionTitle>
@@ -200,7 +351,7 @@ export default function Clients() {
                   ...profileData.clientInvoices.filter(i=>i.status !== "paid").slice(0,4),
                 ].slice(0,8)}
                 empty="No current work needing attention."
-                render={(record, index)=><div key={(record.id||"current")+index} style={{border:"1px solid #e3e8e1",borderRadius:8,padding:10,background:"#fff",display:"flex",justifyContent:"space-between",gap:10}}><div><div style={{fontSize:13,fontWeight:800}}>{record.service || record.id}</div><div style={{fontSize:11,color:G.muted}}>{record.status || record.due_date || record.date}</div></div><div style={{fontWeight:900,color:Number(record.total||record.revenue||0)>0?G.dark:G.muted}}>{record.total ? money(record.total) : record.revenue ? money(record.revenue) : ""}</div></div>}
+                render={(record, index)=><ClickableRecordCard key={(record.id||"current")+index} onClick={()=>openRecord(record)} style={{borderRadius:8}}><div style={{padding:10,display:"flex",justifyContent:"space-between",gap:10}}><div><div style={{fontSize:13,fontWeight:800}}>{record.service || record.id}</div><div style={{fontSize:11,color:G.muted}}>{record.status || record.due_date || record.date}</div></div><div style={{fontWeight:900,color:Number(record.total||record.revenue||0)>0?G.dark:G.muted}}>{record.total ? money(record.total) : record.revenue ? money(record.revenue) : ""}</div></div></ClickableRecordCard>}
               />
             </div>
           </Card>
@@ -214,14 +365,14 @@ export default function Clients() {
               </div>
             </div>
           </Card>
-          <div style={{gridColumn:"1/-1"}}>
+          <div>
             <Card>
               <div style={{padding:14}}>
                 <SectionTitle>Activity Timeline</SectionTitle>
                 <RecordList
                   records={profileData.activity.slice(0,18)}
                   empty="No activity has been linked to this client yet."
-                  render={(item, index)=><div key={index} style={{display:"grid",gridTemplateColumns:"112px 80px 1fr auto",gap:10,alignItems:"center",padding:"9px 0",borderBottom:index<profileData.activity.slice(0,18).length-1?`1px solid ${G.border}`:"none",fontSize:13}}><div style={{color:G.muted}}>{shortDate(item.date)}</div><div style={{fontSize:11,fontWeight:900,color:G.dark,background:"#e8f5e9",borderRadius:20,padding:"3px 8px",textAlign:"center"}}>{item.type}</div><div style={{fontWeight:700,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.title}</div><div style={{fontWeight:900}}>{item.amount ? money(item.amount) : ""}</div></div>}
+                  render={(item, index)=><div key={index} onClick={()=>openRecord(item.record)} role={recordPath(item.record) ? "button" : undefined} tabIndex={recordPath(item.record) ? 0 : undefined} onKeyDown={event=>{if((event.key==="Enter"||event.key===" ")&&recordPath(item.record)){event.preventDefault();openRecord(item.record);}}} style={{display:"grid",gridTemplateColumns:"112px 80px 1fr auto",gap:10,alignItems:"center",padding:"9px 0",borderBottom:index<profileData.activity.slice(0,18).length-1?`1px solid ${G.border}`:"none",fontSize:13,cursor:recordPath(item.record)?"pointer":"default"}}><div style={{color:G.muted}}>{shortDate(item.date)}</div><div style={{fontSize:11,fontWeight:900,color:G.dark,background:"#e8f5e9",borderRadius:20,padding:"3px 8px",textAlign:"center"}}>{item.type}</div><div style={{fontWeight:700,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.title}</div><div style={{fontWeight:900}}>{item.amount ? money(item.amount) : ""}</div></div>}
                 />
               </div>
             </Card>
@@ -229,15 +380,31 @@ export default function Clients() {
         </div>
       )}
 
-      {profileTab === "jobs" && <RecordList records={profileData.clientJobs} empty="No jobs for this client yet." render={j=><Card key={j.id}><div style={{padding:14,display:"flex",justifyContent:"space-between",gap:12}}><div><div style={{fontWeight:900}}>{j.service || "Job"}</div><div style={{fontSize:12,color:G.muted}}>{shortDate(j.completionDate || j.completion_date)} - {j.status}</div>{j.notes&&<div style={{fontSize:12,marginTop:6}}>{j.notes}</div>}</div><div style={{fontWeight:900,color:G.dark}}>{money(j.revenue)}</div></div></Card>} />}
-      {profileTab === "quotes" && <RecordList records={profileData.clientQuotes} empty="No quotes for this client yet." render={q=><Card key={q.id}><div style={{padding:14,display:"flex",justifyContent:"space-between",gap:12}}><div><div style={{fontWeight:900}}>{q.id}</div><div style={{fontSize:12,color:G.muted}}>{shortDate(q.date)} - {q.status}</div></div><div style={{fontWeight:900,color:G.dark}}>{money(q.total)}</div></div></Card>} />}
-      {profileTab === "invoices" && <RecordList records={profileData.clientInvoices} empty="No invoices or receipts for this client yet." render={i=><Card key={i.id}><div style={{padding:14,display:"flex",justifyContent:"space-between",gap:12}}><div><div style={{fontWeight:900}}>{i.id}</div><div style={{fontSize:12,color:G.muted}}>Due {shortDate(i.due_date)} - {i.status}</div></div><div style={{fontWeight:900,color:i.status==="paid"?"#2e7d32":"#c62828"}}>{money(i.total)}</div></div></Card>} />}
-      {profileTab === "communications" && <RecordList records={profileData.clientMessages} empty="No messages for this client yet." render={m=><Card key={m.id || m.created_at}><div style={{padding:14}}><div style={{fontSize:12,color:G.muted,fontWeight:800}}>{shortDate((m.created_at||"").split("T")[0])} - {m.sender || "message"}</div><div style={{fontSize:13,marginTop:5,lineHeight:1.4}}>{m.text}</div></div></Card>} />}
+      {profileTab === "jobs" && <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <div>
+          <SectionTitle>Upcoming Jobs</SectionTitle>
+          <RecordList records={profileData.clientJobs.filter(j=>j.status !== "Paid")} empty="No upcoming jobs for this client." render={j=><ClickableRecordCard key={j.id} onClick={()=>openRecord(j)}><div style={{padding:14,display:"flex",justifyContent:"space-between",gap:12}}><div><div style={{fontWeight:900}}>{j.service || "Job"}</div><div style={{fontSize:12,color:G.muted}}>{shortDate(j.completionDate || j.completion_date)} - {j.status}</div>{j.notes&&<div style={{fontSize:12,marginTop:6}}>{j.notes}</div>}</div><div style={{fontWeight:900,color:G.dark}}>{money(j.revenue)}</div></div></ClickableRecordCard>} />
+        </div>
+        <div>
+          <SectionTitle>Recurring Jobs</SectionTitle>
+          <RecordList records={profileData.clientRecurring} empty="No recurring jobs for this client." render={r=><ClickableRecordCard key={r.id} onClick={()=>openRecord(r)}><div style={{padding:14,display:"flex",justifyContent:"space-between",gap:12}}><div><div style={{fontWeight:900}}>{r.service || "Recurring service"}</div><div style={{fontSize:12,color:G.muted}}>{r.frequency || "recurring"} - next {shortDate(r.next_date)} - {r.active === false ? "Paused" : "Active"}</div>{r.notes&&<div style={{fontSize:12,marginTop:6}}>{r.notes}</div>}</div><div style={{fontWeight:900,color:"#1565c0"}}>{money(r.revenue)}</div></div></ClickableRecordCard>} />
+        </div>
+        <div>
+          <SectionTitle>Completed Jobs</SectionTitle>
+          <RecordList records={profileData.clientJobs.filter(j=>j.status === "Paid")} empty="No completed jobs for this client yet." render={j=><ClickableRecordCard key={j.id} onClick={()=>openRecord(j)}><div style={{padding:14,display:"flex",justifyContent:"space-between",gap:12}}><div><div style={{fontWeight:900}}>{j.service || "Job"}</div><div style={{fontSize:12,color:G.muted}}>{shortDate(j.completionDate || j.completion_date)} - {j.status}</div>{j.notes&&<div style={{fontSize:12,marginTop:6}}>{j.notes}</div>}</div><div style={{fontWeight:900,color:G.dark}}>{money(j.revenue)}</div></div></ClickableRecordCard>} />
+        </div>
+      </div>}
+      {profileTab === "quotes" && <RecordList records={profileData.clientQuotes} empty="No quotes for this client yet." render={q=><ClickableRecordCard key={q.id} onClick={()=>openRecord(q)}><div style={{padding:14,display:"flex",justifyContent:"space-between",gap:12}}><div><div style={{fontWeight:900}}>{q.id}</div><div style={{fontSize:12,color:G.muted}}>{shortDate(q.date)} - {q.status}</div></div><div style={{fontWeight:900,color:G.dark}}>{money(q.total)}</div></div></ClickableRecordCard>} />}
+      {profileTab === "invoices" && <RecordList records={profileData.clientInvoices} empty="No invoices or receipts for this client yet." render={i=><ClickableRecordCard key={i.id} onClick={()=>openRecord(i)}><div style={{padding:14,display:"flex",justifyContent:"space-between",gap:12}}><div><div style={{fontWeight:900}}>{i.id}</div><div style={{fontSize:12,color:G.muted}}>Due {shortDate(i.due_date)} - {i.status}</div></div><div style={{fontWeight:900,color:i.status==="paid"?"#2e7d32":"#c62828"}}>{money(i.total)}</div></div></ClickableRecordCard>} />}
+      {profileTab === "communications" && <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <NotesPanel client={selectedClient} notes={profileData.notes} setClientNotes={setClientNotes} G={G} supabase={supabase}/>
+        <div>
+          <SectionTitle>Messages</SectionTitle>
+          <RecordList records={profileData.clientMessages} empty="No messages for this client yet." render={m=><Card key={m.id || m.created_at}><div style={{padding:14}}><div style={{fontSize:12,color:G.muted,fontWeight:800}}>{shortDate((m.created_at||"").split("T")[0])} - {m.sender || "message"}</div><div style={{fontSize:13,marginTop:5,lineHeight:1.4}}>{m.text}</div></div></Card>} />
+        </div>
+      </div>}
       {profileTab === "files" && <Card><div style={{padding:14}}><ClientDocumentsPanel clientName={selectedClient.name} clientDocuments={clientDocuments} setClientDocuments={setClientDocuments} supabase={supabase} G={G}/></div></Card>}
 
-      <div style={{display:"flex",justifyContent:"flex-end",marginTop:16}}>
-        <button onClick={()=>deleteClient(selectedClient)} style={{background:"#fce4ec",color:"#c62828",border:"none",borderRadius:8,padding:"8px 13px",fontSize:13,fontWeight:800,cursor:"pointer"}}>Delete client</button>
-      </div>
     </div>
   ) : (
     <div style={{flex:1,display:isMobile?"none":"flex",alignItems:"center",justifyContent:"center",padding:24,color:G.muted,textAlign:"center"}}>

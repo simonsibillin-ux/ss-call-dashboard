@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useAppContext } from "../context/AppContext.jsx";
 import { G, LOGO, supabase } from "../utils/constants.js";
 import { Topbar, Badge, Avatar, Card, StatCard, Modal, Field, BtnRow, showToast, showConfirm, showPrompt } from "../utils/ui.jsx";
@@ -53,9 +53,20 @@ export default function Quotes() {
   } = ctx;
 
   const navigate = useNavigate();
+  const { quoteId } = useParams();
   const closeModal = () => setModal(null);
   const toggle = (id) => setExpandedId(p => p===id ? null : id);
   const [quoteSearch, setQuoteSearch] = useState("");
+
+  useEffect(() => {
+    if (!quoteId) return;
+    window.requestAnimationFrame(() => {
+      setQuoteStatusFilter("all");
+      setQuoteSearch("");
+      setExpandedQuote(quoteId);
+      document.getElementById(`quote-card-${quoteId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [quoteId, quotes, setExpandedQuote, setQuoteStatusFilter]);
 
   return (
     <>
@@ -77,7 +88,7 @@ export default function Quotes() {
         {filtered.length===0&&<div style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:12,padding:40,textAlign:"center",color:G.muted}}>
           {quoteStatusFilter!=="all"||quoteSearch?"No quotes match your filter":<><div style={{fontSize:16,marginBottom:8}}>No quotes yet</div><button onClick={()=>goAI("Build a quote for ")} style={{background:G.green,color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Build first quote with AI</button></>}
         </div>}
-        {filtered.map((q,i)=><div key={q.id||i} style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:12}}>
+        {filtered.map((q,i)=><div id={`quote-card-${q.id}`} key={q.id||i} style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:12}}>
       <div onClick={()=>setExpandedQuote(expandedQuote===q.id?null:q.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",cursor:"pointer"}}>
         <Avatar name={q.client} size={32}/>
         <div style={{flex:1,minWidth:0}}>

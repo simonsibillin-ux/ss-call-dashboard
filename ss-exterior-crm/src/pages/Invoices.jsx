@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useAppContext } from "../context/AppContext.jsx";
 import { G, LOGO, supabase } from "../utils/constants.js";
 import { Topbar, Badge, Avatar, Card, StatCard, Modal, Field, BtnRow, showToast, showConfirm, showPrompt } from "../utils/ui.jsx";
@@ -53,9 +53,20 @@ export default function Invoices() {
   } = ctx;
 
   const navigate = useNavigate();
+  const { invoiceId } = useParams();
   const closeModal = () => setModal(null);
   const toggle = (id) => setExpandedId(p => p===id ? null : id);
   const [invoiceSearch, setInvoiceSearch] = useState("");
+
+  useEffect(() => {
+    if (!invoiceId) return;
+    window.requestAnimationFrame(() => {
+      setInvoiceStatusFilter("all");
+      setInvoiceSearch("");
+      setExpandedInvoice(invoiceId);
+      document.getElementById(`invoice-card-${invoiceId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [invoiceId, invoices, setExpandedInvoice, setInvoiceStatusFilter]);
 
   return (
     <>
@@ -75,7 +86,7 @@ export default function Invoices() {
         .filter(i=>{const s=invoiceSearch.toLowerCase();return !invoiceSearch||(i.client||"").toLowerCase().includes(s)||(i.id||"").toLowerCase().includes(s);});
       return (<>
         {filtered.length===0&&<div style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:12,padding:40,textAlign:"center",color:G.muted}}>{invoiceStatusFilter!=="all"||invoiceSearch?"No invoices match your filter":"No invoices"}</div>}
-        {filtered.map((inv,i)=><div key={inv.id||i} style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:12}}>
+        {filtered.map((inv,i)=><div id={`invoice-card-${inv.id}`} key={inv.id||i} style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:12}}>
       <div onClick={()=>setExpandedInvoice(expandedInvoice===inv.id?null:inv.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",cursor:"pointer"}}>
         <Avatar name={inv.client} size={32}/>
         <div style={{flex:1,minWidth:0}}>

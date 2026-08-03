@@ -48,12 +48,17 @@ export default function App() {
             <Route path="/clients" element={<Clients />} />
             <Route path="/clients/:clientId" element={<Clients />} />
             <Route path="/jobs" element={<Jobs />} />
+            <Route path="/jobs/:jobId" element={<Jobs />} />
+            <Route path="/jobs/recurring/:recurringJobId" element={<Jobs />} />
             <Route path="/quotes" element={<Quotes />} />
+            <Route path="/quotes/:quoteId" element={<Quotes />} />
             <Route path="/invoices" element={<Invoices />} />
+            <Route path="/invoices/:invoiceId" element={<Invoices />} />
             <Route path="/inbox" element={<Inbox />} />
             <Route path="/p&l" element={<PnL />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/receipts" element={<Receipts />} />
+            <Route path="/receipts/:receiptId" element={<Receipts />} />
             <Route path="/campaigns" element={<Campaigns />} />
             <Route path="/ai" element={<AIAssistant />} />
             <Route path="/autopilot" element={<Autopilot />} />
