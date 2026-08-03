@@ -2,6 +2,102 @@
 // Extracted from index.html (Stage 2A). Do not edit directly — see modularisation plan.
 // Load order: after /js/config.js, before main inline script.
 
+const DEFAULT_PRICING = {
+  global: {
+    minimumJob: 150,
+    travelPerKm: 1,
+    debrisRemoval: 100
+  },
+  gutterCleaning: {
+    singleStoreyPerMetre: 3,
+    doubleStoreyPerMetre: 6,
+    structurePerMetre: 3,
+    gutterGuardMultiplier: 2,
+    difficultAccessMultiplier: 1.5,
+    debrisMediumMultiplier: 1.5,
+    debrisHeavyMultiplier: 2
+  },
+  solarCleaning: {
+    lessThan1YearPerPanel: 5.5,
+    oneToTwoYearsPerPanel: 6.75,
+    twoToFourYearsPerPanel: 8.25,
+    fourPlusYearsPerPanel: 10.5,
+    hardAccessMultiplier: 2
+  },
+  windowCleaning: {
+    singleExteriorPerPane: 6,
+    doubleExteriorPerPane: 10.5,
+    postConstructionSinglePerPane: 17.5,
+    postConstructionDoublePerPane: 24,
+    interiorMultiplier: 2,
+    flyscreenEach: 5,
+    trackDeepCleanEach: 9
+  },
+  houseWashing: {
+    singleStoreyPhone: 450,
+    doubleStoreyPhone: 650,
+    patioSingleAddOn: 150,
+    patioMultipleAddOn: 250
+  },
+  roofCleaning: {
+    under10SinglePerSqm: 4,
+    under10DoublePerSqm: 5,
+    tenTo20SinglePerSqm: 5,
+    tenTo20DoublePerSqm: 6,
+    twentyPlusSinglePerSqm: 6,
+    twentyPlusDoublePerSqm: 7
+  },
+  roofBiocide: {
+    singlePerSqm: 2,
+    doublePerSqm: 3.25
+  },
+  pressureWashing: {
+    lessThan1YearPerSqm: 4,
+    oneToThreeYearsPerSqm: 4.5,
+    threePlusYearsPerSqm: 5,
+    biocidePerSqm: 2
+  },
+  gutterSoftwash: {
+    singleStoreyPerMetre: 3,
+    doubleStoreyPerMetre: 5
+  },
+  birdProofing: {
+    singleStoreyMeshPerMetre: 35,
+    doubleStoreyMeshPerMetre: 55,
+    nestRemovalFlat: 200,
+    meshEstimateMultiplier: 0.7
+  }
+};
+
+let PRICING = JSON.parse(JSON.stringify(DEFAULT_PRICING));
+
+function _deepMergePricing(base, overrides) {
+  const out = Array.isArray(base) ? [...base] : { ...base };
+  Object.entries(overrides || {}).forEach(([key, value]) => {
+    if (value && typeof value === 'object' && !Array.isArray(value) && base && typeof base[key] === 'object') {
+      out[key] = _deepMergePricing(base[key], value);
+    } else if (value !== undefined && value !== null && value !== '') {
+      const numericValue = Number(value);
+      out[key] = Number.isFinite(numericValue) ? numericValue : value;
+    }
+  });
+  return out;
+}
+
+function applyPricingOverrides(overrides) {
+  PRICING = _deepMergePricing(DEFAULT_PRICING, overrides || {});
+}
+
+function price(path, fallback) {
+  const found = String(path).split('.').reduce((obj, key) => (obj && obj[key] !== undefined ? obj[key] : undefined), PRICING);
+  const value = Number(found);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function minJob() {
+  return price('global.minimumJob', 150);
+}
+
 const SERVICES = {
 
   'gutter-cleaning': {
@@ -73,10 +169,10 @@ const SERVICES = {
       const metresBasis = usingExactMetres
         ? `Based on ${metres} metres stated`
         : `Est. linear metres (${bedroomKey || '?'} bed avg)`;
-      const storeyRate = a.storeys === 'Single storey' ? 3.00 : 6.00;
-      const guardMult = a.gutter_guard === 'Yes' ? 2 : 1;
-      const debrisMult = a.debris === '1–3 years ago' ? 1.5 : a.debris === '3+ years ago / never' ? 2 : 1;
-      const accessMult = a.access === 'Yes — difficult access' ? 1.5 : 1;
+      const storeyRate = a.storeys === 'Single storey' ? price('gutterCleaning.singleStoreyPerMetre', 3) : price('gutterCleaning.doubleStoreyPerMetre', 6);
+      const guardMult = a.gutter_guard === 'Yes' ? price('gutterCleaning.gutterGuardMultiplier', 2) : 1;
+      const debrisMult = a.debris === '1–3 years ago' ? price('gutterCleaning.debrisMediumMultiplier', 1.5) : a.debris === '3+ years ago / never' ? price('gutterCleaning.debrisHeavyMultiplier', 2) : 1;
+      const accessMult = a.access === 'Yes — difficult access' ? price('gutterCleaning.difficultAccessMultiplier', 1.5) : 1;
       const base = metres * storeyRate * guardMult * debrisMult * accessMult;
       // Additional structures from looping collector
       const STRUCTURE_METRES = { 'Small shed (~20m guttering)': 20, 'Medium shed (~28m guttering)': 28, 'Large shed (~40m guttering)': 40, 'Bungalow / Granny flat (~50m guttering)': 50 };
@@ -94,9 +190,9 @@ const SERVICES = {
           ? Number(s.gutterMetres)
           : (STRUCTURE_METRES[s.type] != null ? STRUCTURE_METRES[s.type] : null);
         if (sMetres === null || !Number.isFinite(sMetres)) return; // skip incomplete
-        const sGuardMult = s.gutter_guard === 'Yes' ? 2 : guardMult;
-        const sDebrisMult = s.debris === '1–3 years ago' ? 1.5 : s.debris === '3+ years ago / never' ? 2 : debrisMult;
-        const sTotal = sMetres * 3.00 * sGuardMult * sDebrisMult;
+        const sGuardMult = s.gutter_guard === 'Yes' ? price('gutterCleaning.gutterGuardMultiplier', 2) : guardMult;
+        const sDebrisMult = s.debris === '1–3 years ago' ? price('gutterCleaning.debrisMediumMultiplier', 1.5) : s.debris === '3+ years ago / never' ? price('gutterCleaning.debrisHeavyMultiplier', 2) : debrisMult;
+        const sTotal = sMetres * price('gutterCleaning.structurePerMetre', 3) * sGuardMult * sDebrisMult;
         structureTotal += sTotal;
         const sLabel = s.name || s.type || `Structure (~${sMetres}m)`;
         structureLines.push({ label: `${sLabel} (~${sMetres}m${s.gutter_guard === 'Yes' ? ', guard ×2' : ''})`, value: `$${sTotal.toFixed(2)}` });
@@ -112,7 +208,7 @@ const SERVICES = {
           ...structureLines,
         ].filter(Boolean),
         travel: clientInfo.travelCost,
-        total: Math.max(150, base + structureTotal)
+        total: Math.max(minJob(), base + structureTotal)
       };
     }
   },
@@ -162,23 +258,23 @@ const SERVICES = {
     calcQuote: (a) => {
       const panels = parseInt(a.panels) || 0;
       const rateMap = {
-        'Less than 1 year ago': 5.50,
-        '1–2 years ago': 6.75,
-        '2–4 years ago': 8.25,
-        '4+ years ago / never cleaned': 10.50
+        'Less than 1 year ago': price('solarCleaning.lessThan1YearPerPanel', 5.5),
+        '1–2 years ago': price('solarCleaning.oneToTwoYearsPerPanel', 6.75),
+        '2–4 years ago': price('solarCleaning.twoToFourYearsPerPanel', 8.25),
+        '4+ years ago / never cleaned': price('solarCleaning.fourPlusYearsPerPanel', 10.5)
       };
-      let rate = rateMap[a.last_clean] || 6.75;
-      if (a.storeys === 'Double storey' && a.hard_access === 'Yes — difficult access') rate *= 2;
+      let rate = rateMap[a.last_clean] || price('solarCleaning.oneToTwoYearsPerPanel', 6.75);
+      if (a.storeys === 'Double storey' && a.hard_access === 'Yes — difficult access') rate *= price('solarCleaning.hardAccessMultiplier', 2);
       const base = panels * rate;
       return {
         lines: [
           { label: 'Panel count', value: `${panels} panels` },
           { label: 'Rate (time since last clean)', value: `$${rate.toFixed(2)}/panel` },
           a.hard_access === 'Yes — difficult access' ? { label: 'Hard access double storey', value: '×2' } : null,
-          { label: 'Service subtotal', value: `$${Math.max(150, base).toFixed(2)}` },
+          { label: 'Service subtotal', value: `$${Math.max(minJob(), base).toFixed(2)}` },
         ].filter(Boolean),
         travel: clientInfo.travelCost,
-        total: Math.max(150, base)
+        total: Math.max(minJob(), base)
       };
     }
   },
@@ -242,12 +338,14 @@ const SERVICES = {
       const isPost = a.post_construction === 'Yes — post-construction';
       const isDouble = a.storeys === 'Double storey';
       const isInterior = !isPost && a.scope === 'Interior + exterior';
-      let paneRate = isPost ? (isDouble ? 24.00 : 17.50) : (isDouble ? 10.50 : 6.00);
+      let paneRate = isPost
+        ? (isDouble ? price('windowCleaning.postConstructionDoublePerPane', 24) : price('windowCleaning.postConstructionSinglePerPane', 17.5))
+        : (isDouble ? price('windowCleaning.doubleExteriorPerPane', 10.5) : price('windowCleaning.singleExteriorPerPane', 6));
       let exteriorTotal = panes * paneRate;
       let total = exteriorTotal;
-      if (isInterior) total *= 2;
-      const flyTotal = a.flyscreens === 'Yes — include flyscreens' ? windows * 5 : 0;
-      const trackTotal = a.tracks === 'Yes — deep clean tracks' ? windows * 9 : 0;
+      if (isInterior) total *= price('windowCleaning.interiorMultiplier', 2);
+      const flyTotal = a.flyscreens === 'Yes — include flyscreens' ? windows * price('windowCleaning.flyscreenEach', 5) : 0;
+      const trackTotal = a.tracks === 'Yes — deep clean tracks' ? windows * price('windowCleaning.trackDeepCleanEach', 9) : 0;
       total += flyTotal + trackTotal;
       const scopeLabel = isPost ? 'Post-construction' : (isInterior ? 'Interior + exterior' : 'Exterior only');
       const dynamicInclusions = [
@@ -266,13 +364,13 @@ const SERVICES = {
           { label: 'Windows × 2 panes', value: panes + ' panes' },
           { label: 'Rate (' + (isPost ? 'post-construction ' : '') + (a.storeys || 'standard') + ')', value: '$' + paneRate.toFixed(2) + '/pane' },
           isInterior ? { label: 'Interior + exterior (×2)', value: '$' + (exteriorTotal * 2).toFixed(2) } : null,
-          flyTotal > 0 ? { label: 'Flyscreens (' + windows + ' × $5)', value: '$' + flyTotal.toFixed(2) } : null,
-          trackTotal > 0 ? { label: 'Track deep clean (' + windows + ' × $9)', value: '$' + trackTotal.toFixed(2) } : null,
-          total < 150 ? { label: 'Minimum call-out applied', value: '$150.00' } : null,
+          flyTotal > 0 ? { label: 'Flyscreens (' + windows + ' × $' + price('windowCleaning.flyscreenEach', 5) + ')', value: '$' + flyTotal.toFixed(2) } : null,
+          trackTotal > 0 ? { label: 'Track deep clean (' + windows + ' × $' + price('windowCleaning.trackDeepCleanEach', 9) + ')', value: '$' + trackTotal.toFixed(2) } : null,
+          total < minJob() ? { label: 'Minimum call-out applied', value: '$' + minJob().toFixed(2) } : null,
         ].filter(Boolean),
         inclusions: dynamicInclusions,
         travel: clientInfo.travelCost,
-        total: Math.max(150, total),
+        total: Math.max(minJob(), total),
         disclaimer: 'Remind client: standard clean only — no hard water stains, paint residue, or silicone included.'
       };
     }
@@ -328,15 +426,15 @@ const SERVICES = {
       if (a.staining === 'Non-organic staining (rust, oil, paint, etc.)') {
         return { customQuote: true, reason: 'Non-organic staining requires specialist treatment — escalate to Simon with photos.' };
       }
-      const base = a.storeys === 'Single storey' ? 450 : 650;
-      const patioAdd = a.patio === 'Yes — single patio/veranda' ? 150 : a.patio === 'Yes — multiple / large areas' ? 250 : 0;
+      const base = a.storeys === 'Single storey' ? price('houseWashing.singleStoreyPhone', 450) : price('houseWashing.doubleStoreyPhone', 650);
+      const patioAdd = a.patio === 'Yes — single patio/veranda' ? price('houseWashing.patioSingleAddOn', 150) : a.patio === 'Yes — multiple / large areas' ? price('houseWashing.patioMultipleAddOn', 250) : 0;
       return {
         lines: [
           { label: `${a.storeys} house wash (phone rate)`, value: `$${base.toFixed(2)}` },
           patioAdd > 0 ? { label: 'Patio/veranda add-on', value: `+$${patioAdd.toFixed(2)}` } : null,
         ].filter(Boolean),
         travel: clientInfo.travelCost,
-        total: Math.max(150, base + patioAdd),
+        total: Math.max(minJob(), base + patioAdd),
         upsell: 'Offer roof cleaning quote at end of call.'
       };
     }
@@ -392,8 +490,12 @@ const SERVICES = {
         ? Math.round(_exactRoofSqm)
         : (BEDROOM_TO_SQM[bedroomKey] || 160);
       const isDouble = a.storeys === 'Double storey';
-      const ageRateMap = { 'Under 10 years': isDouble ? 5.00 : 4.00, '10–20 years': isDouble ? 6.00 : 5.00, '20+ years': isDouble ? 7.00 : 6.00 };
-      const rate = ageRateMap[a.age] || 5.00;
+      const ageRateMap = {
+        'Under 10 years': isDouble ? price('roofCleaning.under10DoublePerSqm', 5) : price('roofCleaning.under10SinglePerSqm', 4),
+        '10–20 years': isDouble ? price('roofCleaning.tenTo20DoublePerSqm', 6) : price('roofCleaning.tenTo20SinglePerSqm', 5),
+        '20+ years': isDouble ? price('roofCleaning.twentyPlusDoublePerSqm', 7) : price('roofCleaning.twentyPlusSinglePerSqm', 6)
+      };
+      const rate = ageRateMap[a.age] || price('roofCleaning.tenTo20SinglePerSqm', 5);
       const base = sqm * rate;
       const dynamicInclusions = [
         'Complete killing and removal of lichen, moss, algae, and organic material',
@@ -406,11 +508,11 @@ const SERVICES = {
           { label: `Est. roof sqm (${bedroomKey} bed avg)`, value: `${sqm}sqm` },
           { label: `Softwash rate (${a.age})`, value: `$${rate.toFixed(2)}/sqm` },
           { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
-          base < 150 ? { label: 'Minimum call-out applied', value: '$150.00' } : null,
+          base < minJob() ? { label: 'Minimum call-out applied', value: '$' + minJob().toFixed(2) } : null,
         ].filter(Boolean),
         inclusions: dynamicInclusions,
         travel: clientInfo.travelCost,
-        total: Math.max(150, base)
+        total: Math.max(minJob(), base)
       };
     }
   },
@@ -455,16 +557,16 @@ const SERVICES = {
       const sqm = (Number.isFinite(_exactBioSqm) && _exactBioSqm > 0)
         ? Math.round(_exactBioSqm)
         : (BEDROOM_TO_SQM[bedroomKey] || 160);
-      const rate = a.storeys === 'Double storey' ? 3.25 : 2.00;
+      const rate = a.storeys === 'Double storey' ? price('roofBiocide.doublePerSqm', 3.25) : price('roofBiocide.singlePerSqm', 2);
       const base = sqm * rate;
       return {
         lines: [
           { label: `Est. roof sqm (${bedroomKey} bed avg)`, value: `${sqm}sqm` },
           { label: `Biocide rate (${a.storeys})`, value: `$${rate.toFixed(2)}/sqm` },
-          { label: 'Service subtotal', value: `$${Math.max(150, base).toFixed(2)}` },
+          { label: 'Service subtotal', value: `$${Math.max(minJob(), base).toFixed(2)}` },
         ],
         travel: clientInfo.travelCost,
-        total: Math.max(150, base)
+        total: Math.max(minJob(), base)
       };
     }
   },
@@ -533,8 +635,12 @@ const SERVICES = {
       'Optional biocide post-treatment: prevents regrowth for 2–4 years'
     ],
     calcQuote: (a) => {
-      const rateMap = { 'Less than 1 year ago': 4.00, '1–3 years ago': 4.50, '3+ years ago / never done': 5.00 };
-      const rate = rateMap[a.last_wash] || 4.50;
+      const rateMap = {
+        'Less than 1 year ago': price('pressureWashing.lessThan1YearPerSqm', 4),
+        '1–3 years ago': price('pressureWashing.oneToThreeYearsPerSqm', 4.5),
+        '3+ years ago / never done': price('pressureWashing.threePlusYearsPerSqm', 5)
+      };
+      const rate = rateMap[a.last_wash] || price('pressureWashing.oneToThreeYearsPerSqm', 4.5);
       let sqm = 0;
       // areaSqmExact: explicit confirmed surface area from property model. Takes priority.
       const _exactAreaSqm = Number(a.areaSqmExact);
@@ -550,7 +656,7 @@ const SERVICES = {
         else sqm = 30;
       }
       const base = sqm * rate;
-      const biocideRate = 2.00;
+      const biocideRate = price('pressureWashing.biocidePerSqm', 2);
       const biocide = a.biocide === 'Yes — add biocide post-treatment' ? sqm * biocideRate : 0;
       return {
         lines: [
@@ -558,10 +664,10 @@ const SERVICES = {
           { label: `Rate (${a.last_wash})`, value: `$${rate.toFixed(2)}/sqm` },
           { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
           biocide > 0 ? { label: `Biocide post-treatment (${sqm}sqm × $${biocideRate})`, value: `$${biocide.toFixed(2)}` } : null,
-          biocide === 0 && base < 150 ? { label: 'Minimum call-out applied', value: '$150.00' } : null,
+          biocide === 0 && base < minJob() ? { label: 'Minimum call-out applied', value: '$' + minJob().toFixed(2) } : null,
         ].filter(Boolean),
         travel: clientInfo.travelCost,
-        total: Math.max(150, base + biocide),
+        total: Math.max(minJob(), base + biocide),
         note: 'From price on call — confirm sqm via Google Earth and call back with confirmed total.'
       };
     }
@@ -597,16 +703,16 @@ const SERVICES = {
       const metres = (Number.isFinite(_exactSoftMetres) && _exactSoftMetres > 0)
         ? Math.round(_exactSoftMetres)
         : (BEDROOM_TO_METRES[bedroomKey] || 62);
-      const rate = a.storeys === 'Single storey' ? 3.00 : 5.00;
+      const rate = a.storeys === 'Single storey' ? price('gutterSoftwash.singleStoreyPerMetre', 3) : price('gutterSoftwash.doubleStoreyPerMetre', 5);
       const base = metres * rate;
       return {
         lines: [
           { label: `Est. linear metres (${bedroomKey || '?'} bed avg)`, value: `${metres}m` },
           { label: `Rate (${a.storeys})`, value: `$${rate.toFixed(2)}/m` },
-          { label: 'Service subtotal', value: `$${Math.max(150, base).toFixed(2)}` },
+          { label: 'Service subtotal', value: `$${Math.max(minJob(), base).toFixed(2)}` },
         ],
         travel: clientInfo.travelCost,
-        total: Math.max(150, base)
+        total: Math.max(minJob(), base)
       };
     }
   },
@@ -699,16 +805,16 @@ const SERVICES = {
         ? Math.round(_exactBirdMetres)
         : (BEDROOM_TO_METRES[bedroomKey] || 62);
       const isDouble = a.storeys === 'Double storey';
-      const gutterRate = isDouble ? 6.00 : 3.00;
-      const guardMult = a.gutter_guard === 'Yes' ? 2 : 1;
-      const debrisMult = a.debris === '1–3 years ago' ? 1.5 : a.debris === '3+ years ago / never' ? 2 : 1;
+      const gutterRate = isDouble ? price('gutterCleaning.doubleStoreyPerMetre', 6) : price('gutterCleaning.singleStoreyPerMetre', 3);
+      const guardMult = a.gutter_guard === 'Yes' ? price('gutterCleaning.gutterGuardMultiplier', 2) : 1;
+      const debrisMult = a.debris === '1–3 years ago' ? price('gutterCleaning.debrisMediumMultiplier', 1.5) : a.debris === '3+ years ago / never' ? price('gutterCleaning.debrisHeavyMultiplier', 2) : 1;
       const gutterTotal = gutterMetres * gutterRate * guardMult * debrisMult;
-      const panelRateMap = { 'Less than 1 year ago': 5.50, '1–2 years ago': 6.75, '2–4 years ago': 8.25, '4+ years ago / never cleaned': 10.50 };
-      const panelRate = panelRateMap[a.last_clean] || 6.75;
+      const panelRateMap = { 'Less than 1 year ago': price('solarCleaning.lessThan1YearPerPanel', 5.5), '1–2 years ago': price('solarCleaning.oneToTwoYearsPerPanel', 6.75), '2–4 years ago': price('solarCleaning.twoToFourYearsPerPanel', 8.25), '4+ years ago / never cleaned': price('solarCleaning.fourPlusYearsPerPanel', 10.5) };
+      const panelRate = panelRateMap[a.last_clean] || price('solarCleaning.oneToTwoYearsPerPanel', 6.75);
       const panelTotal = panels * panelRate;
-      const nestFee = a.nesting === 'Yes — birds currently nesting' ? 200 : 0;
-      const meshRate = isDouble ? 55 : 35;
-      const meshEstimate = gutterMetres * 0.7;
+      const nestFee = a.nesting === 'Yes — birds currently nesting' ? price('birdProofing.nestRemovalFlat', 200) : 0;
+      const meshRate = isDouble ? price('birdProofing.doubleStoreyMeshPerMetre', 55) : price('birdProofing.singleStoreyMeshPerMetre', 35);
+      const meshEstimate = gutterMetres * price('birdProofing.meshEstimateMultiplier', 0.7);
       const meshEstTotal = meshEstimate * meshRate;
       return {
         lines: [
@@ -720,7 +826,7 @@ const SERVICES = {
           { label: `Bird proofing mesh (~${Math.round(meshEstimate)}m est. × $${meshRate})`, value: `$${meshEstTotal.toFixed(2)} est.` },
         ].filter(Boolean),
         travel: clientInfo.travelCost,
-        total: Math.max(150, gutterTotal + panelTotal + nestFee + meshEstTotal),
+        total: Math.max(minJob(), gutterTotal + panelTotal + nestFee + meshEstTotal),
         note: '⚠️ Mesh price is ESTIMATED. Measure linear metres on Google Earth and call client back with confirmed total.'
       };
     }

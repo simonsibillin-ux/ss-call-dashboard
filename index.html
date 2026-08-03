@@ -926,6 +926,25 @@ let currentRep = null; // { id, name, pin }
 let isOwner = false;
 let todoItems = [];
 const TODO_STORAGE_KEY = 'ss_call_calendar_todos';
+const SETTINGS_STORAGE_KEY = 'ss_dashboard_settings';
+const SETTINGS_ROW_KEY = 'dashboard_settings';
+let dashboardSettings = {
+  pricing: {},
+  content: {
+    scripts: [
+      { id: 'opening-call', title: 'Opening Every Call', text: '"Thanks for calling SS Exterior Services, my name is [Name]. Before we get into it, could I grab your name and best contact number just in case we get cut off?"' },
+      { id: 'custom-quote', title: 'Custom Quote — Escalation to Simon', text: '"That\'s something that requires a custom quote — I\'ll pass your details straight to Simon who\'ll be in touch shortly. Could I grab your name, best contact number, and address? [If stains/photos needed: \'Could you also send through some photos to 0447 130 743?\']"' },
+      { id: 'window-disclaimer', title: 'Window Cleaning Disclaimer', text: '"Just to let you know, this is a standard window clean and doesn\'t include removal of hard water stains, paint residue, silicone, or any heavy buildup. If there is any of that present on the day, we\'ll let you know and that would be quoted separately before we proceed."' },
+      { id: 'biocide-explanation', title: 'Biocide Treatment Explanation', text: '"A roof biocide treatment is a specialised chemical treatment we apply directly to your roof surface. It kills all existing lichen, moss, and algae at the root — not just on the surface — and prevents regrowth for up to 2 to 4 years depending on your roof and environment. You\'ll see the lichen gradually dying off and disappearing over the following months. It\'s a much gentler process than pressure washing, so it\'s completely safe for all roof types including terra cotta."' },
+      { id: 'bird-proofing-bundle', title: 'Bird Proofing Bundle Explanation', text: '"Just so you know, our solar bird proofing is part of a complete service package. We include a full gutter clean and solar panel clean at the same time. That way the job is done to a complete standard — it also means you\'re not dealing with blocked gutters or dirty panels voiding any warranty on the proofing. It works out much better value all round."' },
+      { id: 'house-washing-inclusions', title: 'House Washing — What\'s Included', text: '"That includes a complete clean of your home\'s exterior — walls, facades, gutters, fascia, and eaves. It doesn\'t include the roof — that\'s a separate service if you need it. All our cleaning methods comply with manufacturer specifications for your building materials, so it\'s fully warranty compliant. We\'ll also send you before and after photos."' },
+      { id: 'closing-call', title: 'Closing Every Call', text: '"So just to confirm, we\'ll be doing [SERVICE] at [SUBURB] for a total of $[PRICE] including travel. That includes [KEY INCLUSIONS]. When works best for you — are you flexible on dates or is there a particular time that suits?"' }
+    ],
+    serviceInclusions: {},
+    serviceStepScripts: {}
+  }
+};
+let todoSyncTimer = null;
 
 
 // ============================================================
@@ -993,6 +1012,8 @@ async function loginWithPin() {
       updateRepDisplay();
       loadFollowUps();
       document.getElementById('nav-performance').style.display = 'none';
+      renderPricingPage();
+      renderScriptsPage();
     } else {
       document.getElementById('pin-error').style.display = 'block';
     }
@@ -1036,6 +1057,8 @@ async function registerRep() {
       updateRepDisplay();
       loadFollowUps();
       showToast('Profile created! Welcome, ' + name);
+      renderPricingPage();
+      renderScriptsPage();
     } else {
       errEl.textContent = 'Error creating profile. Try again.'; errEl.style.display = 'block';
     }
@@ -1053,6 +1076,8 @@ function loginAsOwner() {
     updateRepDisplay();
     loadFollowUps();
     document.getElementById('nav-performance').style.display = 'flex';
+    renderPricingPage();
+    renderScriptsPage();
   } else {
     document.getElementById('owner-error').style.display = 'block';
   }
@@ -1067,6 +1092,8 @@ function changeRep() {
   currentRep = null;
   isOwner = false;
   document.getElementById('nav-performance').style.display = 'none';
+  renderPricingPage();
+  renderScriptsPage();
   showRepModal();
 }
 
@@ -1173,6 +1200,233 @@ function showPage(page, navItem) {
   if (page === 'pendingquotes') {
     loadPendingQuotesTab();
   }
+  if (page === 'pricing') renderPricingPage();
+  if (page === 'scripts') renderScriptsPage();
+}
+
+// ============================================================
+// OWNER-MANAGED DASHBOARD SETTINGS
+// ============================================================
+function cloneDefaultSettings() {
+  return {
+    pricing: JSON.parse(JSON.stringify(typeof DEFAULT_PRICING !== 'undefined' ? DEFAULT_PRICING : {})),
+    content: {
+      scripts: dashboardSettings.content.scripts.map(s => ({ ...s })),
+      serviceInclusions: Object.fromEntries(Object.entries(SERVICES).map(([key, svc]) => [key, [...(svc.inclusions || [])]])),
+      serviceStepScripts: Object.fromEntries(Object.entries(SERVICES).map(([key, svc]) => [key, (svc.steps || []).map(step => ({ id: step.id, label: step.label, script: step.script || '' }))]))
+    }
+  };
+}
+
+function mergeDashboardSettings(remoteSettings) {
+  const defaults = cloneDefaultSettings();
+  const next = remoteSettings && typeof remoteSettings === 'object' ? remoteSettings : {};
+  dashboardSettings = {
+    pricing: _mergePlain(defaults.pricing, next.pricing || {}),
+    content: {
+      scripts: Array.isArray(next.content?.scripts) ? next.content.scripts : defaults.content.scripts,
+      serviceInclusions: _mergePlain(defaults.content.serviceInclusions, next.content?.serviceInclusions || {}),
+      serviceStepScripts: _mergePlain(defaults.content.serviceStepScripts, next.content?.serviceStepScripts || {})
+    }
+  };
+  if (typeof applyPricingOverrides === 'function') applyPricingOverrides(dashboardSettings.pricing);
+  applyContentOverridesToServices();
+}
+
+function _mergePlain(base, overrides) {
+  const out = Array.isArray(base) ? [...base] : { ...base };
+  Object.entries(overrides || {}).forEach(([key, value]) => {
+    if (value && typeof value === 'object' && !Array.isArray(value) && base && typeof base[key] === 'object' && !Array.isArray(base[key])) {
+      out[key] = _mergePlain(base[key], value);
+    } else {
+      out[key] = value;
+    }
+  });
+  return out;
+}
+
+function applyContentOverridesToServices() {
+  Object.entries(SERVICES).forEach(([serviceKey, svc]) => {
+    const inclusions = dashboardSettings.content.serviceInclusions?.[serviceKey];
+    if (Array.isArray(inclusions)) svc.inclusions = inclusions.filter(Boolean);
+    const stepScripts = dashboardSettings.content.serviceStepScripts?.[serviceKey];
+    if (Array.isArray(stepScripts)) {
+      (svc.steps || []).forEach(step => {
+        const match = stepScripts.find(s => s.id === step.id);
+        if (match && match.script !== undefined) step.script = match.script;
+      });
+    }
+  });
+}
+
+async function loadDashboardSettings() {
+  let loaded = null;
+  try {
+    const cached = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (cached) loaded = JSON.parse(cached);
+  } catch(e) {}
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/app_settings?key=eq.${SETTINGS_ROW_KEY}&select=value&limit=1`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    if (res.ok) {
+      const rows = await res.json();
+      if (rows && rows[0] && rows[0].value) {
+        loaded = rows[0].value;
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(loaded));
+      }
+    }
+  } catch(e) {
+    console.warn('Could not load shared dashboard settings', e);
+  }
+  mergeDashboardSettings(loaded);
+  renderPricingPage();
+  renderScriptsPage();
+}
+
+async function saveDashboardSettings() {
+  if (!isOwner) return;
+  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(dashboardSettings));
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/app_settings?on_conflict=key`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify({ key: SETTINGS_ROW_KEY, value: dashboardSettings, updated_at: new Date().toISOString() })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    showToast('Settings saved for the team');
+  } catch(e) {
+    showToast('Saved on this device — shared settings table needs setup');
+    console.error(e);
+  }
+  mergeDashboardSettings(dashboardSettings);
+  renderPricingPage();
+  renderScriptsPage();
+}
+
+function ownerBadgeHtml() {
+  return isOwner
+    ? '<div style="font-size:12px;color:#166534;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 10px;margin-bottom:12px;">Owner mode: changes saved here update the dashboard for everyone.</div>'
+    : '';
+}
+
+function renderPricingPage() {
+  const page = document.getElementById('page-pricing');
+  if (!page) return;
+  const groups = [
+    ['Global', 'global', [['minimumJob', 'Minimum job', '$'], ['travelPerKm', 'Travel per km', '$'], ['debrisRemoval', 'Off-site debris removal', '$']]],
+    ['Gutter Cleaning', 'gutterCleaning', [['singleStoreyPerMetre', 'Single storey', '$/m'], ['doubleStoreyPerMetre', 'Double storey', '$/m'], ['structurePerMetre', 'Additional structure', '$/m'], ['gutterGuardMultiplier', 'Gutter guard', 'x'], ['difficultAccessMultiplier', 'Difficult access', 'x'], ['debrisMediumMultiplier', 'Debris medium', 'x'], ['debrisHeavyMultiplier', 'Debris heavy', 'x']]],
+    ['Solar Panel Cleaning', 'solarCleaning', [['lessThan1YearPerPanel', '<1 year since clean', '$/panel'], ['oneToTwoYearsPerPanel', '1-2 years', '$/panel'], ['twoToFourYearsPerPanel', '2-4 years', '$/panel'], ['fourPlusYearsPerPanel', '4+ years / never', '$/panel'], ['hardAccessMultiplier', 'Double storey hard access', 'x']]],
+    ['Window Cleaning', 'windowCleaning', [['singleExteriorPerPane', 'Single exterior', '$/pane'], ['doubleExteriorPerPane', 'Double exterior', '$/pane'], ['interiorMultiplier', 'Interior add-on', 'x'], ['postConstructionSinglePerPane', 'Post-construction single', '$/pane'], ['postConstructionDoublePerPane', 'Post-construction double', '$/pane'], ['flyscreenEach', 'Flyscreens', '$ each'], ['trackDeepCleanEach', 'Deep clean tracks', '$/window']]],
+    ['House Washing', 'houseWashing', [['singleStoreyPhone', 'Single storey phone quote', '$'], ['doubleStoreyPhone', 'Double storey phone quote', '$'], ['patioSingleAddOn', 'Patio/veranda single', '+$'], ['patioMultipleAddOn', 'Patio/veranda multiple', '+$']]],
+    ['Roof Cleaning', 'roofCleaning', [['under10SinglePerSqm', 'Under 10 yrs single', '$/sqm'], ['under10DoublePerSqm', 'Under 10 yrs double', '$/sqm'], ['tenTo20SinglePerSqm', '10-20 yrs single', '$/sqm'], ['tenTo20DoublePerSqm', '10-20 yrs double', '$/sqm'], ['twentyPlusSinglePerSqm', '20+ yrs single', '$/sqm'], ['twentyPlusDoublePerSqm', '20+ yrs double', '$/sqm']]],
+    ['Roof Biocide', 'roofBiocide', [['singlePerSqm', 'Single storey', '$/sqm'], ['doublePerSqm', 'Double storey', '$/sqm']]],
+    ['Pressure Washing', 'pressureWashing', [['lessThan1YearPerSqm', '<1 year', '$/sqm'], ['oneToThreeYearsPerSqm', '1-3 years', '$/sqm'], ['threePlusYearsPerSqm', '3+ years / never', '$/sqm'], ['biocidePerSqm', 'Biocide add-on', '$/sqm']]],
+    ['Gutter Exterior Softwash', 'gutterSoftwash', [['singleStoreyPerMetre', 'Single storey', '$/m'], ['doubleStoreyPerMetre', 'Double storey', '$/m']]],
+    ['Solar Bird Proofing', 'birdProofing', [['singleStoreyMeshPerMetre', 'Single storey mesh', '$/m'], ['doubleStoreyMeshPerMetre', 'Double storey mesh', '$/m'], ['nestRemovalFlat', 'Nest/dropping removal', '$'], ['meshEstimateMultiplier', 'Mesh estimate multiplier', 'x']]]
+  ];
+  page.innerHTML = `
+    <div class="page-title">Price Sheet</div>
+    <div class="page-subtitle">SS Exterior Services — rates used by the quote builder</div>
+    ${ownerBadgeHtml()}
+    <div class="two-col">
+      ${groups.map(([title, groupKey, fields]) => `
+        <div class="card">
+          <div class="card-title" style="margin-bottom:12px;">${_escHtml(title)}</div>
+          ${fields.map(([fieldKey, label, suffix]) => renderPriceField(groupKey, fieldKey, label, suffix)).join('')}
+        </div>`).join('')}
+    </div>`;
+}
+
+function renderPriceField(groupKey, fieldKey, label, suffix) {
+  const value = dashboardSettings.pricing?.[groupKey]?.[fieldKey] ?? DEFAULT_PRICING?.[groupKey]?.[fieldKey] ?? '';
+  if (!isOwner) {
+    let display = `${value}`;
+    if (suffix === '$') display = `$${Number(value).toFixed(2)}`;
+    else if (suffix === '+$') display = `+$${Number(value).toFixed(2)}`;
+    else if (suffix.startsWith('$/')) display = `$${Number(value).toFixed(2)}/${suffix.split('/')[1]}`;
+    else if (suffix.startsWith('$ ')) display = `$${Number(value).toFixed(2)} ${suffix.slice(2)}`;
+    else if (suffix === 'x') display = `x${value}`;
+    return `<div class="quote-line"><span class="quote-line-label">${_escHtml(label)}</span><span class="quote-line-value">${_escHtml(display)}</span></div>`;
+  }
+  return `<label class="quote-line" style="gap:12px;">
+    <span class="quote-line-label">${_escHtml(label)}</span>
+    <span style="display:flex;align-items:center;gap:6px;">
+      <input class="form-input" type="number" step="0.01" value="${_escHtml(value)}" style="width:96px;padding:6px 8px;font-size:12px;" onchange="updatePriceSetting('${groupKey}','${fieldKey}',this.value)">
+      <span class="quote-line-value">${_escHtml(suffix)}</span>
+    </span>
+  </label>`;
+}
+
+function updatePriceSetting(groupKey, fieldKey, rawValue) {
+  if (!dashboardSettings.pricing[groupKey]) dashboardSettings.pricing[groupKey] = {};
+  dashboardSettings.pricing[groupKey][fieldKey] = Number(rawValue) || 0;
+  if (typeof applyPricingOverrides === 'function') applyPricingOverrides(dashboardSettings.pricing);
+  saveDashboardSettings();
+}
+
+function renderScriptsPage() {
+  const page = document.getElementById('page-scripts');
+  if (!page) return;
+  const scriptCards = (dashboardSettings.content.scripts || []).map((script, idx) => renderTextCard('script', script.title, script.text, `updateGeneralScript(${idx}, this.value)`)).join('');
+  const serviceCards = Object.entries(SERVICES).map(([serviceKey, svc]) => `
+    <div class="card">
+      <div class="card-title" style="margin-bottom:10px;">${_escHtml(svc.name)} — What's Included</div>
+      ${isOwner
+        ? `<textarea class="form-input" style="min-height:110px;" onblur="updateServiceInclusions('${serviceKey}', this.value)">${_escHtml((svc.inclusions || []).join('\n'))}</textarea>`
+        : `<div class="question-script" style="margin:0;">${(svc.inclusions || []).map(i => `<div>${_escHtml(i)}</div>`).join('')}</div>`}
+    </div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:10px;">${_escHtml(svc.name)} — Question Scripts</div>
+      ${(svc.steps || []).map(step => isOwner
+        ? `<label class="form-label">${_escHtml(step.label)}</label><textarea class="form-input" style="min-height:70px;margin-bottom:10px;" onblur="updateServiceStepScript('${serviceKey}', '${step.id}', this.value)">${_escHtml(step.script || '')}</textarea>`
+        : `<div style="font-size:12px;font-weight:800;color:var(--text2);margin-top:8px;">${_escHtml(step.label)}</div><div class="question-script" style="margin:4px 0 0;">${_escHtml(step.script || step.label)}</div>`).join('')}
+    </div>`).join('');
+  page.innerHTML = `
+    <div class="page-title">Scripts & Guidelines</div>
+    <div class="page-subtitle">Reference during calls</div>
+    ${ownerBadgeHtml()}
+    ${scriptCards}
+    ${serviceCards}`;
+}
+
+function renderTextCard(kind, title, text, handler) {
+  return `<div class="card">
+    <div class="card-title" style="margin-bottom:12px;">${_escHtml(title)}</div>
+    ${isOwner
+      ? `<textarea class="form-input" style="min-height:100px;" onblur="${handler}">${_escHtml(text)}</textarea>`
+      : `<div class="question-script" style="margin:0;">${_escHtml(text)}</div>`}
+  </div>`;
+}
+
+function updateGeneralScript(index, value) {
+  if (!isOwner || !dashboardSettings.content.scripts[index]) return;
+  dashboardSettings.content.scripts[index].text = value;
+  saveDashboardSettings();
+}
+
+function updateServiceInclusions(serviceKey, value) {
+  if (!isOwner) return;
+  dashboardSettings.content.serviceInclusions[serviceKey] = String(value || '').split('\n').map(s => s.trim()).filter(Boolean);
+  applyContentOverridesToServices();
+  saveDashboardSettings();
+}
+
+function updateServiceStepScript(serviceKey, stepId, value) {
+  if (!isOwner) return;
+  const svc = SERVICES[serviceKey];
+  if (!svc) return;
+  const existing = dashboardSettings.content.serviceStepScripts[serviceKey] || (svc.steps || []).map(step => ({ id: step.id, label: step.label, script: step.script || '' }));
+  const match = existing.find(step => step.id === stepId);
+  if (match) match.script = value;
+  dashboardSettings.content.serviceStepScripts[serviceKey] = existing;
+  applyContentOverridesToServices();
+  saveDashboardSettings();
 }
 
 // ============================================================
@@ -1209,14 +1463,16 @@ function calcTravel(rawSuburb) {
   if (km === undefined) {
     // Unknown suburb: default 40km one-way = 80km return at $1/km
     const returnKm = 80;
+    const travelRate = (typeof price === 'function' ? price('global.travelPerKm', 1) : 1);
     clientInfo.travelKm   = returnKm;
-    clientInfo.travelCost = returnKm;
-    document.getElementById('travel-display').value = `~${returnKm}km return — $${returnKm.toFixed(2)} est. (unknown suburb)`;
+    clientInfo.travelCost = returnKm * travelRate;
+    document.getElementById('travel-display').value = `~${returnKm}km return — $${clientInfo.travelCost.toFixed(2)} est. (unknown suburb)`;
   } else {
     const returnKm = km * 2; // return trip
+    const travelRate = (typeof price === 'function' ? price('global.travelPerKm', 1) : 1);
     clientInfo.travelKm   = returnKm;
-    clientInfo.travelCost = returnKm;
-    document.getElementById('travel-display').value = km === 0 ? 'No travel charge' : `${returnKm}km return — $${returnKm.toFixed(2)}`;
+    clientInfo.travelCost = returnKm * travelRate;
+    document.getElementById('travel-display').value = km === 0 ? 'No travel charge' : `${returnKm}km return — $${clientInfo.travelCost.toFixed(2)}`;
   }
 }
 
@@ -2986,13 +3242,30 @@ async function loadFollowUps() {
 // ============================================================
 // CALL CALENDAR TO-DO LIST
 // ============================================================
-function loadTodos() {
+async function loadTodos() {
   try {
-    const saved = localStorage.getItem(TODO_STORAGE_KEY);
-    todoItems = saved ? JSON.parse(saved) : [];
-    if (!Array.isArray(todoItems)) todoItems = [];
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/app_todos?select=*&order=created_at.desc`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const rows = await res.json();
+    todoItems = (rows || []).map(row => ({
+      id: row.id,
+      text: row.text,
+      done: !!row.done,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+    localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(todoItems));
   } catch(e) {
-    todoItems = [];
+    try {
+      const saved = localStorage.getItem(TODO_STORAGE_KEY);
+      todoItems = saved ? JSON.parse(saved) : [];
+      if (!Array.isArray(todoItems)) todoItems = [];
+    } catch(err) {
+      todoItems = [];
+    }
+    console.warn('Using local to-do fallback. Create app_todos table to sync across devices.', e);
   }
   renderTodoList();
 }
@@ -3001,62 +3274,144 @@ function saveTodos() {
   localStorage.setItem(TODO_STORAGE_KEY, JSON.stringify(todoItems));
 }
 
-function addTodoItem() {
+async function addTodoItem() {
   const input = document.getElementById('todo-input');
   const text = (input?.value || '').trim();
   if (!text) return;
-  todoItems.unshift({
+  const item = {
     id: 'TODO-' + Date.now(),
     text,
     done: false,
-    createdAt: new Date().toISOString()
-  });
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  todoItems.unshift(item);
   input.value = '';
   saveTodos();
   renderTodoList();
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/app_todos`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        id: item.id,
+        text: item.text,
+        done: item.done,
+        created_at: item.createdAt,
+        updated_at: item.updatedAt,
+        created_by: currentRep ? currentRep.name : null
+      })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    loadTodos();
+  } catch(e) {
+    showToast('To-do saved on this device — shared table needs setup');
+    console.error(e);
+    return;
+  }
   showToast('To-do added');
 }
 
-function updateTodoText(id, text) {
+async function updateTodoText(id, text) {
   const item = todoItems.find(t => t.id === id);
   if (!item) return;
   item.text = String(text || '').trim();
   if (!item.text) {
-    todoItems = todoItems.filter(t => t.id !== id);
+    deleteTodoItem(id);
+    return;
   }
+  item.updatedAt = new Date().toISOString();
   saveTodos();
   renderTodoList();
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/app_todos?id=eq.${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: item.text, updated_at: item.updatedAt })
+    });
+    if (!res.ok) throw new Error(await res.text());
+  } catch(e) {
+    showToast('To-do updated locally — shared table needs setup');
+    console.error(e);
+  }
 }
 
-function toggleTodoItem(id, checked) {
+async function toggleTodoItem(id, checked) {
   const item = todoItems.find(t => t.id === id);
   if (!item) return;
   item.done = !!checked;
+  item.updatedAt = new Date().toISOString();
   saveTodos();
   renderTodoList();
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/app_todos?id=eq.${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ done: item.done, updated_at: item.updatedAt })
+    });
+    if (!res.ok) throw new Error(await res.text());
+  } catch(e) {
+    showToast('To-do updated locally — shared table needs setup');
+    console.error(e);
+  }
 }
 
-function deleteTodoItem(id) {
+async function deleteTodoItem(id) {
   todoItems = todoItems.filter(t => t.id !== id);
   saveTodos();
   renderTodoList();
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/app_todos?id=eq.${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    if (!res.ok) throw new Error(await res.text());
+  } catch(e) {
+    showToast('To-do deleted locally — shared table needs setup');
+    console.error(e);
+  }
 }
 
-function clearCompletedTodos() {
+async function clearCompletedTodos() {
   const before = todoItems.length;
+  const completedIds = todoItems.filter(t => t.done).map(t => t.id);
   todoItems = todoItems.filter(t => !t.done);
   saveTodos();
   renderTodoList();
+  for (const id of completedIds) {
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/app_todos?id=eq.${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+      });
+    } catch(e) {
+      console.error(e);
+    }
+  }
   if (before !== todoItems.length) showToast('Completed to-dos cleared');
 }
 
-function clearAllTodos() {
+async function clearAllTodos() {
   if (!todoItems.length) return;
   if (!confirm('Clear all to-do items?')) return;
   todoItems = [];
   saveTodos();
   renderTodoList();
   closeTodoReminder();
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/app_todos?id=not.is.null`, {
+      method: 'DELETE',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    if (!res.ok) throw new Error(await res.text());
+  } catch(e) {
+    showToast('To-dos cleared locally — shared table needs setup');
+    console.error(e);
+  }
 }
 
 function getOpenTodos() {
@@ -3815,7 +4170,8 @@ function showToast(msg) {
 }
 
 // Init
-loadTodos();
+loadDashboardSettings();
+loadTodos().then(() => setTimeout(showTodoReminderIfNeeded, 400));
 initRep();
 document.getElementById('fu-date').valueAsDate = new Date();
 document.getElementById('fu-browse-date').value = localToday();
@@ -3824,7 +4180,10 @@ const today = new Date();
 const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 document.getElementById('perf-from').value = firstOfMonth.toISOString().split('T')[0];
 document.getElementById('perf-to').value = today.toISOString().split('T')[0];
-setTimeout(showTodoReminderIfNeeded, 400);
+todoSyncTimer = setInterval(() => {
+  const calendarOpen = document.getElementById('page-calendar')?.classList.contains('active');
+  if (calendarOpen) loadTodos();
+}, 15000);
 
 // ============================================================
 // PENDING QUOTES TAB
