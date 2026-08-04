@@ -25,6 +25,66 @@ export default function Modals() {
 
   const closeModal = () => setModal(null);
 
+  const isCreditLine = (item) => item?.is_credit || String(item?.description || "").toLowerCase().includes("client credit");
+
+  const creditAmountFromItems = (items = []) => items
+    .filter(isCreditLine)
+    .reduce((sum, item) => sum + Math.abs(Number(item.total || 0)), 0);
+
+  const creditAmountForClient = (items = [], client) => {
+    if (!client) return creditAmountFromItems(items);
+    return items
+      .filter(isCreditLine)
+      .filter(item => !item.credit_client_id || item.credit_client_id === client.id)
+      .reduce((sum, item) => sum + Math.abs(Number(item.total || 0)), 0);
+  };
+
+  const findCreditClient = (clientName, items = []) => {
+    const creditClientId = items.find(item => item.credit_client_id)?.credit_client_id;
+    if (creditClientId) {
+      const byId = clients.find(c => c.id === creditClientId);
+      if (byId) return byId;
+    }
+    return clients.find(c => c.name === clientName) || null;
+  };
+
+  const updateCreditUsage = async (client, deltaUsed) => {
+    if (!client || !deltaUsed) return;
+    let record = null;
+    if (client.id) {
+      const { data } = await supabase.from("client_credits").select("*").eq("client_id", client.id).limit(1);
+      record = data?.[0] || null;
+    }
+    if (!record) {
+      const { data } = await supabase.from("client_credits").select("*").eq("client_name", client.name).limit(1);
+      record = data?.[0] || null;
+    }
+    const currentAvailable = Number(client.referral_credit || 0);
+    const totalEarned = Number(record?.total_earned ?? currentAvailable);
+    const nextUsed = Math.max(0, Number(record?.total_used || 0) + deltaUsed);
+    const nextAvailable = Math.max(0, totalEarned - nextUsed);
+    const payload = { client_id: client.id, client_name: client.name, total_earned: totalEarned, total_used: nextUsed, updated_at: new Date().toISOString() };
+    if (record?.id) {
+      await supabase.from("client_credits").update(payload).eq("id", record.id);
+    } else {
+      await supabase.from("client_credits").insert({ id:`CC-${Date.now()}`, ...payload });
+    }
+    await supabase.from("clients").update({ referral_credit: nextAvailable }).eq("id", client.id);
+    setClients(cs => cs.map(c => c.id === client.id ? { ...c, referral_credit: nextAvailable } : c));
+  };
+
+  const syncQuoteCreditUsage = async ({ previousClientName, nextClientName, previousItems = [], nextItems = [] }) => {
+    const previousClient = findCreditClient(previousClientName, previousItems);
+    const nextClient = findCreditClient(nextClientName, nextItems);
+    if (previousClient?.id && nextClient?.id && previousClient.id === nextClient.id) {
+      const delta = creditAmountForClient(nextItems, nextClient) - creditAmountForClient(previousItems, previousClient);
+      await updateCreditUsage(nextClient, delta);
+      return;
+    }
+    await updateCreditUsage(previousClient, -creditAmountForClient(previousItems, previousClient));
+    await updateCreditUsage(nextClient, creditAmountForClient(nextItems, nextClient));
+  };
+
 
   function AddClientModal() {
     const [f, setF] = useState({name:"",phone:"",email:"",address:"",suburb:"",notes:"",status:"active"});
@@ -173,18 +233,33 @@ export default function Modals() {
     const [client, setClient] = useState("");
     const [notes, setNotes] = useState("");
     const [items, setItems] = useState([{description:"",qty:"1",unit:"",rate:"",total:0}]);
+    const [partialCredit, setPartialCredit] = useState("");
+    const selectedClient = clients.find(c => c.name === client) || null;
+    const availableCredit = Math.max(0, Number(selectedClient?.referral_credit || 0));
+    const appliedCredit = creditAmountForClient(items, selectedClient);
+    const serviceTotal = items.filter(it => !isCreditLine(it)).reduce((s,it)=>s+(Number(it.total)||0),0);
     const updItem = (i,k,v) => setItems(its=>its.map((it,idx)=>{
       if(idx!==i) return it;
       const u={...it,[k]:v};
       if(k==="qty"||k==="rate"||k==="multiplier") u.total=(parseFloat(k==="qty"?v:u.qty)||1)*(parseFloat(k==="rate"?v:u.rate)||0)*(parseFloat(k==="multiplier"?v:u.multiplier)||1);
       return u;
     }));
+    const applyCredit = (amount) => {
+      if (!selectedClient) return;
+      const safeAmount = Math.min(Math.max(0, Number(amount) || 0), availableCredit, serviceTotal);
+      setItems(its => {
+        const serviceItems = its.filter(it => !isCreditLine(it));
+        if (safeAmount <= 0) return serviceItems;
+        return [...serviceItems, {description:`Client credit applied - ${selectedClient.name}`,qty:"1",unit:"credit",rate:String(-safeAmount),total:-safeAmount,is_credit:true,credit_client_id:selectedClient.id}];
+      });
+    };
     const grandTotal = items.reduce((s,it)=>s+(it.total||0),0);
     const save = async () => {
       if (!client.trim()) return;
-      const cleanItems = items.map(it=>({description:it.description,qty:parseFloat(it.qty)||1,unit:it.unit||"",rate:parseFloat(it.rate)||0,total:it.total||0}));
+      const cleanItems = items.map(it=>({description:it.description,qty:parseFloat(it.qty)||1,unit:it.unit||"",rate:parseFloat(it.rate)||0,total:it.total||0,...(it.is_credit?{is_credit:true,credit_client_id:it.credit_client_id}: {})}));
       const nq=linkRecordToClient({id:`Q-${Date.now()}`,client,date:new Date().toISOString().split("T")[0],total:grandTotal,status:"pending",items:cleanItems,notes}, client);
       await supabase.from("quotes").insert(nq);
+      await syncQuoteCreditUsage({ previousClientName:null, nextClientName:client, previousItems:[], nextItems:cleanItems });
       setQuotes(q=>[{...nq,total:grandTotal},...q]); closeModal();
     };
     return <Modal title="New quote" onClose={closeModal}>
@@ -195,6 +270,15 @@ export default function Modals() {
           {clients.sort((a,b)=>a.name.localeCompare(b.name)).map(c=><option key={c.id} value={c.name}>{c.name}{c.suburb?" — "+c.suburb:""}</option>)}
         </select>
         <input value={client} onChange={e=>setClient(e.target.value)} placeholder="Or type a new name..." style={{width:"100%",border:`1px solid ${G.border}`,borderRadius:8,padding:"8px 10px",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+        {selectedClient && availableCredit > 0 && <div style={{marginTop:8,padding:"10px 12px",background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:8,fontSize:12,color:"#255d27"}}>
+          <div style={{fontWeight:800,marginBottom:6}}>{selectedClient.name} has ${availableCredit.toFixed(2)} credit available.</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+            <button onClick={()=>applyCredit(availableCredit)} style={{background:G.green,color:"#fff",border:"none",borderRadius:7,padding:"6px 10px",fontSize:12,fontWeight:800,cursor:"pointer"}}>Use all credit</button>
+            <input value={partialCredit} onChange={e=>setPartialCredit(e.target.value)} type="number" min="0" max={availableCredit} step="0.01" placeholder="Partial amount" style={{width:130,border:`1px solid ${G.border}`,borderRadius:7,padding:"6px 8px",fontSize:12,fontFamily:"inherit"}}/>
+            <button onClick={()=>applyCredit(partialCredit)} style={{background:"#fff",color:"#2e7d32",border:`1px solid ${G.green}`,borderRadius:7,padding:"6px 10px",fontSize:12,fontWeight:800,cursor:"pointer"}}>Apply partial</button>
+            {appliedCredit > 0 && <button onClick={()=>applyCredit(0)} style={{background:"#fce4ec",color:"#c62828",border:"none",borderRadius:7,padding:"6px 10px",fontSize:12,fontWeight:800,cursor:"pointer"}}>Remove credit</button>}
+          </div>
+        </div>}
       </div>
       <div style={{marginBottom:8,fontSize:13,fontWeight:600,color:G.black}}>Line items</div>
       {items.map((it,i)=><div key={i} style={{background:G.bg,borderRadius:8,padding:10,marginBottom:8}}>
@@ -351,17 +435,33 @@ export default function Modals() {
     const [notes, setNotes] = useState(quote.notes||"");
     const [status, setStatus] = useState(quote.status||"pending");
     const [items, setItems] = useState((quote.items||[]).map(it=>({...it,qty:String(it.qty||1),rate:String(it.rate||0)})));
+    const [partialCredit, setPartialCredit] = useState("");
+    const selectedClient = clients.find(c => c.name === client) || null;
+    const originalAppliedCredit = creditAmountForClient(quote.items || [], selectedClient);
+    const availableCredit = Math.max(0, Number(selectedClient?.referral_credit || 0) + originalAppliedCredit);
+    const appliedCredit = creditAmountForClient(items, selectedClient);
+    const serviceTotal = items.filter(it => !isCreditLine(it)).reduce((s,it)=>s+(Number(it.total)||0),0);
     const updItem = (i,k,v) => setItems(its=>its.map((it,idx)=>{
       if(idx!==i) return it;
       const u={...it,[k]:v};
       if(k==="qty"||k==="rate"||k==="multiplier") u.total=(parseFloat(k==="qty"?v:u.qty)||1)*(parseFloat(k==="rate"?v:u.rate)||0)*(parseFloat(k==="multiplier"?v:u.multiplier)||1);
       return u;
     }));
+    const applyCredit = (amount) => {
+      if (!selectedClient) return;
+      const safeAmount = Math.min(Math.max(0, Number(amount) || 0), availableCredit, serviceTotal);
+      setItems(its => {
+        const serviceItems = its.filter(it => !isCreditLine(it));
+        if (safeAmount <= 0) return serviceItems;
+        return [...serviceItems, {description:`Client credit applied - ${selectedClient.name}`,qty:"1",unit:"credit",rate:String(-safeAmount),total:-safeAmount,is_credit:true,credit_client_id:selectedClient.id}];
+      });
+    };
     const grandTotal = items.reduce((s,it)=>s+(it.total||0),0);
     const save = async () => {
-      const cleanItems = items.map(it=>({description:it.description,qty:parseFloat(it.qty)||1,unit:it.unit||"",rate:parseFloat(it.rate)||0,total:it.total||0}));
+      const cleanItems = items.map(it=>({description:it.description,qty:parseFloat(it.qty)||1,unit:it.unit||"",rate:parseFloat(it.rate)||0,total:it.total||0,...(it.is_credit?{is_credit:true,credit_client_id:it.credit_client_id}: {})}));
       const upd = linkRecordToClient({client,notes,status,items:cleanItems,total:grandTotal}, client);
       await supabase.from("quotes").update(upd).eq("id",quote.id);
+      await syncQuoteCreditUsage({ previousClientName:quote.client, nextClientName:client, previousItems:quote.items || [], nextItems:cleanItems });
       setQuotes(qs=>qs.map(x=>x.id===quote.id?{...x,...upd}:x));
       if(status==="sent") sendClientPush(client,'📋 Quote Updated','Your quote has been updated. Check your portal to review the latest details.');
       if(status==="rejected") sendClientPush(client,'📋 Quote Update','Your quote status has been updated. Contact Simon on 0447 130 743 if you have any questions.');
@@ -379,6 +479,15 @@ export default function Modals() {
           {cl.address&&<div>📍 {cl.address}{cl.suburb?", "+cl.suburb:""}</div>}
           {cl.phone&&<div>📱 {cl.phone}</div>}
         </div>:null;})()}
+        {selectedClient && availableCredit > 0 && <div style={{marginTop:8,padding:"10px 12px",background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:8,fontSize:12,color:"#255d27"}}>
+          <div style={{fontWeight:800,marginBottom:6}}>{selectedClient.name} has ${availableCredit.toFixed(2)} credit available.</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+            <button onClick={()=>applyCredit(availableCredit)} style={{background:G.green,color:"#fff",border:"none",borderRadius:7,padding:"6px 10px",fontSize:12,fontWeight:800,cursor:"pointer"}}>Use all credit</button>
+            <input value={partialCredit} onChange={e=>setPartialCredit(e.target.value)} type="number" min="0" max={availableCredit} step="0.01" placeholder="Partial amount" style={{width:130,border:`1px solid ${G.border}`,borderRadius:7,padding:"6px 8px",fontSize:12,fontFamily:"inherit"}}/>
+            <button onClick={()=>applyCredit(partialCredit)} style={{background:"#fff",color:"#2e7d32",border:`1px solid ${G.green}`,borderRadius:7,padding:"6px 10px",fontSize:12,fontWeight:800,cursor:"pointer"}}>Apply partial</button>
+            {appliedCredit > 0 && <button onClick={()=>applyCredit(0)} style={{background:"#fce4ec",color:"#c62828",border:"none",borderRadius:7,padding:"6px 10px",fontSize:12,fontWeight:800,cursor:"pointer"}}>Remove credit</button>}
+          </div>
+        </div>}
       </div>
       <Field label="Status" value={status} onChange={setStatus} options={["pending","approved","sent"]}/>
       {items.map((it,i)=><div key={i} style={{background:G.bg,borderRadius:8,padding:10,marginBottom:8}}>
