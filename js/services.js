@@ -9,6 +9,10 @@ const DEFAULT_PRICING = {
     debrisRemoval: 100
   },
   gutterCleaning: {
+    estimatedMetres2Bed: 45,
+    estimatedMetres3Bed: 62,
+    estimatedMetres4Bed: 80,
+    estimatedMetres5PlusBed: 105,
     singleStoreyPerMetre: 3,
     doubleStoreyPerMetre: 6,
     structurePerMetre: 3,
@@ -163,9 +167,15 @@ const SERVICES = {
       // Phase 4: support exact metre override when supplied and valid
       const exactMetres = Number(a.gutterMetresExact);
       const usingExactMetres = Number.isFinite(exactMetres) && exactMetres > 0;
+      const bedroomEstimate = {
+        '2': price('gutterCleaning.estimatedMetres2Bed', 45),
+        '3': price('gutterCleaning.estimatedMetres3Bed', 62),
+        '4': price('gutterCleaning.estimatedMetres4Bed', 80),
+        '5+': price('gutterCleaning.estimatedMetres5PlusBed', 105)
+      };
       const metres = usingExactMetres
         ? Math.round(exactMetres)
-        : (BEDROOM_TO_METRES[bedroomKey] || 62);
+        : (bedroomEstimate[bedroomKey] || bedroomEstimate['3']);
       const metresBasis = usingExactMetres
         ? `Based on ${metres} metres stated`
         : `Est. linear metres (${bedroomKey || '?'} bed avg)`;
@@ -173,7 +183,22 @@ const SERVICES = {
       const guardMult = a.gutter_guard === 'Yes' ? price('gutterCleaning.gutterGuardMultiplier', 2) : 1;
       const debrisMult = a.debris === '1–3 years ago' ? price('gutterCleaning.debrisMediumMultiplier', 1.5) : a.debris === '3+ years ago / never' ? price('gutterCleaning.debrisHeavyMultiplier', 2) : 1;
       const accessMult = a.access === 'Yes — difficult access' ? price('gutterCleaning.difficultAccessMultiplier', 1.5) : 1;
-      const base = metres * storeyRate * guardMult * debrisMult * accessMult;
+      const sections = Array.isArray(a.sections) ? a.sections.filter(s => Number(s.gutterMetresExact) > 0) : [];
+      const sectionLines = [];
+      let base = metres * storeyRate * guardMult * debrisMult * accessMult;
+      if (sections.length) {
+        base = 0;
+        sections.forEach(section => {
+          const sectionMetres = Number(section.gutterMetresExact);
+          const sectionStoreys = section.storeys === 'Double storey' ? 'Double storey' : 'Single storey';
+          const sectionRate = sectionStoreys === 'Single storey'
+            ? price('gutterCleaning.singleStoreyPerMetre', 3)
+            : price('gutterCleaning.doubleStoreyPerMetre', 6);
+          const sectionTotal = sectionMetres * sectionRate * guardMult * debrisMult * accessMult;
+          base += sectionTotal;
+          sectionLines.push({ label: `${sectionStoreys} section (${sectionMetres}m × $${sectionRate.toFixed(2)}/m)`, value: `$${sectionTotal.toFixed(2)}` });
+        });
+      }
       // Additional structures from looping collector
       const STRUCTURE_METRES = { 'Small shed (~20m guttering)': 20, 'Medium shed (~28m guttering)': 28, 'Large shed (~40m guttering)': 40, 'Bungalow / Granny flat (~50m guttering)': 50 };
       const structures = Array.isArray(a.structures) ? a.structures : [];
@@ -199,8 +224,10 @@ const SERVICES = {
       });
       return {
         lines: [
-          { label: metresBasis, value: `${metres}m` },
-          { label: `Rate (${a.storeys})`, value: `$${storeyRate.toFixed(2)}/m` },
+          ...(sections.length ? sectionLines : [
+            { label: metresBasis, value: `${metres}m` },
+            { label: `Rate (${a.storeys})`, value: `$${storeyRate.toFixed(2)}/m` }
+          ]),
           a.gutter_guard === 'Yes' ? { label: 'Gutter guard multiplier', value: '×2' } : null,
           debrisMult > 1 ? { label: 'Debris multiplier', value: `×${debrisMult}` } : null,
           accessMult > 1 ? { label: 'Difficult access', value: '×1.5' } : null,

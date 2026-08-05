@@ -1320,7 +1320,7 @@ function renderPricingPage() {
   if (!page) return;
   const groups = [
     ['Global', 'global', [['minimumJob', 'Minimum job', '$'], ['travelPerKm', 'Travel per km', '$'], ['debrisRemoval', 'Off-site debris removal', '$']]],
-    ['Gutter Cleaning', 'gutterCleaning', [['singleStoreyPerMetre', 'Single storey', '$/m'], ['doubleStoreyPerMetre', 'Double storey', '$/m'], ['structurePerMetre', 'Additional structure', '$/m'], ['gutterGuardMultiplier', 'Gutter guard', 'x'], ['difficultAccessMultiplier', 'Difficult access', 'x'], ['debrisMediumMultiplier', 'Debris medium', 'x'], ['debrisHeavyMultiplier', 'Debris heavy', 'x']]],
+    ['Gutter Cleaning', 'gutterCleaning', [['estimatedMetres2Bed', '2-bed estimated guttering', 'm'], ['estimatedMetres3Bed', '3-bed estimated guttering', 'm'], ['estimatedMetres4Bed', '4-bed estimated guttering', 'm'], ['estimatedMetres5PlusBed', '5+ bed estimated guttering', 'm'], ['singleStoreyPerMetre', 'Single storey', '$/m'], ['doubleStoreyPerMetre', 'Double storey', '$/m'], ['structurePerMetre', 'Additional structure', '$/m'], ['gutterGuardMultiplier', 'Gutter guard', 'x'], ['difficultAccessMultiplier', 'Difficult access', 'x'], ['debrisMediumMultiplier', 'Debris medium', 'x'], ['debrisHeavyMultiplier', 'Debris heavy', 'x']]],
     ['Solar Panel Cleaning', 'solarCleaning', [['lessThan1YearPerPanel', '<1 year since clean', '$/panel'], ['oneToTwoYearsPerPanel', '1-2 years', '$/panel'], ['twoToFourYearsPerPanel', '2-4 years', '$/panel'], ['fourPlusYearsPerPanel', '4+ years / never', '$/panel'], ['hardAccessMultiplier', 'Double storey hard access', 'x']]],
     ['Window Cleaning', 'windowCleaning', [['singleExteriorPerPane', 'Single exterior', '$/pane'], ['doubleExteriorPerPane', 'Double exterior', '$/pane'], ['interiorMultiplier', 'Interior add-on', 'x'], ['postConstructionSinglePerPane', 'Post-construction single', '$/pane'], ['postConstructionDoublePerPane', 'Post-construction double', '$/pane'], ['flyscreenEach', 'Flyscreens', '$ each'], ['trackDeepCleanEach', 'Deep clean tracks', '$/window']]],
     ['House Washing', 'houseWashing', [['singleStoreyPhone', 'Single storey phone quote', '$'], ['doubleStoreyPhone', 'Double storey phone quote', '$'], ['patioSingleAddOn', 'Patio/veranda single', '+$'], ['patioMultipleAddOn', 'Patio/veranda multiple', '+$']]],
@@ -5154,7 +5154,13 @@ function _chatConfirmAddLineItem(payload) {
   let total = 0;
   let lines = payload.lines || [];
 
-  if (answers && serviceKey && SERVICES[serviceKey]) {
+  const isManualOverride = payload.manualOverride === true;
+  const explicitTotal = Number(payload.total ?? payload.price ?? payload.amount);
+
+  if (isManualOverride && Number.isFinite(explicitTotal) && explicitTotal > 0) {
+    total = explicitTotal;
+    lines = payload.lines || [{ label: payload.note || 'Manually overridden line item', value: `$${explicitTotal.toFixed(2)}` }];
+  } else if (answers && serviceKey && SERVICES[serviceKey]) {
     try {
       result = SERVICES[serviceKey].calcQuote(answers);
       if (result && typeof result.total === 'number' && Number.isFinite(result.total)) {
@@ -5171,7 +5177,6 @@ function _chatConfirmAddLineItem(payload) {
   }
 
   if ((!total || total <= 0) && (serviceKey === 'custom' || !SERVICES[serviceKey])) {
-    const explicitTotal = Number(payload.total || payload.price || payload.amount);
     if (Number.isFinite(explicitTotal) && explicitTotal > 0) {
       total = explicitTotal;
       lines = payload.lines || [{ label: payload.note || 'Custom line item', value: `$${explicitTotal.toFixed(2)}` }];
@@ -5192,7 +5197,8 @@ function _chatConfirmAddLineItem(payload) {
     inclusions: result?.inclusions || SERVICES[serviceKey]?.inclusions || [],
     savedAnswers: answers || {},
     scopeNotes: payload.estimateNote || '',
-    isCustom: true
+    isCustom: serviceKey === 'custom' || isManualOverride,
+    manualOverride: isManualOverride
   };
   const duplicate = multiServiceItems.some(item => _chatQuoteItemSignature(item) === _chatQuoteItemSignature(newItem));
   if (duplicate) {
@@ -5457,15 +5463,20 @@ function _chatMeasurementsToAnswers(payload) {
   }
 
   if (svc === 'gutter-cleaning') {
+    const sections = Array.isArray(payload.sections) ? payload.sections.map(section => ({
+      gutterMetresExact: Number(section.gutterMetresEstimate) || Number(section.gutterMetres) || Number(section.metres),
+      storeys: _storeys(section.storeys)
+    })).filter(section => section.gutterMetresExact > 0) : [];
     const metres = Number(payload.gutterMetresEstimate) || Number(payload.gutterMetres) || null;
-    if (!metres) return null;
+    if (!metres && !sections.length) return null;
     return {
-      gutterMetresExact: metres,
+      gutterMetresExact: metres || sections.reduce((sum, section) => sum + section.gutterMetresExact, 0),
       storeys:     _storeys(payload.storeys),
       gutter_guard: (payload.gutterGuard === true || payload.gutterGuard === 'Yes') ? 'Yes' : 'No',
       debris:      _debris(payload.lastCleaned || payload.debris),
       access:      (payload.difficultAccess || payload.hardAccess) ? 'Yes — difficult access' : 'No',
-      structures:  []
+      structures:  [],
+      sections
     };
   }
 

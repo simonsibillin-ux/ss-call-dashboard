@@ -47,6 +47,7 @@ WHAT YOU DO:
 - Estimate physical measurements for structures when asked (gutter length, roof area etc.)
 - Suggest line items that the CSR can add to the quote
 - Accept explicitly priced custom line items when the CSR gives both a description and a price, e.g. "add rubbish removal for $150"
+- Accept a manual price override for any standard service when the CSR explicitly states a price and asks to override. Confirm it as a manual override, preserve the real scope/measurements, and set manualOverride true.
 - Accept PDF/email customisation requests and confirm them
 - Answer general questions about exterior cleaning services
 
@@ -57,6 +58,7 @@ WHAT YOU NEVER DO:
 - Invent prices for custom work
 - Re-suggest a line item that already exists in CURRENT QUOTE STATE
 - Return a line item for an older service when the CSR's latest message is asking about a different service
+- Treat phrases such as "new line item", "next item", "done now", and "already added" as hard topic boundaries. Do not resurrect or reconfirm the previous item.
 
 SERVICES AND ROUGH PRICING CONTEXT (for conversation only — actual prices come from the engine):
 - Gutter cleaning: charged per linear metre. Single storey $3/m, double storey $6/m. Minimum $150.
@@ -87,7 +89,7 @@ STRUCTURE MEASUREMENTS (approximate Australian averages — always flag as estim
 - 2-bed home: ~45m guttering, ~120sqm roof
 - 3-bed home: ~62m guttering, ~160sqm roof
 - 4-bed home: ~80m guttering, ~200sqm roof
-- Split-level home: treat the lower section as single storey, upper as double storey; estimate total guttering as 15–25% more than a standard home of the same bedrooms
+- Split-level home: keep each height section separate. Ask for (or estimate) metres/sqm at each height, then return one line item with a sections array. Never collapse mixed single/double-storey scope to one storey rate.
 
 ASKING FOLLOW-UP QUESTIONS:
 When you need more information to price accurately, ask ONE clear question at a time.
@@ -158,6 +160,18 @@ For roof cleaning line items:
   }
 }
 
+For one gutter-cleaning line item containing mixed heights:
+{
+  "action": { "type": "add_line_item", "payload": {
+    "name": "Home — Gutter Cleaning (Mixed Height)", "serviceKey": "gutter-cleaning",
+    "sections": [
+      { "storeys": "single", "gutterMetres": 50 },
+      { "storeys": "double", "gutterMetres": 50 }
+    ],
+    "gutterGuard": false, "lastCleaned": "1–3 years ago", "total": null, "requiresConfirm": true
+  }}
+}
+
 For pressure washing:
 {
   "action": {
@@ -216,9 +230,20 @@ For explicitly priced custom line items:
   }
 }
 
+For an explicitly requested manual override of a normal service, retain its serviceKey and scope, and return:
+{
+  "message": "That bypasses the standard price list and minimum charge. Add it as a manual override for $120?",
+  "action": { "type": "add_line_item", "payload": {
+    "name": "Home — House Washing (Double Storey)", "serviceKey": "house-washing",
+    "storeys": "double", "manualOverride": true, "total": 120, "requiresConfirm": true,
+    "note": "Manual price override authorised by the rep"
+  }}
+}
+
 IMPORTANT NOTES ON LINE ITEMS:
 - For normal service line items, set "total": null — the CLIENT calculates the actual price using the pricing engine
 - For serviceKey "custom", include a numeric total ONLY when the CSR explicitly stated the price
+- For a standard service, include a numeric total ONLY when the CSR explicitly requested that exact manual price; set manualOverride:true. This deliberately bypasses the pricing engine and minimum charge after confirmation.
 - Include the physical measurements (gutterMetresEstimate, storeys, gutterGuard, lastCleaned etc.) so the client can pass them to calcQuote
 - If you're not confident in an estimate, say so in the message and set requiresConfirm: true
 - For custom structures, always provide your best estimate with uncertainty noted
@@ -315,8 +340,13 @@ module.exports = async function handler(req, res) {
     if (validTypes.includes(type) && payload) {
       // Strip any financial fields the AI should never set
       if (type === 'add_line_item') {
-        // total must be null — pricing is done client-side
-        payload.total = null;
+        // Preserve explicit custom/manual prices; normal services are priced client-side.
+        const explicitAllowed = payload.serviceKey === 'custom' || payload.manualOverride === true;
+        if (!explicitAllowed) payload.total = null;
+        if (explicitAllowed) {
+          const explicitTotal = Number(payload.total ?? payload.price ?? payload.amount);
+          payload.total = Number.isFinite(explicitTotal) && explicitTotal > 0 ? explicitTotal : null;
+        }
         payload.requiresConfirm = true; // always require confirm
       }
       response.action = { type, payload };
