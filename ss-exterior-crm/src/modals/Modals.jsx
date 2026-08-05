@@ -48,41 +48,55 @@ export default function Modals() {
     return clients.find(c => c.name === clientName) || null;
   };
 
-  const updateCreditUsage = async (client, deltaUsed) => {
-    if (!client || !deltaUsed) return;
-    let record = null;
+  const fetchCreditRecord = async (client) => {
+    if (!client) return null;
     if (client.id) {
       const { data } = await supabase.from("client_credits").select("*").eq("client_id", client.id).limit(1);
-      record = data?.[0] || null;
+      if (data?.[0]) return data[0];
     }
-    if (!record) {
-      const { data } = await supabase.from("client_credits").select("*").eq("client_name", client.name).limit(1);
-      record = data?.[0] || null;
-    }
-    const currentAvailable = Number(client.referral_credit || 0);
-    const totalEarned = Number(record?.total_earned ?? currentAvailable);
-    const nextUsed = Math.max(0, Number(record?.total_used || 0) + deltaUsed);
-    const nextAvailable = Math.max(0, totalEarned - nextUsed);
-    const payload = { client_id: client.id, client_name: client.name, total_earned: totalEarned, total_used: nextUsed, updated_at: new Date().toISOString() };
-    if (record?.id) {
-      await supabase.from("client_credits").update(payload).eq("id", record.id);
-    } else {
-      await supabase.from("client_credits").insert({ id:`CC-${Date.now()}`, ...payload });
-    }
+    const { data } = await supabase.from("client_credits").select("*").eq("client_name", client.name).limit(1);
+    return data?.[0] || null;
+  };
+
+  const writeCreditTotals = async (client, record, totals) => {
+    if (!client) return;
+    const payload = {
+      client_id: client.id,
+      client_name: client.name,
+      total_earned: Math.max(0, Number(totals.total_earned) || 0),
+      total_used: Math.max(0, Number(totals.total_used) || 0),
+      total_reserved: Math.max(0, Number(totals.total_reserved) || 0),
+      updated_at: new Date().toISOString(),
+    };
+    const nextAvailable = Math.max(0, payload.total_earned - payload.total_used - payload.total_reserved);
+    if (record?.id) await supabase.from("client_credits").update(payload).eq("id", record.id);
+    else await supabase.from("client_credits").insert({ id:`CC-${Date.now()}`, ...payload });
     await supabase.from("clients").update({ referral_credit: nextAvailable }).eq("id", client.id);
     setClients(cs => cs.map(c => c.id === client.id ? { ...c, referral_credit: nextAvailable } : c));
   };
 
-  const syncQuoteCreditUsage = async ({ previousClientName, nextClientName, previousItems = [], nextItems = [] }) => {
+  const updateCreditReservation = async (client, deltaReserved) => {
+    if (!client || !deltaReserved) return;
+    const record = await fetchCreditRecord(client);
+    const available = Number(client.referral_credit || 0);
+    const totalEarned = Number(record?.total_earned ?? (available + Math.max(0, deltaReserved)));
+    await writeCreditTotals(client, record, {
+      total_earned: totalEarned,
+      total_used: Number(record?.total_used || 0),
+      total_reserved: Math.max(0, Number(record?.total_reserved || 0) + deltaReserved),
+    });
+  };
+
+  const syncQuoteCreditReservation = async ({ previousClientName, nextClientName, previousItems = [], nextItems = [] }) => {
     const previousClient = findCreditClient(previousClientName, previousItems);
     const nextClient = findCreditClient(nextClientName, nextItems);
     if (previousClient?.id && nextClient?.id && previousClient.id === nextClient.id) {
       const delta = creditAmountForClient(nextItems, nextClient) - creditAmountForClient(previousItems, previousClient);
-      await updateCreditUsage(nextClient, delta);
+      await updateCreditReservation(nextClient, delta);
       return;
     }
-    await updateCreditUsage(previousClient, -creditAmountForClient(previousItems, previousClient));
-    await updateCreditUsage(nextClient, creditAmountForClient(nextItems, nextClient));
+    await updateCreditReservation(previousClient, -creditAmountForClient(previousItems, previousClient));
+    await updateCreditReservation(nextClient, creditAmountForClient(nextItems, nextClient));
   };
 
 
@@ -259,7 +273,7 @@ export default function Modals() {
       const cleanItems = items.map(it=>({description:it.description,qty:parseFloat(it.qty)||1,unit:it.unit||"",rate:parseFloat(it.rate)||0,total:it.total||0,...(it.is_credit?{is_credit:true,credit_client_id:it.credit_client_id}: {})}));
       const nq=linkRecordToClient({id:`Q-${Date.now()}`,client,date:new Date().toISOString().split("T")[0],total:grandTotal,status:"pending",items:cleanItems,notes}, client);
       await supabase.from("quotes").insert(nq);
-      await syncQuoteCreditUsage({ previousClientName:null, nextClientName:client, previousItems:[], nextItems:cleanItems });
+      await syncQuoteCreditReservation({ previousClientName:null, nextClientName:client, previousItems:[], nextItems:cleanItems });
       setQuotes(q=>[{...nq,total:grandTotal},...q]); closeModal();
     };
     return <Modal title="New quote" onClose={closeModal}>
@@ -461,7 +475,7 @@ export default function Modals() {
       const cleanItems = items.map(it=>({description:it.description,qty:parseFloat(it.qty)||1,unit:it.unit||"",rate:parseFloat(it.rate)||0,total:it.total||0,...(it.is_credit?{is_credit:true,credit_client_id:it.credit_client_id}: {})}));
       const upd = linkRecordToClient({client,notes,status,items:cleanItems,total:grandTotal}, client);
       await supabase.from("quotes").update(upd).eq("id",quote.id);
-      await syncQuoteCreditUsage({ previousClientName:quote.client, nextClientName:client, previousItems:quote.items || [], nextItems:cleanItems });
+      await syncQuoteCreditReservation({ previousClientName:quote.client, nextClientName:client, previousItems:quote.items || [], nextItems:cleanItems });
       setQuotes(qs=>qs.map(x=>x.id===quote.id?{...x,...upd}:x));
       if(status==="sent") sendClientPush(client,'📋 Quote Updated','Your quote has been updated. Check your portal to review the latest details.');
       if(status==="rejected") sendClientPush(client,'📋 Quote Update','Your quote status has been updated. Contact Simon on 0447 130 743 if you have any questions.');

@@ -49,7 +49,7 @@ export default function Quotes() {
     isAutopilotOn, logAutopilotAction, SMS_TEMPLATES,
     totalRevenue, totalExpenses, netProfit, creditClients, setCreditClients,
     goAI,
-    generatePortalLink, getClientEmail, getClientPhone, approveQuote, getClientByRecord,
+    generatePortalLink, getClientEmail, getClientPhone, approveQuote, rejectQuote, deleteQuote, getClientByRecord,
   } = ctx;
 
   const navigate = useNavigate();
@@ -110,9 +110,8 @@ export default function Quotes() {
             showToast("Quote approved — job created","success");
           }} style={{background:G.green,color:"#fff",border:"none",borderRadius:7,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>✓ Approve</button>}
           {(q.status==="pending"||q.status==="sent")&&<button onClick={async()=>{
-            await supabase.from("quotes").update({status:"rejected"}).eq("id",q.id);
-            setQuotes(qs=>qs.map(x=>x.id===q.id?{...x,status:"rejected"}:x));
-            showToast("Quote marked as rejected","warn");
+            await rejectQuote(q.id);
+            showToast("Quote marked as rejected and any reserved credit released","warn");
           }} style={{background:"#fce4ec",color:"#c62828",border:"none",borderRadius:7,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>✗ Reject</button>}
           <button onClick={()=>{const to=getClientEmail(q.client);const subject=`Quote from SS Exterior Services — ${q.client}`;const body="Hi "+q.client.split(" ")[0]+",\n\nPlease find your quote below.\n\nQuote: "+q.id+"\nDate: "+q.date+"\nTotal: $"+Number(q.total||0).toFixed(2)+"\n\nItems:\n"+(q.items||[]).map(it=>"• "+it.description+" — $"+Number(it.total||0).toFixed(2)).join("\n")+"\n\nThis quote is valid for 30 days.\n\nKind regards,\nSimon — SS Exterior Services\n0447 130 743";window.open("https://outlook.office.com/mail/deeplink/compose?to="+encodeURIComponent(to)+"&subject="+encodeURIComponent(subject)+"&body="+encodeURIComponent(body),"_blank");setTimeout(()=>printQuote(q),500);}} style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:7,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>Email</button>
           <button onClick={()=>printQuote(q)} style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:7,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>Print</button>
@@ -120,7 +119,7 @@ export default function Quotes() {
           <button onClick={()=>{const p=getClientPhone(q.client);const msg=SMS_TEMPLATES.quoteFollowUp(q.client,"$"+(q.total||0).toFixed(0));if(p){setSmsModal({phone:p,message:msg,recipient:q.client});}else{setSmsModal(true);}}} style={{background:"#e8f5e9",border:"none",borderRadius:7,padding:"6px 12px",fontSize:12,cursor:"pointer",fontWeight:600,color:"#2e7d32"}}>💬 SMS reminder</button>
           <button onClick={()=>{const cl=getClientByRecord(q);if(cl){setTab("clients"); navigate("/clients/"+cl.id);}else showToast("Client not found","warn");}} style={{background:"#e8eaf6",border:"none",borderRadius:7,padding:"6px 12px",fontSize:12,cursor:"pointer",fontWeight:600,color:"#3949ab"}}>👤 View client</button>
           <button onClick={e=>{e.stopPropagation();setEditItem(q);setModal("editQuote");}} style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:7,padding:"6px 12px",fontSize:12,cursor:"pointer",fontWeight:600}}>Edit</button>
-          <button onClick={()=>{showConfirm("Delete quote?",{title:"Delete quote",confirmLabel:"Delete",danger:true}).then(ok=>{if(ok)supabase.from("quotes").delete().eq("id",q.id).then(()=>setQuotes(qs=>qs.filter(x=>x.id!==q.id)));});}} style={{background:"#fce4ec",border:"none",borderRadius:7,padding:"6px 12px",fontSize:12,color:"#c62828",cursor:"pointer"}}>Delete</button>
+          <button onClick={()=>{showConfirm("Delete quote?",{title:"Delete quote",confirmLabel:"Delete",danger:true}).then(async ok=>{if(ok)await deleteQuote(q.id);});}} style={{background:"#fce4ec",border:"none",borderRadius:7,padding:"6px 12px",fontSize:12,color:"#c62828",cursor:"pointer"}}>Delete</button>
         </div>
         </div>}
       </div>)}

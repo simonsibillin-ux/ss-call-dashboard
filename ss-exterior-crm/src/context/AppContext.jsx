@@ -78,6 +78,7 @@ const [bookingRequests, setBookingRequests] = useState([]);
 const [referrals, setReferrals] = useState([]);
 const [unreadMessages, setUnreadMessages] = useState(0);
 const [clientDocuments, setClientDocuments] = useState([]);
+const [clientNotes, setClientNotes] = useState([]);
 const [manageCreditModal, setManageCreditModal] = useState(false);
 const [creditClients, setCreditClients] = useState([]);
 const [recurringModal, setRecurringModal] = useState(null); // {job} or null for new
@@ -216,9 +217,13 @@ useEffect(() => {
   // Load recurring jobs
   const {data:rjData} = await supabase.from("recurring_jobs").select("*").order("next_date",{ascending:true});
   if(rjData) setRecurringJobs(rjData);
-  // Load client documents
-  const {data:docsData} = await supabase.from("client_documents").select("*").order("uploaded_at",{ascending:false});
+  // Load client documents and notes. Notes are optional until the Supabase migration is applied.
+  const [{data:docsData}, {data:notesData}] = await Promise.all([
+    supabase.from("client_documents").select("*").order("uploaded_at",{ascending:false}),
+    supabase.from("client_notes").select("*").order("created_at",{ascending:false}),
+  ]);
   if(docsData) setClientDocuments(docsData);
+  if(notesData) setClientNotes(notesData);
   // Load messages, bookings, referrals
   const [{data:msgData},{data:bkData},{data:refData}] = await Promise.all([
     supabase.from("messages").select("*").order("created_at",{ascending:false}).limit(200),
@@ -865,10 +870,75 @@ const handleAiSend = async () => {
   setAiLoading(false);
 };
 
+const isCreditLine = (item) => item?.is_credit || String(item?.description || "").toLowerCase().includes("client credit");
+const creditAmountForClient = (items = [], client) => {
+  if (!client) return 0;
+  return items
+    .filter(isCreditLine)
+    .filter(item => !item.credit_client_id || item.credit_client_id === client.id)
+    .reduce((sum, item) => sum + Math.abs(Number(item.total || 0)), 0);
+};
+const findCreditClient = (clientName, items = []) => {
+  const creditClientId = items.find(item => item.credit_client_id)?.credit_client_id;
+  if (creditClientId) {
+    const byId = clients.find(c => c.id === creditClientId);
+    if (byId) return byId;
+  }
+  return findClientForRecord({ client: clientName }, clients);
+};
+const fetchCreditRecord = async (client) => {
+  if (!client) return null;
+  if (client.id) {
+    const { data } = await supabase.from("client_credits").select("*").eq("client_id", client.id).limit(1);
+    if (data?.[0]) return data[0];
+  }
+  const { data } = await supabase.from("client_credits").select("*").eq("client_name", client.name).limit(1);
+  return data?.[0] || null;
+};
+const writeCreditTotals = async (client, record, totals) => {
+  if (!client) return;
+  const payload = {
+    client_id: client.id,
+    client_name: client.name,
+    total_earned: Math.max(0, Number(totals.total_earned) || 0),
+    total_used: Math.max(0, Number(totals.total_used) || 0),
+    total_reserved: Math.max(0, Number(totals.total_reserved) || 0),
+    updated_at: new Date().toISOString(),
+  };
+  const nextAvailable = Math.max(0, payload.total_earned - payload.total_used - payload.total_reserved);
+  if (record?.id) await supabase.from("client_credits").update(payload).eq("id", record.id);
+  else await supabase.from("client_credits").insert({ id:`CC-${Date.now()}`, ...payload });
+  await supabase.from("clients").update({ referral_credit: nextAvailable }).eq("id", client.id);
+  setClients(cs => cs.map(c => c.id === client.id ? { ...c, referral_credit: nextAvailable } : c));
+};
+const finalizeQuoteCredit = async (quote) => {
+  const client = findCreditClient(quote?.client, quote?.items || []);
+  const amount = creditAmountForClient(quote?.items || [], client);
+  if (!client || amount <= 0) return;
+  const record = await fetchCreditRecord(client);
+  await writeCreditTotals(client, record, {
+    total_earned: Number(record?.total_earned ?? (Number(client.referral_credit || 0) + amount)),
+    total_used: Number(record?.total_used || 0) + amount,
+    total_reserved: Math.max(0, Number(record?.total_reserved || 0) - amount),
+  });
+};
+const releaseQuoteCredit = async (quote) => {
+  const client = findCreditClient(quote?.client, quote?.items || []);
+  const amount = creditAmountForClient(quote?.items || [], client);
+  if (!client || amount <= 0) return;
+  const record = await fetchCreditRecord(client);
+  await writeCreditTotals(client, record, {
+    total_earned: Number(record?.total_earned ?? (Number(client.referral_credit || 0) + amount)),
+    total_used: Number(record?.total_used || 0),
+    total_reserved: Math.max(0, Number(record?.total_reserved || 0) - amount),
+  });
+};
+
 const approveQuote = async (id) => {
   try {
   const q = quotes.find(x=>x.id===id);
   if (!q) return;
+  await finalizeQuoteCredit(q);
   await supabase.from("quotes").update({status:"approved"}).eq("id",id);
   setQuotes(qs=>qs.map(x=>x.id===id?{...x,status:"approved"}:x));
   const today = new Date().toISOString().split("T")[0];
@@ -902,9 +972,23 @@ const approveQuote = async (id) => {
   }
   } catch(err) { console.error("[approveQuote] ERROR:", err?.message, err); }
 };
-const deleteQuote = async (id) => { await supabase.from("quotes").delete().eq("id",id); setQuotes(qs=>qs.filter(x=>x.id!==id)); setExpandedId(null); };
+const rejectQuote = async (id) => {
+  const q = quotes.find(x=>x.id===id);
+  if (!q) return;
+  await releaseQuoteCredit(q);
+  await supabase.from("quotes").update({status:"rejected"}).eq("id",id);
+  setQuotes(qs=>qs.map(x=>x.id===id?{...x,status:"rejected"}:x));
+};
+const deleteQuote = async (id) => {
+  const q = quotes.find(x=>x.id===id);
+  if (q) await releaseQuoteCredit(q);
+  await supabase.from("quotes").delete().eq("id",id);
+  setQuotes(qs=>qs.filter(x=>x.id!==id));
+  setExpandedId(null);
+};
 
 const convertToInvoice = async (q) => {
+  await finalizeQuoteCredit(q);
   const inv={id:`INV-${Date.now()}`,quote_id:q.id,client:q.client,...(q.client_id ? { client_id: q.client_id } : {}),date:new Date().toISOString().split("T")[0],due_date:new Date(Date.now()+14*864e5).toISOString().split("T")[0],items:q.items||[],total:q.total||0,status:"sent",notes:q.notes||""};
   await supabase.from("invoices").insert(inv).then(()=>{}).catch(()=>{});
   setInvoices(i=>[inv,...i]); setTab("invoices"); setTimeout(()=>{ if(navigateFnRef.current) navigateFnRef.current("/invoices"); },100);
@@ -957,6 +1041,7 @@ const createRecurringCalendarSeries = async (rec, startDate, monthsAhead = 12) =
     bookingRequests, setBookingRequests,
     referrals, setReferrals,
     clientDocuments, setClientDocuments,
+    clientNotes, setClientNotes,
     creditClients, setCreditClients,
     // UI state
     loading,
@@ -1033,7 +1118,7 @@ const createRecurringCalendarSeries = async (rec, startDate, monthsAhead = 12) =
     // App helpers
     generatePortalLink, getClientEmail, getClientPhone,
     openOutlookEmail,
-    approveQuote, generateMorningBriefing, createRecurringCalendarSeries,
+    approveQuote, rejectQuote, deleteQuote, generateMorningBriefing, createRecurringCalendarSeries,
     supportsClientIds, getClientByRecord, getClientIdForName, belongsToClient, linkRecordToClient,
     // Computed
     totalRevenue, totalExpenses, netProfit,

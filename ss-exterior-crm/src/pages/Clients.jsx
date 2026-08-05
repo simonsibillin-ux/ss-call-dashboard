@@ -8,6 +8,7 @@ import { ClientDocumentsPanel } from "../components/InboxTab.jsx";
 
 const money = (value) => "$" + Number(value || 0).toLocaleString("en-AU", { maximumFractionDigits: 0 });
 const shortDate = (date) => date ? new Date(date + "T12:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "Not set";
+const compactDate = (date) => date ? new Date(date + "T12:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short" }) : "None";
 
 function SectionTitle({ children, action }) {
   return (
@@ -20,9 +21,9 @@ function SectionTitle({ children, action }) {
 
 function MiniStat({ label, value, tone = "#2e7d32" }) {
   return (
-    <div style={{border:"1px solid #dfe8dc",borderRadius:8,padding:"10px 12px",background:"#fff",minWidth:0}}>
+    <div style={{border:"1px solid #dfe8dc",borderRadius:8,padding:"10px 12px",background:"#fff",minWidth:138,flex:"1 1 138px"}}>
       <div style={{fontSize:11,color:"#66736a",fontWeight:700,marginBottom:3}}>{label}</div>
-      <div style={{fontSize:15,fontWeight:850,color:tone,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</div>
+      <div style={{fontSize:15,fontWeight:850,color:tone,lineHeight:1.25,overflowWrap:"anywhere"}}>{value}</div>
     </div>
   );
 }
@@ -160,8 +161,12 @@ function ClientCreditPanel({ client, G, supabase, setClients, referrals, setRefe
   const [note, setNote] = useState("");
   const [editEarned, setEditEarned] = useState("");
   const [editUsed, setEditUsed] = useState("");
+  const [editReserved, setEditReserved] = useState("");
 
-  const available = Math.max(0, Number(credit?.total_earned || 0) - Number(credit?.total_used || 0));
+  const totalEarned = Number(credit?.total_earned ?? client.referral_credit ?? 0);
+  const totalUsed = Number(credit?.total_used || 0);
+  const totalReserved = Number(credit?.total_reserved || 0);
+  const available = credit ? Math.max(0, totalEarned - totalUsed - totalReserved) : Math.max(0, Number(client.referral_credit || 0));
   const syncClientBalance = (nextAvailable) => {
     setClients(items => items.map(item => item.id === client.id ? { ...item, referral_credit: Math.max(0, Number(nextAvailable) || 0) } : item));
   };
@@ -180,6 +185,7 @@ function ClientCreditPanel({ client, G, supabase, setClients, referrals, setRefe
     setCredit(record);
     setEditEarned(String(Number(record?.total_earned || client.referral_credit || 0).toFixed(2)));
     setEditUsed(String(Number(record?.total_used || 0).toFixed(2)));
+    setEditReserved(String(Number(record?.total_reserved || 0).toFixed(2)));
     setLoading(false);
   };
 
@@ -187,12 +193,13 @@ function ClientCreditPanel({ client, G, supabase, setClients, referrals, setRefe
     loadCredit();
   }, [client.id, client.name]);
 
-  const persistCredit = async ({ totalEarned, totalUsed, reason, notify = false }) => {
+  const persistCredit = async ({ totalEarned, totalUsed, totalReserved = 0, reason, notify = false }) => {
     const next = {
       client_id: client.id,
       client_name: client.name,
       total_earned: Math.max(0, Number(totalEarned) || 0),
       total_used: Math.max(0, Number(totalUsed) || 0),
+      total_reserved: Math.max(0, Number(totalReserved) || 0),
       updated_at: new Date().toISOString(),
     };
     const payload = credit?.id ? next : { ...next, id: `CC-${Date.now()}` };
@@ -204,11 +211,12 @@ function ClientCreditPanel({ client, G, supabase, setClients, referrals, setRefe
       return null;
     }
     const saved = { ...(credit || {}), ...payload };
-    const nextAvailable = Math.max(0, saved.total_earned - saved.total_used);
+    const nextAvailable = Math.max(0, saved.total_earned - saved.total_used - saved.total_reserved);
     await supabase.from("clients").update({ referral_credit: nextAvailable }).eq("id", client.id);
     setCredit(saved);
     setEditEarned(saved.total_earned.toFixed(2));
     setEditUsed(saved.total_used.toFixed(2));
+    setEditReserved(saved.total_reserved.toFixed(2));
     syncClientBalance(nextAvailable);
     if (reason) {
       const ref = { id:`REF-MAN-${Date.now()}`, referrer_name:client.name, client_id:client.id, referred_name:reason, status:"paid", credit_amount:Number(amount)||0, job_value:0, created_at:new Date().toISOString() };
@@ -228,8 +236,9 @@ function ClientCreditPanel({ client, G, supabase, setClients, referrals, setRefe
       return;
     }
     const saved = await persistCredit({
-      totalEarned: Number(credit?.total_earned || 0) + add,
+      totalEarned: Number(credit?.total_earned || client.referral_credit || 0) + add,
       totalUsed: Number(credit?.total_used || 0),
+      totalReserved: Number(credit?.total_reserved || 0),
       reason: "Manual: " + (note || "credit adjustment"),
       notify: true,
     });
@@ -241,7 +250,7 @@ function ClientCreditPanel({ client, G, supabase, setClients, referrals, setRefe
   };
 
   const saveEdit = async () => {
-    const saved = await persistCredit({ totalEarned: Number(editEarned), totalUsed: Number(editUsed) });
+    const saved = await persistCredit({ totalEarned: Number(editEarned), totalUsed: Number(editUsed), totalReserved: Number(editReserved) });
     if (saved) showToast("Credit updated", "success");
   };
 
@@ -252,7 +261,7 @@ function ClientCreditPanel({ client, G, supabase, setClients, referrals, setRefe
       showToast("Cannot use more than the available credit", "warn");
       return;
     }
-    const saved = await persistCredit({ totalEarned: Number(credit?.total_earned || 0), totalUsed: Number(credit?.total_used || 0) + used });
+    const saved = await persistCredit({ totalEarned, totalUsed: totalUsed + used, totalReserved });
     if (saved) showToast("Credit marked as used", "success");
   };
 
@@ -263,12 +272,11 @@ function ClientCreditPanel({ client, G, supabase, setClients, referrals, setRefe
     setCredit(null);
     setEditEarned("0.00");
     setEditUsed("0.00");
+    setEditReserved("0.00");
     syncClientBalance(0);
     showToast("Credit deleted", "success");
   };
 
-  const totalEarned = Number(credit?.total_earned || 0);
-  const totalUsed = Number(credit?.total_used || 0);
   const inputStyle = {width:"100%",border:`1px solid ${G.border}`,borderRadius:8,padding:"8px 10px",fontSize:13,fontFamily:"inherit",boxSizing:"border-box",outline:"none",background:"#fff"};
 
   return (
@@ -276,8 +284,9 @@ function ClientCreditPanel({ client, G, supabase, setClients, referrals, setRefe
       <div style={{padding:14}}>
         <SectionTitle>Client Credit</SectionTitle>
         {loading ? <div style={{padding:16,color:G.muted,fontSize:13}}>Loading credit...</div> : <>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:8,marginBottom:12}}>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
             <MiniStat label="Available" value={money(available)} tone={available > 0 ? "#2e7d32" : "#66736a"}/>
+            <MiniStat label="Reserved" value={money(totalReserved)} tone={totalReserved > 0 ? "#e65100" : "#66736a"}/>
             <MiniStat label="Total earned" value={money(totalEarned)}/>
             <MiniStat label="Total used" value={money(totalUsed)} tone="#1565c0"/>
           </div>
@@ -294,15 +303,16 @@ function ClientCreditPanel({ client, G, supabase, setClients, referrals, setRefe
           </div>
           <div style={{border:"1px solid #dfe8dc",borderRadius:8,padding:12,background:"#fff"}}>
             <div style={{fontSize:12,fontWeight:800,color:G.muted,textTransform:"uppercase",marginBottom:8}}>Manage balance</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:8,marginBottom:10}}>
               <label style={{fontSize:12,fontWeight:800,color:G.muted}}>Total earned<input value={editEarned} onChange={e=>setEditEarned(e.target.value)} type="number" min="0" step="0.01" style={{...inputStyle,marginTop:4}}/></label>
               <label style={{fontSize:12,fontWeight:800,color:G.muted}}>Total used<input value={editUsed} onChange={e=>setEditUsed(e.target.value)} type="number" min="0" step="0.01" style={{...inputStyle,marginTop:4}}/></label>
+              <label style={{fontSize:12,fontWeight:800,color:G.muted}}>Reserved<input value={editReserved} onChange={e=>setEditReserved(e.target.value)} type="number" min="0" step="0.01" style={{...inputStyle,marginTop:4}}/></label>
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
               <button onClick={saveEdit} style={{background:G.green,color:"#fff",border:"none",borderRadius:8,padding:"8px 12px",fontSize:12,fontWeight:900,cursor:"pointer"}}>Save balance</button>
               <button onClick={markUsed} disabled={available <= 0} style={{background:"#e3f2fd",color:"#1565c0",border:"none",borderRadius:8,padding:"8px 12px",fontSize:12,fontWeight:800,cursor:"pointer",opacity:available <= 0 ? .55 : 1}}>Mark used</button>
-              <button onClick={()=>persistCredit({ totalEarned, totalUsed: totalEarned })} disabled={totalEarned <= 0} style={{background:"#fff8e1",color:"#e65100",border:"none",borderRadius:8,padding:"8px 12px",fontSize:12,fontWeight:800,cursor:"pointer",opacity:totalEarned <= 0 ? .55 : 1}}>Unavailable</button>
-              <button onClick={()=>persistCredit({ totalEarned, totalUsed: 0 })} disabled={totalEarned <= 0} style={{background:"#e8f5e9",color:"#2e7d32",border:"none",borderRadius:8,padding:"8px 12px",fontSize:12,fontWeight:800,cursor:"pointer",opacity:totalEarned <= 0 ? .55 : 1}}>Available</button>
+              <button onClick={()=>persistCredit({ totalEarned, totalUsed: totalEarned, totalReserved: 0 })} disabled={totalEarned <= 0} style={{background:"#fff8e1",color:"#e65100",border:"none",borderRadius:8,padding:"8px 12px",fontSize:12,fontWeight:800,cursor:"pointer",opacity:totalEarned <= 0 ? .55 : 1}}>Unavailable</button>
+              <button onClick={()=>persistCredit({ totalEarned, totalUsed: 0, totalReserved: 0 })} disabled={totalEarned <= 0} style={{background:"#e8f5e9",color:"#2e7d32",border:"none",borderRadius:8,padding:"8px 12px",fontSize:12,fontWeight:800,cursor:"pointer",opacity:totalEarned <= 0 ? .55 : 1}}>Available</button>
               <button onClick={deleteCredit} style={{background:"#fce4ec",color:"#c62828",border:"none",borderRadius:8,padding:"8px 12px",fontSize:12,fontWeight:800,cursor:"pointer",marginLeft:"auto"}}>Delete credit</button>
             </div>
           </div>
@@ -501,12 +511,12 @@ export default function Clients() {
         {(selectedClient.referral_credit || 0) > 0 && <div style={{padding:"10px 18px",borderTop:`1px solid ${G.border}`,background:"#e8f5e9",color:"#255d27",fontSize:13,fontWeight:850}}>
           Client has {money(selectedClient.referral_credit)} credit available.
         </div>}
-        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(6,minmax(0,1fr))",gap:8,padding:12,borderTop:`1px solid ${G.border}`,background:"#fbfdf9"}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:12,borderTop:`1px solid ${G.border}`,background:"#fbfdf9"}}>
           <MiniStat label="Outstanding" value={money(profileData.outstanding)} tone={profileData.outstanding > 0 ? "#c62828" : "#2e7d32"}/>
           <MiniStat label="Credit" value={money(selectedClient.referral_credit)} tone={(selectedClient.referral_credit || 0) > 0 ? "#2e7d32" : "#66736a"}/>
           <MiniStat label="Open quotes" value={profileData.clientQuotes.filter(q=>["pending","sent"].includes((q.status||"").toLowerCase())).length}/>
           <MiniStat label="Upcoming jobs" value={profileData.clientJobs.filter(j=>j.status !== "Paid").length}/>
-          <MiniStat label="Last service" value={profileData.lastJob ? shortDate(profileData.lastJob.completionDate || profileData.lastJob.completion_date) : "None"}/>
+          <MiniStat label="Last service" value={compactDate(profileData.lastJob?.completionDate || profileData.lastJob?.completion_date)}/>
           <MiniStat label="Lifetime value" value={money(profileData.paidJobs.reduce((s,j)=>s+Number(j.revenue||0),0))}/>
         </div>
       </div>

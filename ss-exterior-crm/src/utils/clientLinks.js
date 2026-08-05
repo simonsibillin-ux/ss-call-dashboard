@@ -42,7 +42,7 @@ export function withClientLink(record, client, supportsClientIds = false, nameFi
   };
 }
 
-export function buildClientActivity(client, { jobs = [], quotes = [], invoices = [], recurringJobs = [], messages = [], documents = [] }) {
+export function buildClientActivity(client, { jobs = [], quotes = [], invoices = [], recurringJobs = [], messages = [], documents = [], notes = [] }) {
   const activities = [];
   jobs.filter(job => recordBelongsToClient(job, client)).forEach(job => {
     activities.push({
@@ -94,6 +94,14 @@ export function buildClientActivity(client, { jobs = [], quotes = [], invoices =
       date: document.uploaded_at || document.created_at || "",
       title: document.file_name || "Document uploaded",
       record: document,
+    });
+  });
+  notes.filter(note => recordBelongsToClient(note, client)).forEach(note => {
+    activities.push({
+      type: "Note",
+      date: note.created_at || "",
+      title: (note.note || "").slice(0, 100),
+      record: note,
     });
   });
   return activities.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
