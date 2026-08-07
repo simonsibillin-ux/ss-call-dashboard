@@ -70,6 +70,7 @@ function RelationshipPanel({ client, G, supabase, setClients }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [campaigns, setCampaigns] = useState([]);
+  const [linkedLead, setLinkedLead] = useState(null);
   const [form, setForm] = useState({
     name: client.name || "",
     phone: client.phone || "",
@@ -98,6 +99,39 @@ function RelationshipPanel({ client, G, supabase, setClients }) {
     });
     setEditing(false);
   }, [client.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadLinkedLead = async () => {
+      let result = await supabase.from("bookings")
+        .select("id,client_id,client_name,ad_source,campaign_name,campaign_id,notes,created_at")
+        .eq("client_id", client.id)
+        .not("ad_source", "is", null)
+        .order("created_at", { ascending:false })
+        .limit(1);
+      if (!result.error && !result.data?.length && client.name) {
+        result = await supabase.from("bookings")
+          .select("id,client_id,client_name,ad_source,campaign_name,campaign_id,notes,created_at")
+          .eq("client_name", client.name)
+          .not("ad_source", "is", null)
+          .order("created_at", { ascending:false })
+          .limit(1);
+      }
+      const lead = result.data?.[0] || null;
+      if (cancelled) return;
+      setLinkedLead(lead);
+      if (lead) {
+        setForm(prev => ({
+          ...prev,
+          source: normaliseLeadSource(lead.ad_source) || prev.source,
+          campaign_name: lead.campaign_name || prev.campaign_name,
+          campaign_id: lead.campaign_id || prev.campaign_id,
+        }));
+      }
+    };
+    loadLinkedLead();
+    return () => { cancelled = true; };
+  }, [client.id, client.name, supabase]);
 
   useEffect(() => {
     if (!editing || form.source !== "Meta Ads" || campaigns.length) return;
@@ -134,32 +168,40 @@ function RelationshipPanel({ client, G, supabase, setClients }) {
       showToast("Could not save relationship details: " + error.message, "error");
       return;
     }
-    const { data: profileLeads, error: leadLookupError } = await supabase.from("bookings")
-      .select("id")
+    let leadLookup = await supabase.from("bookings")
+      .select("id,notes,ad_source")
       .eq("client_id", client.id)
-      .eq("source", "Client profile")
+      .not("ad_source", "is", null)
+      .order("created_at", { ascending:false })
       .limit(1);
-    let leadError = leadLookupError;
-    const existingLeadId = profileLeads?.[0]?.id;
+    if (!leadLookup.error && !leadLookup.data?.length && client.name) {
+      leadLookup = await supabase.from("bookings")
+        .select("id,notes,ad_source")
+        .eq("client_name", client.name)
+        .not("ad_source", "is", null)
+        .order("created_at", { ascending:false })
+        .limit(1);
+    }
+    let leadError = leadLookup.error;
+    const existingLead = leadLookup.data?.[0] || null;
     if (!leadError && form.source === "Meta Ads") {
       const leadRecord = {
         client_name: form.name.trim() || client.name,
         client_id: client.id,
-        service: "General enquiry",
         address: form.address || "",
-        notes: "Added from client profile",
-        source: "Client profile",
         ad_source: "Meta Ads",
         campaign_name: form.campaign_name || null,
         campaign_id: form.campaign_id || null,
       };
-      const result = existingLeadId
-        ? await supabase.from("bookings").update(leadRecord).eq("id", existingLeadId)
-        : await supabase.from("bookings").insert({ ...leadRecord, status:"pending", created_at:new Date().toISOString() });
+      const result = existingLead
+        ? await supabase.from("bookings").update(leadRecord).eq("id", existingLead.id)
+        : await supabase.from("bookings").insert({ ...leadRecord, service:"General enquiry", notes:"Added from client profile", status:"pending", created_at:new Date().toISOString() }).select("id").single();
       leadError = result.error;
-    } else if (!leadError && existingLeadId) {
-      const result = await supabase.from("bookings").delete().eq("id", existingLeadId);
+      if (!leadError) setLinkedLead(prev => ({ ...prev, id:existingLead?.id || result.data?.id, ...leadRecord }));
+    } else if (!leadError && existingLead?.notes === "Added from client profile") {
+      const result = await supabase.from("bookings").delete().eq("id", existingLead.id);
       leadError = result.error;
+      if (!leadError) setLinkedLead(null);
     }
     setSaving(false);
     setClients(items => items.map(item => item.id === client.id ? { ...item, ...clientUpdates, name: form.name.trim() || item.name } : item));
@@ -192,12 +234,14 @@ function RelationshipPanel({ client, G, supabase, setClients }) {
     );
   }
 
+  const displayedSource = normaliseLeadSource(linkedLead?.ad_source || client.source);
+  const displayedCampaign = linkedLead?.campaign_name || client.campaign_name;
   const details = [
     ["Phone", client.phone],
     ["Email", client.email],
     ["Address", [client.address, client.suburb].filter(Boolean).join(", ")],
-    ["Source", client.source],
-    ["Campaign", client.source === "Meta Ads" ? client.campaign_name : ""],
+    ["Source", displayedSource],
+    ["Campaign", displayedSource === "Meta Ads" ? displayedCampaign : ""],
     ["Notes", client.notes],
   ].filter(([, value]) => value);
 
