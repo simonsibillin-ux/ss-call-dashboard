@@ -9,6 +9,16 @@ import { ClientDocumentsPanel } from "../components/InboxTab.jsx";
 const money = (value) => "$" + Number(value || 0).toLocaleString("en-AU", { maximumFractionDigits: 0 });
 const shortDate = (date) => date ? new Date(date + "T12:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "Not set";
 const compactDate = (date) => date ? new Date(date + "T12:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short" }) : "None";
+const LEAD_SOURCES = [
+  { value:"Inbound phone call", label:"📞 Inbound phone call" },
+  { value:"Meta Ads", label:"📘 Meta / Facebook Ad" },
+  { value:"Google Ads", label:"🔍 Google Ad" },
+  { value:"Website", label:"🌐 Website" },
+  { value:"Referral", label:"🤝 Referral / word of mouth" },
+  { value:"Repeat customer", label:"🔄 Repeat customer" },
+  { value:"Other", label:"❓ Other" },
+];
+const normaliseLeadSource = (source = "") => source === "Meta / Facebook Ad" ? "Meta Ads" : source;
 
 function SectionTitle({ children, action }) {
   return (
@@ -59,15 +69,18 @@ function ClickableRecordCard({ children, onClick, style = {} }) {
 function RelationshipPanel({ client, G, supabase, setClients }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [campaigns, setCampaigns] = useState([]);
   const [form, setForm] = useState({
     name: client.name || "",
     phone: client.phone || "",
     email: client.email || "",
     address: client.address || "",
     suburb: client.suburb || "",
-    source: client.source || "",
+    source: normaliseLeadSource(client.source),
     notes: client.notes || "",
     status: client.status || "active",
+    campaign_name: client.campaign_name || "",
+    campaign_id: client.campaign_id || "",
   });
 
   useEffect(() => {
@@ -77,17 +90,32 @@ function RelationshipPanel({ client, G, supabase, setClients }) {
       email: client.email || "",
       address: client.address || "",
       suburb: client.suburb || "",
-      source: client.source || "",
+      source: normaliseLeadSource(client.source),
       notes: client.notes || "",
       status: client.status || "active",
+      campaign_name: client.campaign_name || "",
+      campaign_id: client.campaign_id || "",
     });
     setEditing(false);
   }, [client.id]);
 
+  useEffect(() => {
+    if (!editing || form.source !== "Meta Ads" || campaigns.length) return;
+    fetch("/api/meta-ads?days=7")
+      .then(response => response.ok ? response.json() : Promise.reject(new Error("Campaigns unavailable")))
+      .then(data => setCampaigns(data.campaigns || []))
+      .catch(() => setCampaigns([]));
+  }, [editing, form.source, campaigns.length]);
+
   const update = (key) => (event) => setForm(prev => ({ ...prev, [key]: event.target.value }));
   const save = async () => {
     setSaving(true);
-    const { error } = await supabase.from("clients").update(form).eq("id", client.id);
+    const clientUpdates = {
+      ...form,
+      campaign_name: form.source === "Meta Ads" ? (form.campaign_name || null) : null,
+      campaign_id: form.source === "Meta Ads" ? (form.campaign_id || null) : null,
+    };
+    const { error } = await supabase.from("clients").update(clientUpdates).eq("id", client.id);
     if (!error && form.name.trim() && form.name.trim() !== client.name) {
       const nextName = form.name.trim();
       await Promise.all([
@@ -101,14 +129,42 @@ function RelationshipPanel({ client, G, supabase, setClients }) {
         supabase.from("client_credits").update({ client_name: nextName }).eq("client_id", client.id),
       ]);
     }
-    setSaving(false);
     if (error) {
+      setSaving(false);
       showToast("Could not save relationship details: " + error.message, "error");
       return;
     }
-    setClients(items => items.map(item => item.id === client.id ? { ...item, ...form, name: form.name.trim() || item.name } : item));
+    const { data: profileLeads, error: leadLookupError } = await supabase.from("bookings")
+      .select("id")
+      .eq("client_id", client.id)
+      .eq("source", "Client profile")
+      .limit(1);
+    let leadError = leadLookupError;
+    const existingLeadId = profileLeads?.[0]?.id;
+    if (!leadError && form.source === "Meta Ads") {
+      const leadRecord = {
+        client_name: form.name.trim() || client.name,
+        client_id: client.id,
+        service: "General enquiry",
+        address: form.address || "",
+        notes: "Added from client profile",
+        source: "Client profile",
+        ad_source: "Meta Ads",
+        campaign_name: form.campaign_name || null,
+        campaign_id: form.campaign_id || null,
+      };
+      const result = existingLeadId
+        ? await supabase.from("bookings").update(leadRecord).eq("id", existingLeadId)
+        : await supabase.from("bookings").insert({ ...leadRecord, status:"pending", created_at:new Date().toISOString() });
+      leadError = result.error;
+    } else if (!leadError && existingLeadId) {
+      const result = await supabase.from("bookings").delete().eq("id", existingLeadId);
+      leadError = result.error;
+    }
+    setSaving(false);
+    setClients(items => items.map(item => item.id === client.id ? { ...item, ...clientUpdates, name: form.name.trim() || item.name } : item));
     setEditing(false);
-    showToast("Relationship details saved", "success");
+    showToast(leadError ? "Client saved, but the Marketing Hub lead could not be synced: " + leadError.message : "Relationship details saved", leadError ? "error" : "success");
   };
 
   if (editing) {
@@ -124,7 +180,8 @@ function RelationshipPanel({ client, G, supabase, setClients }) {
             <label style={{fontSize:12,fontWeight:800,color:G.muted,gridColumn:"1/-1"}}>Street address<input value={form.address} onChange={update("address")} style={{...inputStyle,marginTop:4}}/></label>
             <label style={{fontSize:12,fontWeight:800,color:G.muted}}>Suburb<input value={form.suburb} onChange={update("suburb")} style={{...inputStyle,marginTop:4}}/></label>
             <label style={{fontSize:12,fontWeight:800,color:G.muted}}>Status<select value={form.status} onChange={update("status")} style={{...inputStyle,marginTop:4}}><option value="active">active</option><option value="pending">pending</option><option value="follow-up">follow-up</option><option value="overdue">overdue</option><option value="inactive">inactive</option><option value="completed">completed</option></select></label>
-            <label style={{fontSize:12,fontWeight:800,color:G.muted,gridColumn:"1/-1"}}>Lead source<input value={form.source} onChange={update("source")} style={{...inputStyle,marginTop:4}}/></label>
+            <label style={{fontSize:12,fontWeight:800,color:G.muted,gridColumn:"1/-1"}}>Lead source<select value={form.source} onChange={event => setForm(prev => ({...prev, source:event.target.value, campaign_name:"", campaign_id:""}))} style={{...inputStyle,marginTop:4}}><option value="">— Select lead source —</option>{LEAD_SOURCES.map(source => <option key={source.value} value={source.value}>{source.label}</option>)}</select></label>
+            {form.source === "Meta Ads" && <label style={{fontSize:12,fontWeight:800,color:G.muted,gridColumn:"1/-1"}}>Meta campaign<select value={form.campaign_name} onChange={event => { const campaign = campaigns.find(item => item.name === event.target.value); setForm(prev => ({...prev,campaign_name:event.target.value,campaign_id:campaign?.id || ""})); }} style={{...inputStyle,marginTop:4}}><option value="">— Select campaign —</option>{form.campaign_name && !campaigns.some(campaign => campaign.name === form.campaign_name) && <option value={form.campaign_name}>{form.campaign_name}</option>}{campaigns.map(campaign => <option key={campaign.id} value={campaign.name}>{campaign.name}</option>)}</select>{!campaigns.length && <span style={{display:"block",fontSize:11,fontWeight:500,color:G.muted,marginTop:4}}>No live Meta campaigns are currently available.</span>}</label>}
             <label style={{fontSize:12,fontWeight:800,color:G.muted,gridColumn:"1/-1"}}>Important notes<textarea value={form.notes} onChange={update("notes")} rows={3} style={{...inputStyle,marginTop:4,resize:"vertical"}}/></label>
           </div>
           <div style={{display:"flex",justifyContent:"flex-end",marginTop:12}}>
@@ -140,6 +197,7 @@ function RelationshipPanel({ client, G, supabase, setClients }) {
     ["Email", client.email],
     ["Address", [client.address, client.suburb].filter(Boolean).join(", ")],
     ["Source", client.source],
+    ["Campaign", client.source === "Meta Ads" ? client.campaign_name : ""],
     ["Notes", client.notes],
   ].filter(([, value]) => value);
 

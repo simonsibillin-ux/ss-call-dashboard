@@ -1,0 +1,1436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Marketing Hub — SS Exterior Services</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',system-ui,sans-serif}
+:root{--green:#6DC135;--dark:#4a9020;--black:#1a1a1a;--bg:#f5f5f5;--border:#e0e0e0;--muted:#666;--warn:#e65100}
+html,body{height:100%;overflow:hidden;background:var(--bg)}
+#app{display:flex;height:100vh;width:100vw}
+
+/* Sidebar */
+#sidebar{width:180px;background:var(--black);display:flex;flex-direction:column;flex-shrink:0}
+#sidebar-logo{padding:10px 13px;background:var(--green);display:flex;align-items:center;justify-content:center;border-bottom:1px solid #3a7a20}
+#sidebar-logo img{max-height:52px;max-width:154px;object-fit:contain}
+.nav-btn{background:transparent;color:#aaa;border:none;text-align:left;padding:11px 13px;width:100%;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px;transition:background .1s}
+.nav-btn:hover{background:#222;color:#fff}
+.nav-btn.active{background:var(--green);color:#fff}
+.nav-btn span.icon{font-size:14px;opacity:.85;flex-shrink:0}
+#sidebar-back{margin-top:auto;padding:12px 13px;border-top:1px solid #222}
+#sidebar-back a{color:#555;font-size:12px;text-decoration:none}
+#sidebar-back a:hover{color:#aaa}
+#sidebar-info{padding:0 13px 12px;color:#444;font-size:10px;line-height:1.9}
+
+/* Main */
+#main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+
+/* Top bar */
+#topbar{background:#fff;border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+#topbar-left{display:flex;align-items:center;gap:14px}
+#topbar-title{font-weight:800;font-size:16px;color:var(--black)}
+#topbar-chips{display:flex;gap:8px}
+.chip{font-size:12px;border-radius:6px;padding:3px 10px}
+.chip-gray{background:#f7f7f7;color:var(--muted)}
+.chip-gray b{color:var(--black)}
+.chip-green{background:#eaf3de;color:#3B6D11}
+.chip-green b{color:#3B6D11}
+#tab-nav{display:flex;gap:4px}
+.tab-btn{border:1px solid var(--border);border-radius:7px;padding:5px 13px;font-size:12px;cursor:pointer;background:transparent;color:var(--muted);transition:all .1s}
+.tab-btn:hover{background:#f0f0f0}
+.tab-btn.active{background:var(--green);color:#fff;border-color:var(--green);font-weight:700}
+
+/* Content area */
+#content-area{flex:1;display:flex;overflow:hidden;min-height:0}
+#tab-content{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:14px}
+#chat-panel{width:280px;flex-shrink:0;border-left:1px solid var(--border);display:flex;flex-direction:column;background:#fff}
+
+/* Cards */
+.card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+.card-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.metric-chip{background:#f7f7f7;border-radius:8px;padding:10px 14px}
+.metric-val{font-size:20px;font-weight:700;color:var(--black)}
+.metric-val.green{color:var(--green)}
+.metric-val.amber{color:#BA7517}
+.metric-val.red{color:#c62828}
+.metric-lbl{font-size:11px;color:var(--muted);margin-top:2px}
+
+/* Pills */
+.pill{font-size:11px;padding:2px 9px;border-radius:20px;font-weight:600}
+.pill-green{background:#eaf3de;color:#3B6D11}
+.pill-amber{background:#faeeda;color:#633806}
+.pill-red{background:#fcebeb;color:#791F1F}
+.pill-gray{background:#f0f0f0;color:#555}
+
+/* Campaign rows */
+.camp-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)}
+.camp-row:last-child{border-bottom:none;padding-bottom:0}
+.camp-name{font-size:13px;font-weight:600;color:var(--black)}
+.camp-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.camp-right{display:flex;gap:12px;align-items:center}
+.stat{font-size:12px;color:var(--muted)}
+.stat b{color:var(--black)}
+.action-btn{border:1px solid var(--border);background:transparent;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;color:var(--muted)}
+.action-btn:hover{background:#f0f0f0}
+.action-btn.green{border-color:var(--green);color:var(--dark)}
+
+/* Recommendations */
+.rec-item{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}
+.rec-icon{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.rec-title{font-size:13px;font-weight:600;color:var(--black)}
+.rec-detail{font-size:11px;color:var(--muted);margin-top:2px}
+.rec-impact{font-size:11px;color:var(--green);margin-top:2px}
+.rec-actions{display:flex;gap:6px;margin-top:7px}
+.btn-approve{background:var(--green);color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer}
+.btn-dismiss{background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer}
+
+/* Claude summary banner */
+.claude-summary{border-left:3px solid var(--green);padding:10px 14px;background:#fff;border-radius:0 8px 8px 0;font-size:12px;line-height:1.6;color:var(--black)}
+.claude-summary b{color:var(--green)}
+
+
+/* Chat panel */
+#chat-header{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0}
+#chat-avatar{width:30px;height:30px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:700;flex-shrink:0}
+#chat-name{font-size:13px;font-weight:700;color:var(--black)}
+#chat-status{font-size:11px;color:var(--green)}
+#chat-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+.msg-wrap{display:flex;flex-direction:column}
+.msg-wrap.user{align-items:flex-end}
+.msg-wrap.ai{align-items:flex-start}
+.msg-bubble{max-width:88%;font-size:12px;line-height:1.5;padding:8px 11px;border-radius:10px}
+.msg-bubble.user{background:var(--green);color:#fff;border-bottom-right-radius:3px}
+.msg-bubble.ai{background:#f2f2f2;color:var(--black);border-bottom-left-radius:3px}
+.msg-time{font-size:10px;color:var(--muted);margin-top:2px}
+#chat-input-row{padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px;flex-shrink:0}
+#chat-input{flex:1;border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:12px;outline:none;background:#f9f9f9}
+#chat-send{background:var(--green);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer}
+#chat-send:disabled{opacity:.6;cursor:default}
+
+/* Coming soon */
+.coming-soon{display:flex;flex-direction:column;align-items:center;justify-content:center;height:300px;gap:12px}
+.coming-soon .emoji{font-size:36px}
+.coming-soon h2{font-size:16px;font-weight:700;color:var(--black)}
+.coming-soon p{font-size:13px;color:var(--muted)}
+
+/* Loading spinner */
+.spinner-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;height:300px;gap:12px}
+.spinner{width:32px;height:32px;border:3px solid var(--green);border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Overview grid */
+.overview-channel-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+
+/* Action toast */
+#action-toast{display:none;background:#eaf3de;border:1px solid #c0dd97;border-radius:8px;padding:8px 12px;font-size:12px;color:#3B6D11;margin-bottom:4px}
+
+/* Leads */
+.lead-row{display:flex;align-items:flex-start;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border);gap:10px}
+.lead-row:last-child{border-bottom:none}
+.lead-name{font-size:13px;font-weight:600;color:var(--black)}
+.lead-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.lead-right{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0}
+.lead-source{font-size:11px;color:var(--muted)}
+.lead-attr{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.attr-pill{font-size:10px;padding:1px 8px;border-radius:20px;font-weight:600}
+.attr-pill-source{background:#e8f0fe;color:#1a56cc}
+.attr-pill-camp{background:#f0f0f0;color:var(--muted)}
+.attr-pill-linked{background:#eaf3de;color:#3B6D11}
+.lead-edit-btn{font-size:11px;background:#fff;border:1px solid var(--border);border-radius:6px;padding:3px 10px;cursor:pointer;color:var(--muted);font-weight:600}
+.lead-edit-btn:hover{background:#f5f5f5}
+.lead-filters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+.lead-filter-sel{border:1px solid var(--border);border-radius:7px;padding:5px 10px;font-size:12px;outline:none;background:#fff;cursor:pointer}
+
+/* Modal */
+#lead-modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:1000;align-items:center;justify-content:center;padding:16px}
+#lead-modal-overlay.open{display:flex}
+#lead-modal{background:#fff;border-radius:12px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;padding:20px}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.modal-title{font-weight:700;font-size:15px;color:var(--black)}
+.modal-close{background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);line-height:1}
+.modal-field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+.modal-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase}
+.modal-input{border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-size:13px;outline:none;font-family:inherit;width:100%;box-sizing:border-box}
+.modal-input:focus{border-color:var(--green)}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px}
+.btn-cancel{border:1px solid var(--border);background:#fff;border-radius:7px;padding:7px 16px;font-size:13px;cursor:pointer}
+.btn-save{background:var(--green);color:#fff;border:none;border-radius:7px;padding:7px 18px;font-size:13px;font-weight:700;cursor:pointer}
+.btn-save:disabled{opacity:.6;cursor:default}
+.modal-divider{border:none;border-top:1px solid var(--border);margin:12px 0}
+
+/* Client link search */
+#client-link-box{position:relative}
+#client-link-results{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:8px;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,.1);max-height:180px;overflow-y:auto;display:none}
+#client-link-results.open{display:block}
+.client-result-row{padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px}
+.client-result-row:last-child{border-bottom:none}
+.client-result-row:hover{background:#f5f5f5}
+.linked-client-chip{background:#eaf3de;border-radius:8px;padding:8px 12px;display:flex;align-items:center;justify-content:space-between}
+.linked-client-name{font-size:13px;font-weight:600;color:var(--black)}
+.linked-client-sub{font-size:11px;color:var(--muted)}
+.btn-unlink{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div id="sidebar-logo">
+      <img src="/logo.png" alt="SS Exterior Services"/>
+    </div>
+    <button class="nav-btn active" onclick="switchTab('overview')"><span class="icon">⊹</span>Overview</button>
+    <button class="nav-btn" onclick="switchTab('meta')"><span class="icon">◈</span>Meta Ads</button>
+    <button class="nav-btn" onclick="switchTab('google')"><span class="icon">◉</span>Google Ads</button>
+    <button class="nav-btn" onclick="switchTab('organic')"><span class="icon">◧</span>Organic</button>
+    <button class="nav-btn" onclick="switchTab('leads')"><span class="icon">◫</span>Leads</button>
+    <button class="nav-btn" onclick="switchTab('revenue')"><span class="icon">$</span>Revenue</button>
+    <div id="sidebar-back"><a href="/">← Back to CRM</a></div>
+    <div id="sidebar-info">ABN 93 572 816 955<br/>0447 130 743<br/>Kilmore VIC 3764</div>
+  </div>
+
+  <!-- Main -->
+  <div id="main">
+    <!-- Topbar -->
+    <div id="topbar">
+      <div id="topbar-left">
+        <div id="topbar-title">Marketing Hub</div>
+        <div id="topbar-chips">
+          <span class="chip chip-gray"><b id="chip-spend">—</b> spend (7d)</span>
+          <span class="chip chip-green"><b id="chip-leads">—</b> leads</span>
+        </div>
+      </div>
+      <div id="tab-nav">
+        <button class="tab-btn active" onclick="switchTab('overview')">⊹ Overview</button>
+        <button class="tab-btn" onclick="switchTab('meta')">◈ Meta Ads</button>
+        <button class="tab-btn" onclick="switchTab('google')">◉ Google Ads</button>
+        <button class="tab-btn" onclick="switchTab('organic')">◧ Organic</button>
+        <button class="tab-btn" onclick="switchTab('leads')">◫ Leads</button>
+        <button class="tab-btn" onclick="switchTab('revenue')">$ Revenue</button>
+      </div>
+    </div>
+
+    <!-- Content -->
+    <div id="content-area">
+      <div id="tab-content">
+        <!-- Tabs rendered here by JS -->
+      </div>
+
+      <!-- Claude chat panel -->
+      <div id="chat-panel">
+        <div id="chat-header">
+          <div id="chat-avatar">C</div>
+          <div>
+            <div id="chat-name">Claude</div>
+            <div id="chat-status">Monitoring · Overview</div>
+          </div>
+        </div>
+        <div id="chat-messages"></div>
+        <div id="chat-input-row">
+          <input id="chat-input" type="text" placeholder="Ask Claude about your ads…"/>
+          <button id="chat-send" onclick="sendChat()">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Supabase config
+const SUPABASE_URL = 'https://jvpnnaamcynydqrjnuve.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2cG5uYWFtY3lueWRxcmpudXZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc3NDY5MzQsImV4cCI6MjA5MzMyMjkzNH0.AnEI3zZGxoHidMCqWKfl18MPxKzezUterSo4vrfBYng';
+
+
+var activeTab = 'overview';
+
+var metaData = null;
+var chatHistory = [];
+
+// ── Tab switching ─────────────────────────────────────────────────────────
+function switchTab(tab) {
+  activeTab = tab;
+
+  // Update sidebar buttons
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const navBtns = document.querySelectorAll('.nav-btn');
+  const tabOrder = ['overview','meta','google','organic','leads','revenue'];
+  navBtns[tabOrder.indexOf(tab)+1] && navBtns[tabOrder.indexOf(tab)].classList.add('active');
+  // simpler: match by text
+  document.querySelectorAll('.nav-btn').forEach(b => {
+    const labels = {overview:'Overview',meta:'Meta Ads',google:'Google Ads',organic:'Organic',leads:'Leads',revenue:'Revenue'};
+    if (b.textContent.trim() === labels[tab]) b.classList.add('active');
+    else b.classList.remove('active');
+  });
+
+  // Update top tab buttons
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    const labels = {overview:'Overview',meta:'Meta Ads',google:'Google Ads',organic:'Organic',leads:'Leads',revenue:'Revenue'};
+    b.classList.toggle('active', b.textContent.includes(labels[tab]));
+  });
+
+  // Update chat status
+  const tabLabels = {overview:'Overview',meta:'Meta Ads',google:'Google Ads',organic:'Organic',leads:'Leads',revenue:'Revenue'};
+  document.getElementById('chat-status').textContent = 'Monitoring · ' + tabLabels[tab];
+
+  renderTab();
+}
+
+// ── Render tab content ────────────────────────────────────────────────────
+function renderTab() {
+  const el = document.getElementById('tab-content');
+  if (activeTab === 'overview') renderOverview(el);
+  else if (activeTab === 'meta') renderMeta(el);
+  else if (activeTab === 'google') renderComingSoon(el, 'Google Ads');
+  else if (activeTab === 'organic') renderComingSoon(el, 'Organic');
+  else if (activeTab === 'leads') renderLeads(el);
+  else if (activeTab === 'revenue') renderRevenue(el);
+}
+
+function pill(color, text) {
+  return `<span class="pill pill-${color}">${text}</span>`;
+}
+
+// ── Overview ──────────────────────────────────────────────────────────────
+var overviewDays = 7;
+
+function overviewRefresh() {
+  metaData = null; attributionData = null; attrError = false;
+  renderTab();
+  Promise.all([loadMetaData(true, overviewDays), loadAttribution(overviewDays)]).then(renderTab);
+}
+
+function overviewSetDays(n) {
+  overviewDays = n; attrDays = n;
+  metaData = null; attributionData = null; attrError = false;
+  renderTab();
+  Promise.all([loadMetaData(false, n), loadAttribution(n)]).then(renderTab);
+}
+
+function renderOverview(el) {
+  const cacheAge = metaData?.created_at
+    ? Math.round((Date.now() - new Date(metaData.created_at)) / 60000)
+    : null;
+  const cacheLabel = metaData?.from_cache && cacheAge !== null
+    ? `<span style="font-size:11px;color:var(--muted)">Cached · ${cacheAge}min ago</span>`
+    : metaData ? `<span style="font-size:11px;color:var(--green)">Live data</span>` : '';
+
+  const controls = `
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        ${[7,14,30,90].map(n => `<button class="action-btn ${overviewDays===n?'green':''}" onclick="overviewSetDays(${n})">${n}d</button>`).join('')}
+        <div style="display:flex;align-items:center;gap:4px">
+          <input id="custom-days-input" type="number" min="1" max="365" placeholder="Custom"
+            onkeydown="if(event.key==='Enter'){const v=parseInt(this.value);if(v>0)overviewSetDays(v)}"
+            style="width:70px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12px;background:#fff;outline:none"/>
+          <button class="action-btn" onclick="const v=parseInt(document.getElementById('custom-days-input').value);if(v>0)overviewSetDays(v)">Go</button>
+        </div>
+        ${cacheLabel}
+      </div>
+      <button class="action-btn" onclick="overviewRefresh()">↻ Refresh</button>
+    </div>`;
+
+  if (!metaData) {
+    el.innerHTML = controls + `<div class="spinner-wrap"><div class="spinner"></div><div style="font-size:13px;color:var(--muted)">Loading ${overviewDays}d data from Meta…</div></div>`;
+    return;
+  }
+
+  const camps = metaData?.campaigns || [];
+  const spend = camps.reduce((s,c) => s + parseFloat(c.insights?.spend||0), 0);
+  const leads = camps.reduce((s,c) => s + (c.leads||0), 0);
+  const cpl = leads > 0 ? (spend/leads).toFixed(2) : '—';
+  const active = camps.filter(c=>c.status==='ACTIVE').length;
+  const summary = metaData?.analysis?.summary || '';
+
+  const campRows = camps.map(c => {
+    const s = parseFloat(c.insights?.spend||0);
+    const statusColor = c.status === 'ACTIVE' ? 'var(--green)' : 'var(--muted)';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid var(--border);font-size:12px">
+      <div>
+        <span style="font-weight:600;color:var(--black)">${c.name}</span>
+        <span style="font-size:11px;color:${statusColor};margin-left:6px">${c.status}</span>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center">
+        <span style="color:var(--muted)">${c.leads||0} leads</span>
+        <span style="font-weight:700;color:var(--black)">$${s.toFixed(0)}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  const periodSince = metaData?.period_since;
+  const periodUntil = metaData?.period_until;
+  const dateLabel = periodSince && periodUntil
+    ? new Date(periodSince+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + new Date(periodUntil+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'})
+    : `${overviewDays}d`;
+
+  el.innerHTML = controls + `
+    <div class="card">
+      <div class="card-label">Meta Ads — ${dateLabel}</div>
+      <div class="metric-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px">
+        <div class="metric-chip"><div class="metric-val">$${spend.toFixed(0)}</div><div class="metric-lbl">Total spend</div></div>
+        <div class="metric-chip"><div class="metric-val green">${leads}</div><div class="metric-lbl">Total leads</div></div>
+        <div class="metric-chip"><div class="metric-val">${cpl !== '—' ? '$'+cpl : '—'}</div><div class="metric-lbl">Blended CPL</div></div>
+      </div>
+      ${campRows || '<div style="font-size:12px;color:var(--muted)">No campaigns found.</div>'}
+    </div>
+
+    <div class="overview-channel-grid">
+      <div class="card">
+        <div class="card-label">Google Ads</div>
+        <div style="font-size:13px;color:var(--muted)">Not connected yet</div>
+        <div style="margin-top:8px">${pill('gray','Coming soon')}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Organic</div>
+        <div style="font-size:13px;color:var(--muted)">Not set up yet</div>
+        <div style="margin-top:8px">${pill('gray','Coming soon')}</div>
+      </div>
+    </div>
+
+    ${summary ? `<div class="card claude-summary"><b>Claude · </b>${summary}</div>` : ''}
+  `;
+}
+
+// ── Meta Ads ──────────────────────────────────────────────────────────────
+var metaDays = 7;
+
+function metaSetDays(n) {
+  metaDays = n;
+  metaData = null;
+  renderTab();
+  loadMetaData(false, n).then(renderTab);
+}
+
+function metaRefresh() {
+  metaData = null;
+  renderTab();
+  loadMetaData(true, metaDays).then(renderTab);
+}
+
+function renderMeta(el) {
+  const cacheAge = metaData?.created_at
+    ? Math.round((Date.now() - new Date(metaData.created_at)) / 60000)
+    : null;
+  const cacheLabel = metaData?.from_cache && cacheAge !== null
+    ? `<span style="font-size:11px;color:var(--muted)">Cached · ${cacheAge}min ago</span>`
+    : metaData ? `<span style="font-size:11px;color:var(--green)">Live data</span>` : '';
+
+  const controls = `
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        ${[7,14,30,90].map(n => `<button class="action-btn ${metaDays===n?'green':''}" onclick="metaSetDays(${n})">${n}d</button>`).join('')}
+        <div style="display:flex;align-items:center;gap:4px">
+          <input id="meta-custom-days-input" type="number" min="1" max="365" placeholder="Custom"
+            onkeydown="if(event.key==='Enter'){const v=parseInt(this.value);if(v>0)metaSetDays(v)}"
+            style="width:70px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12px;background:#fff;outline:none"/>
+          <button class="action-btn" onclick="const v=parseInt(document.getElementById('meta-custom-days-input').value);if(v>0)metaSetDays(v)">Go</button>
+        </div>
+        ${cacheLabel}
+      </div>
+      <button class="action-btn" onclick="metaRefresh()">↻ Refresh</button>
+    </div>`;
+
+  if (!metaData) {
+    el.innerHTML = controls + `<div class="spinner-wrap"><div class="spinner"></div><div style="font-size:13px;color:var(--muted)">Loading ${metaDays}d data from Meta…</div></div>`;
+    return;
+  }
+
+  const camps = metaData.campaigns || [];
+  const analysis = metaData.analysis || {};
+  const spend = camps.reduce((s,c) => s + parseFloat(c.insights?.spend||0), 0);
+  const leads = camps.reduce((s,c) => s + (c.leads||0), 0);
+  const cpl = leads > 0 ? (spend/leads).toFixed(2) : '—';
+  const active = camps.filter(c=>c.status==='ACTIVE').length;
+
+
+  const campRows = camps.map(c => {
+    const s = parseFloat(c.insights?.spend||0);
+    const cplVal = c.cpl ? '$'+parseFloat(c.cpl).toFixed(2) : '—';
+    const freq = c.insights?.frequency ? parseFloat(c.insights.frequency).toFixed(2) : '—';
+    const pillColor = c.status==='PAUSED' ? 'gray' : c.cpl && parseFloat(c.cpl)<20 ? 'green' : c.cpl && parseFloat(c.cpl)<40 ? 'amber' : 'red';
+    const pillLabel = c.status==='PAUSED' ? 'Paused' : c.cpl && parseFloat(c.cpl)<20 ? 'Healthy' : c.cpl && parseFloat(c.cpl)<40 ? 'Watch' : 'High CPL';
+    return `
+      <div class="camp-row">
+        <div>
+          <div class="camp-name">${c.name}</div>
+          <div class="camp-sub">$${c.daily_budget||'—'}/day · ${c.leads||0} leads · freq ${freq}</div>
+        </div>
+        <div class="camp-right">
+          <div class="stat">CPL <b>${cplVal}</b></div>
+          <div class="stat">Spend <b>$${s.toFixed(0)}</b></div>
+          ${pill(pillColor, pillLabel)}
+          ${c.status==='ACTIVE' ? `<button class="action-btn" onclick="pauseCampaign('${c.id}','${c.name.replace(/'/g,"\\'")}')">Pause</button>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+
+  const recItems = (analysis.recommendations||[]).map((r,i) => {
+    const icons = {increase_budget:{icon:'↑',bg:'#eaf3de',col:'#3B6D11'},pause_campaign:{icon:'⏸',bg:'#faeeda',col:'#633806'},exclude_demographic:{icon:'✕',bg:'#fcebeb',col:'#791F1F'},new_creative:{icon:'✦',bg:'#e8f0fe',col:'#1a56cc'},other:{icon:'!',bg:'#faeeda',col:'#633806'}};
+    const s = icons[r.type]||icons.other;
+    return `
+      <div class="rec-item" id="rec-${i}">
+        <div class="rec-icon" style="background:${s.bg};color:${s.col}">${s.icon}</div>
+        <div style="flex:1">
+          <div class="rec-title">${r.title||''}</div>
+          <div class="rec-detail">${r.detail||''}</div>
+          ${r.impact ? `<div class="rec-impact">→ ${r.impact}</div>` : ''}
+          <div class="rec-actions">
+            <button class="btn-approve" onclick="approveRec(${i},${JSON.stringify(r).replace(/"/g,'&quot;')})">Approve</button>
+            <button class="btn-dismiss" onclick="dismissRec(${i})">Dismiss</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  const periodSince = metaData?.period_since;
+  const periodUntil = metaData?.period_until;
+  const dateLabel = periodSince && periodUntil
+    ? new Date(periodSince+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + new Date(periodUntil+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'})
+    : `${metaDays}d`;
+
+  el.innerHTML = controls + `
+
+    <div id="action-toast"></div>
+
+    <div class="metric-grid">
+      <div class="metric-chip"><div class="metric-val">$${spend.toFixed(0)}</div><div class="metric-lbl">Total spend (${dateLabel})</div></div>
+      <div class="metric-chip"><div class="metric-val green">${leads}</div><div class="metric-lbl">Total leads (${dateLabel})</div></div>
+      <div class="metric-chip"><div class="metric-val ${cpl!=='—'&&parseFloat(cpl)<20?'green':'amber'}">${cpl!=='—'?'$'+cpl:'—'}</div><div class="metric-lbl">Avg CPL</div></div>
+      <div class="metric-chip"><div class="metric-val">${active}</div><div class="metric-lbl">Active campaigns</div></div>
+    </div>
+
+    ${analysis.summary ? `<div class="card claude-summary"><b>Claude · </b>${analysis.summary}</div>` : ''}
+
+    <div class="card">
+      <div class="card-label">Campaigns</div>
+      ${campRows || '<div style="font-size:13px;color:var(--muted)">No campaign data.</div>'}
+    </div>
+    ${recItems ? `<div class="card"><div class="card-label">Recommendations — needs your approval</div>${recItems}</div>` : ''}
+  `;
+}
+
+// ── Coming soon ───────────────────────────────────────────────────────────
+function renderComingSoon(el, name) {
+  el.innerHTML = `<div class="coming-soon"><div class="emoji">🔜</div><h2>${name} — coming soon</h2><p>This tab will be built once ${name} campaigns are live.</p></div>`;
+}
+
+// ── Leads ─────────────────────────────────────────────────────────────────
+var _leadsData = null;
+var _clientsData = null;
+var _leadsFilterSource = 'all';
+
+async function renderLeads(el) {
+  el.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><div style="font-size:13px;color:var(--muted)">Loading leads…</div></div>`;
+  try {
+    // Fetch bookings + clients in parallel
+    const [bRes, cRes] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/bookings?select=*&order=created_at.desc`, {
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+      }),
+      _clientsData ? Promise.resolve(null) : fetch(`${SUPABASE_URL}/rest/v1/clients?select=id,name,phone,suburb&order=name.asc`, {
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+      })
+    ]);
+    _leadsData = await bRes.json();
+    if (cRes) _clientsData = await cRes.json();
+    renderLeadsUI(el);
+  } catch(e) {
+    el.innerHTML = `<div class="card" style="color:var(--muted);font-size:13px">Error loading leads: ${e.message}</div>`;
+  }
+}
+
+function renderLeadsUI(el) {
+  const leads = _leadsData || [];
+  const clientById = {};
+  (_clientsData||[]).forEach(c => { clientById[c.id] = c; });
+
+  // Stats
+  const total = leads.length;
+  const attributed = leads.filter(l => l.ad_source).length;
+  const linked = leads.filter(l => l.client_id).length;
+
+  // Filtered
+  const filtered = leads.filter(l => {
+    if (_leadsFilterSource !== 'all' && l.ad_source !== _leadsFilterSource) return false;
+    return true;
+  });
+
+  const rows = filtered.map(l => {
+    const client = l.client_id ? clientById[l.client_id] : null;
+    const attrPills = l.ad_source
+      ? `<div class="lead-attr">
+          <span class="attr-pill attr-pill-source">${l.ad_source}</span>
+          ${l.campaign_name ? `<span class="attr-pill attr-pill-camp">${l.campaign_name}</span>` : ''}
+         </div>`
+      : '';
+    const linkedBadge = client
+      ? `<span class="attr-pill attr-pill-linked">✓ ${client.name}</span>`
+      : '';
+    return `
+      <div class="lead-row">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <div class="lead-name">${l.client_name||''}</div>
+            ${linkedBadge}
+          </div>
+          <div class="lead-sub">${l.service||''}${l.address?' · '+l.address:''}</div>
+          <div class="lead-sub">${l.created_at ? new Date(l.created_at).toLocaleDateString('en-AU') : ''}${l.notes?' · '+l.notes:''}</div>
+          ${attrPills}
+        </div>
+        <div class="lead-right">
+          <button class="lead-edit-btn" onclick='openLeadModal(${JSON.stringify(l).replace(/'/g,"&#39;")})'>Edit</button>
+          <button class="lead-edit-btn" style="color:#c62828" onclick="deleteLead('${l.id}')">Delete</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="metric-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:4px">
+      <div class="metric-chip"><div class="metric-val green">${total}</div><div class="metric-lbl">Total leads</div></div>
+      <div class="metric-chip"><div class="metric-val">${attributed}</div><div class="metric-lbl">Ad-attributed</div></div>
+      <div class="metric-chip"><div class="metric-val">${linked}</div><div class="metric-lbl">Linked to client</div></div>
+    </div>
+    <div class="card">
+      <div class="lead-filters">
+        <select class="lead-filter-sel" onchange="_leadsFilterSource=this.value;renderLeadsUI(document.getElementById('tab-content'))">
+          <option value="all"${_leadsFilterSource==='all'?' selected':''}>All sources</option>
+          <option value="Meta Ads"${_leadsFilterSource==='Meta Ads'?' selected':''}>Meta Ads</option>
+          <option value="Google Ads"${_leadsFilterSource==='Google Ads'?' selected':''}>Google Ads</option>
+          <option value="Organic"${_leadsFilterSource==='Organic'?' selected':''}>Organic</option>
+          <option value="Referral"${_leadsFilterSource==='Referral'?' selected':''}>Referral</option>
+          <option value="Other"${_leadsFilterSource==='Other'?' selected':''}>Other</option>
+        </select>
+        <span style="font-size:12px;color:var(--muted)">${filtered.length} of ${total}</span>
+        <button onclick="openAddClientAsLeadModal()" style="margin-left:auto;background:var(--green);color:#fff;border:none;border-radius:7px;padding:5px 13px;font-size:12px;font-weight:700;cursor:pointer">+ Add client as lead</button>
+      </div>
+      <div class="card-label">All leads</div>
+      ${filtered.length===0 ? '<div style="font-size:13px;color:var(--muted);padding:20px 0;text-align:center">No leads match filters.</div>' : rows}
+    </div>`;
+}
+
+async function deleteLead(id) {
+  if (!confirm('Delete this lead? This will not delete the linked client, jobs, quotes or invoices.')) return;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Prefer': 'return=minimal' }
+    });
+    if (!res.ok) throw new Error('Delete failed: ' + res.status);
+    _leadsData = (_leadsData || []).filter(lead => String(lead.id) !== String(id));
+    renderLeadsUI(document.getElementById('tab-content'));
+    showToast('Lead deleted');
+  } catch (e) {
+    showToast(e.message);
+  }
+}
+
+// ── Lead modal ─────────────────────────────────────────────────────────────
+var _editingLead = null;
+var _linkedClientId = null;
+
+function openLeadModal(lead) {
+  _editingLead = lead;
+  _linkedClientId = lead.client_id || null;
+
+  document.getElementById('lm-name').value = lead.client_name || '';
+  document.getElementById('lm-service').value = lead.service || '';
+  document.getElementById('lm-address').value = lead.address || '';
+  document.getElementById('lm-notes').value = lead.notes || '';
+  document.getElementById('lm-source').value = lead.ad_source || '';
+  document.getElementById('lm-client-search').value = '';
+  document.getElementById('client-link-results').classList.remove('open');
+
+  // Show linked client chip if already linked
+  const client = _linkedClientId ? (_clientsData||[]).find(c => c.id === _linkedClientId) : null;
+  renderLinkedClient(client);
+
+  // Populate campaign field
+  onLeadSourceChange(lead.campaign_name);
+
+  document.getElementById('lead-modal-overlay').classList.add('open');
+}
+
+function closeLeadModal() {
+  document.getElementById('lead-modal-overlay').classList.remove('open');
+  _editingLead = null;
+  _linkedClientId = null;
+}
+
+function renderLinkedClient(client) {
+  const box = document.getElementById('lm-linked-display');
+  const searchBox = document.getElementById('client-link-box');
+  if (client) {
+    box.innerHTML = `<div class="linked-client-chip">
+      <div><div class="linked-client-name">${client.name}</div><div class="linked-client-sub">${client.phone||''} · ${client.suburb||''}</div></div>
+      <button class="btn-unlink" onclick="unlinkClient()">✕ Unlink</button>
+    </div>`;
+    searchBox.style.display = 'none';
+  } else {
+    box.innerHTML = '';
+    searchBox.style.display = 'block';
+  }
+}
+
+function unlinkClient() {
+  _linkedClientId = null;
+  renderLinkedClient(null);
+}
+
+function onLeadSourceChange(existingCampName) {
+  const source = document.getElementById('lm-source').value;
+  const campSel = document.getElementById('lm-camp-select');
+  const campTxt = document.getElementById('lm-camp-text');
+  const campField = document.getElementById('lm-camp-field');
+
+  if (!source) {
+    campField.style.display = 'none';
+    return;
+  }
+  campField.style.display = 'flex';
+
+  if (source === 'Meta Ads') {
+    const campaigns = (metaData?.campaigns || []);
+    if (campaigns.length > 0) {
+      campSel.innerHTML = '<option value="">— Select campaign —</option>' +
+        campaigns.map(c => `<option value="${c.name}" data-id="${c.id}">${c.name}</option>`).join('');
+      if (existingCampName) campSel.value = existingCampName;
+      campSel.style.display = 'block';
+      campTxt.style.display = 'none';
+      return;
+    }
+  }
+  // Free text for other sources or if no Meta campaigns loaded
+  campTxt.value = existingCampName || (typeof existingCampName === 'undefined' ? (_editingLead?.campaign_name||'') : '');
+  campTxt.style.display = 'block';
+  campSel.style.display = 'none';
+}
+
+function onCampSelectChange() {
+  // campaign_id is stored as data attr — captured on save
+}
+
+function onClientSearch() {
+  const q = document.getElementById('lm-client-search').value.toLowerCase();
+  const results = document.getElementById('client-link-results');
+  if (q.length < 2) { results.classList.remove('open'); return; }
+  const matches = (_clientsData||[]).filter(c =>
+    (c.name||'').toLowerCase().includes(q) || (c.phone||'').includes(q)
+  ).slice(0, 8);
+  if (matches.length === 0) { results.classList.remove('open'); return; }
+  results.innerHTML = matches.map(c =>
+    `<div class="client-result-row" onclick="selectLinkedClient('${c.id}')">
+      <span style="font-weight:600">${c.name}</span>
+      <span style="color:var(--muted);font-size:11px;margin-left:8px">${c.phone||''} · ${c.suburb||''}</span>
+    </div>`
+  ).join('');
+  results.classList.add('open');
+}
+
+function selectLinkedClient(id) {
+  _linkedClientId = id;
+  const client = (_clientsData||[]).find(c => c.id === id);
+  renderLinkedClient(client);
+  document.getElementById('client-link-results').classList.remove('open');
+}
+
+// Close results when clicking outside
+document.addEventListener('click', e => {
+  if (!document.getElementById('client-link-box')?.contains(e.target)) {
+    document.getElementById('client-link-results')?.classList.remove('open');
+  }
+});
+
+async function saveLeadModal() {
+  if (!_editingLead) return;
+  const btn = document.getElementById('lm-save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  const source = document.getElementById('lm-source').value;
+  const campSel = document.getElementById('lm-camp-select');
+  const campTxt = document.getElementById('lm-camp-text');
+  let campName = '';
+  let campId = _editingLead.campaign_id || null;
+
+  if (source === 'Meta Ads' && campSel.style.display !== 'none') {
+    campName = campSel.value;
+    const opt = campSel.options[campSel.selectedIndex];
+    campId = opt?.dataset?.id || null;
+  } else {
+    campName = campTxt.value;
+  }
+
+  const updates = {
+    client_name: document.getElementById('lm-name').value,
+    service: document.getElementById('lm-service').value,
+    address: document.getElementById('lm-address').value,
+    notes: document.getElementById('lm-notes').value,
+    ad_source: source || null,
+    campaign_name: campName || null,
+    campaign_id: campId || null,
+    client_id: _linkedClientId || null,
+  };
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings?id=eq.${_editingLead.id}`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify(updates)
+    });
+    if (!res.ok) throw new Error('Save failed: ' + res.status);
+
+    // Update local cache
+    _leadsData = (_leadsData||[]).map(l => l.id === _editingLead.id ? {...l, ...updates} : l);
+    closeLeadModal();
+    renderLeadsUI(document.getElementById('tab-content'));
+    showToast('Lead saved ✓');
+  } catch(e) {
+    showToast('Error saving: ' + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = 'Save';
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('action-toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.style.display = 'block';
+  setTimeout(() => { t.style.display = 'none'; }, 4000);
+}
+
+async function pauseCampaign(id, name) {
+  if (!confirm(`Pause campaign "${name}"?`)) return;
+  try {
+    const res = await fetch('/api/meta-ads', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'pause_campaign',campaign_id:id})});
+    const d = await res.json();
+    showToast(d.success ? '✓ Campaign paused' : 'Error: '+(d.error||'unknown'));
+  } catch(e) { showToast('Error: '+e.message); }
+}
+
+async function approveRec(i, rec) {
+  const camps = metaData?.campaigns||[];
+  if (rec.type === 'increase_budget') {
+    const camp = camps.find(c=>c.id===rec.campaign_id);
+    const newBudget = camp?.daily_budget ? (parseFloat(camp.daily_budget)+10).toFixed(2) : null;
+    if (!newBudget) { showToast('Could not find campaign budget.'); return; }
+    try {
+      const res = await fetch('/api/meta-ads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'update_budget',campaign_id:rec.campaign_id,new_budget:newBudget})});
+      const d = await res.json();
+      showToast(d.success ? `✓ Budget increased to $${newBudget}/day` : 'Error: '+(d.error||'unknown'));
+    } catch(e) { showToast('Error: '+e.message); }
+  } else if (rec.type === 'pause_campaign') {
+    try {
+      const res = await fetch('/api/meta-ads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'pause_campaign',campaign_id:rec.campaign_id})});
+      const d = await res.json();
+      showToast(d.success ? '✓ Campaign paused' : 'Error: '+(d.error||'unknown'));
+    } catch(e) { showToast('Error: '+e.message); }
+  } else {
+    showToast('✓ Noted — action logged. Follow up in Ads Manager.');
+  }
+  document.getElementById('rec-'+i)?.remove();
+}
+
+function dismissRec(i) {
+  document.getElementById('rec-'+i)?.remove();
+}
+
+async function refreshMeta() {
+  const el = document.getElementById('tab-content');
+  el.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><div style="font-size:13px;color:var(--muted)">Pulling live data from Meta…</div></div>`;
+  metaData = null;
+  await loadMetaData(true);
+  renderTab();
+}
+
+// ── Chat ──────────────────────────────────────────────────────────────────
+function addMessage(role, text, time) {
+  const el = document.getElementById('chat-messages');
+  const t = time || new Date().toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'});
+  el.insertAdjacentHTML('beforeend', `
+    <div class="msg-wrap ${role==='user'?'user':'ai'}">
+      <div class="msg-bubble ${role==='user'?'user':'ai'}">${text}</div>
+      <div class="msg-time">${t}</div>
+    </div>`);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const btn = document.getElementById('chat-send');
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  btn.disabled = true;
+  addMessage('user', msg);
+  chatHistory.push({role:'user',content:msg});
+
+  // Thinking indicator
+  const el = document.getElementById('chat-messages');
+  el.insertAdjacentHTML('beforeend','<div id="thinking" class="msg-wrap ai"><div class="msg-bubble ai" style="color:var(--muted)">Thinking…</div></div>');
+  el.scrollTop = el.scrollHeight;
+
+  try {
+    const res = await fetch('/api/meta-ads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'chat',message:msg,history:chatHistory.slice(0,-1)})});
+    const d = await res.json();
+    document.getElementById('thinking')?.remove();
+    const reply = d.reply || 'Sorry, no response.';
+    addMessage('ai', reply);
+    chatHistory.push({role:'assistant',content:reply});
+    if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+  } catch(e) {
+    document.getElementById('thinking')?.remove();
+    addMessage('ai','Connection error. Try again.');
+  }
+  btn.disabled = false;
+  input.focus();
+}
+
+document.getElementById('chat-input').addEventListener('keydown', e => { if(e.key==='Enter') sendChat(); });
+
+// ── Data loading ──────────────────────────────────────────────────────────
+async function loadMetaData(force=false, days=7) {
+  try {
+    const params = new URLSearchParams();
+    if (force) params.set('refresh', 'true');
+    if (days !== 7) params.set('days', days);
+    const qs = params.toString() ? '?' + params.toString() : '';
+    const res = await fetch('/api/meta-ads' + qs);
+    metaData = await res.json();
+    // Update topbar chips (only when on a days=7 view to avoid misleading header numbers)
+    if (!days || days === 7) {
+      const camps = metaData.campaigns||[];
+      const spend = camps.reduce((s,c)=>s+parseFloat(c.insights?.spend||0),0);
+      const leads = camps.reduce((s,c)=>s+(c.leads||0),0);
+      const chipSpend = document.getElementById('chip-spend');
+      const chipLeads = document.getElementById('chip-leads');
+      if (chipSpend) chipSpend.textContent = '$'+spend.toFixed(0);
+      if (chipLeads) chipLeads.textContent = leads;
+    }
+  } catch(e) {
+    console.error('Meta load error:', e);
+  }
+}
+
+
+// ── Revenue Attribution ─────────────────────────────────────────────────────
+var attributionData = null;
+var attrDays = 30;
+var _upcomingJobs = [];
+var _upcomingCampaigns = [];
+window.upcomingFilterChannel = function(val) {
+  const campSel = document.getElementById('upcoming-campaign');
+  if (!campSel) return;
+  if (val === 'all') {
+    campSel.style.display = 'none';
+    _renderUpcomingJobs('all', 'all');
+  } else {
+    const campaigns = ['all', ...(_upcomingCampaigns.length > 0 ? _upcomingCampaigns : [...new Set(_upcomingJobs.map(j => j.campaign_name || 'Meta Ads'))])];
+    campSel.innerHTML = campaigns.map(c => '<option value="' + c + '">' + (c === 'all' ? 'All campaigns' : c) + '</option>').join('');
+    campSel.style.display = 'inline-block';
+    _renderUpcomingJobs('meta', 'all');
+  }
+};
+window.upcomingFilterCampaign = function(val) {
+  _renderUpcomingJobs('meta', val);
+};
+function _renderUpcomingJobs(channel, campaign) {
+  const filtered = _upcomingJobs.filter(j => campaign === 'all' || (j.campaign_name || 'Meta Ads') === campaign);
+  const total = filtered.reduce((s, j) => s + parseFloat(j.revenue || 0), 0);
+  const campLabel = campaign !== 'all' ? campaign : channel !== 'all' ? 'Meta Ads · all campaigns' : 'all campaigns';
+  const totalEl = document.getElementById('upcoming-total');
+  if (totalEl) totalEl.innerHTML = '<div style="font-size:28px;font-weight:700;color:#BA7517">$' + Math.round(total) + '</div><div style="font-size:13px;color:var(--muted)">' + filtered.length + ' active job' + (filtered.length === 1 ? '' : 's') + ' · ' + campLabel + '</div>';
+  const jobsEl = document.getElementById('upcoming-jobs');
+  if (jobsEl) jobsEl.innerHTML = filtered.length > 0 ? filtered.map(j => '<div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid var(--border);font-size:12px"><div><span style="font-weight:600;color:var(--black)">' + j.client + '</span><span style="color:var(--muted);margin-left:8px">' + (j.service || '') + '</span></div><div style="display:flex;gap:10px;align-items:center"><span style="color:var(--muted);font-size:11px">' + (j.campaign_name || 'Meta Ads') + '</span><span style="font-weight:600;color:#BA7517">$' + Math.round(parseFloat(j.revenue || 0)) + '</span></div></div>').join('') : '<div style="font-size:12px;color:var(--muted)">No active jobs for this selection.</div>';
+}
+var attrCampaignFilter = 'all';
+
+var attrError = false;
+
+async function loadAttribution(days) {
+  attrDays = days || attrDays;
+  attrError = false;
+  try {
+    const res = await fetch('/api/meta-ads?type=attribution&days=' + attrDays);
+    if (!res.ok) { attrError = true; return; }
+    attributionData = await res.json();
+    _upcomingJobs = (attributionData && attributionData.unpaid_ad_jobs) || [];
+    _upcomingCampaigns = (attributionData && attributionData.campaigns || []).map(c => c.name).filter(Boolean);
+    if (attributionData.error) { attrError = true; attributionData = null; }
+  } catch(e) { console.error('Attribution load error:', e); attrError = true; }
+}
+
+function funnelBar(label, count, max, color) {
+  const pct = max > 0 ? Math.round((count/max)*100) : 0;
+  return `
+    <div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+        <span style="color:var(--muted)">${label}</span>
+        <span style="font-weight:600;color:var(--black)">${count} <span style="color:var(--muted);font-weight:400">(${pct}%)</span></span>
+      </div>
+      <div style="height:8px;background:#f0f0f0;border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${color};border-radius:4px;transition:width .3s"></div>
+      </div>
+    </div>`;
+}
+
+function revenueRefresh() {
+  metaData = null; attributionData = null; attrError = false;
+  renderTab();
+  Promise.all([loadMetaData(true, attrDays), loadAttribution(attrDays)]).then(renderTab);
+}
+
+function revenueSetDays(n) {
+  attrDays = n; overviewDays = n;
+  metaData = null; attributionData = null; attrError = false;
+  renderTab();
+  Promise.all([loadMetaData(false, n), loadAttribution(n)]).then(renderTab);
+}
+
+function renderRevenue(el) {
+  // Wait for BOTH metaData and attributionData before rendering
+  if ((!attributionData || !metaData) && !attrError) {
+    el.innerHTML = '<div class="spinner-wrap"><div class="spinner"></div><div style="font-size:13px;color:var(--muted)">Loading ' + attrDays + 'd data…</div></div>';
+    Promise.all([
+      metaData ? Promise.resolve() : loadMetaData(false, attrDays),
+      attributionData ? Promise.resolve() : loadAttribution(attrDays)
+    ]).then(() => renderRevenue(el));
+    return;
+  }
+  if (attrError || !attributionData) {
+    el.innerHTML = '<div class="card"><div style="font-size:13px;color:var(--muted)">Revenue data unavailable. Hit Refresh to try again.</div><div style="margin-top:12px"><button class="action-btn" onclick="revenueRefresh()">↻ Refresh</button></div></div>';
+    return;
+  }
+
+  const d = attributionData;
+  const allCampaigns = (d.campaigns || []).filter(c => c.spend > 0);
+  const filteredCampaigns = attrCampaignFilter === 'all' ? allCampaigns : allCampaigns.filter(c => c.name === attrCampaignFilter);
+  
+  // Use campaign-specific data when filtered, otherwise use totals
+  const activeCamp = attrCampaignFilter !== 'all' ? allCampaigns.find(c => c.name === attrCampaignFilter) : null;
+  // Use live metaData for spend (accurate per-period from Meta API), fall back to attribution estimate
+  const metaCamps = metaData?.campaigns || [];
+  const liveSpend = metaCamps.reduce((s,c) => s + parseFloat(c.insights?.spend||0), 0);
+  const liveActiveCampSpend = activeCamp ? parseFloat(metaCamps.find(c=>c.name===activeCamp.name)?.insights?.spend||0) : null;
+  const displaySpend = activeCamp ? (liveActiveCampSpend ?? parseFloat(activeCamp.spend || 0)) : (liveSpend || parseFloat(d.spend || 0));
+  const displayLeads = activeCamp ? (activeCamp.leads || 0) : (d.total_leads || 0);
+  const displayRevenue = activeCamp ? parseFloat(activeCamp.revenue || 0) : parseFloat(d.attributed_revenue || 0);
+  const displayJobs = activeCamp ? (activeCamp.booked_jobs || 0) : (d.booked_jobs || 0);
+  const roas = displaySpend > 0 && displayRevenue > 0 ? (displayRevenue / displaySpend) : null;
+  const roasColor = roas ? (roas >= 5 ? 'green' : roas >= 2 ? 'amber' : 'red') : '';
+  const convRate = displayLeads > 0 && displayJobs > 0 ? ((displayJobs / displayLeads) * 100).toFixed(1) : null;
+  const costPerJob = displayJobs > 0 && displaySpend > 0 ? (displaySpend / displayJobs).toFixed(0) : null;
+  const wow = d.week_on_week || {};
+  const funnel = d.funnel || {};
+  const be = d.break_even || {};
+  const proj = parseFloat(d.projected_revenue || 0);
+
+  const campOptions = ['all', ...allCampaigns.map(c => c.name)].map(n =>
+    `<option value="${n}" ${attrCampaignFilter===n?'selected':''}>${n==='all'?'All campaigns':n}</option>`
+  ).join('');
+
+  const campRows = filteredCampaigns.map(c => {
+    const roasVal = c.roas ? parseFloat(c.roas) : null;
+    const pillColor = roasVal ? (roasVal >= 5 ? 'green' : roasVal >= 2 ? 'amber' : 'red') : 'gray';
+    return `
+      <div class="camp-row">
+        <div>
+          <div class="camp-name">${c.name}</div>
+          <div class="camp-sub">${c.leads||0} leads · ${c.booked_jobs||0} paid jobs</div>
+        </div>
+        <div class="camp-right" style="gap:16px;flex-wrap:wrap">
+          <div class="stat">Spend <b>$${parseFloat(c.spend).toFixed(0)}</b></div>
+          <div class="stat">Revenue <b>$${parseFloat(c.revenue||0).toFixed(0)}</b></div>
+          <div class="stat">CPL <b>${c.cpl?'$'+c.cpl:'—'}</b></div>
+          <div class="stat">Conv <b>${c.conversion_rate?c.conversion_rate+'%':'—'}</b></div>
+          ${roasVal ? pill(pillColor, roasVal.toFixed(1)+'x ROAS') : pill('gray','No revenue yet')}
+        </div>
+      </div>`;
+  }).join('');
+
+  const jobRows = (d.attributed_jobs || []).slice(0,20).map(j => `
+    <div class="lead-row">
+      <div>
+        <div class="lead-name">${j.client||''}</div>
+        <div class="lead-sub">${j.campaign||'Meta Ads'} · ${j.date?new Date(j.date).toLocaleDateString('en-AU'):''}</div>
+      </div>
+      <div class="lead-right">
+        <b style="font-size:13px;color:var(--green)">$${parseFloat(j.total||0).toFixed(0)}</b>
+      </div>
+    </div>`).join('');
+
+  const wowChange = wow.change_pct ? parseFloat(wow.change_pct) : null;
+  const wowColor = wowChange === null ? 'var(--muted)' : wowChange >= 0 ? 'var(--green)' : '#c62828';
+  const wowLabel = wowChange === null ? '—' : (wowChange >= 0 ? '↑' : '↓') + Math.abs(wowChange) + '%';
+
+  const revDateLabel = d.period_since && d.period_until
+    ? new Date(d.period_since+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}) + ' – ' + new Date(d.period_until+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'})
+    : attrDays + 'd';
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        ${[7,14,30,90].map(n => `<button class="action-btn ${attrDays===n?'green':''}" onclick="revenueSetDays(${n})">${n}d</button>`).join('')}
+        <div style="display:flex;align-items:center;gap:4px">
+          <input id="rev-custom-days" type="number" min="1" max="365" placeholder="Custom"
+            onkeydown="if(event.key==='Enter'){const v=parseInt(this.value);if(v>0)revenueSetDays(v)}"
+            style="width:70px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12px;background:#fff;outline:none"/>
+          <button class="action-btn" onclick="const v=parseInt(document.getElementById('rev-custom-days').value);if(v>0)revenueSetDays(v)">Go</button>
+        </div>
+        <select onchange="attrCampaignFilter=this.value;renderTab()" style="border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;background:#fff;color:var(--muted)">
+          ${campOptions}
+        </select>
+        <span style="font-size:11px;color:var(--muted)">${revDateLabel}</span>
+      </div>
+      <button class="action-btn" onclick="revenueRefresh()">↻ Refresh</button>
+    </div>
+
+    <!-- Top metrics -->
+    <!-- Performance metrics -->
+    <div class="metric-grid">
+      <div class="metric-chip">
+        <div class="metric-val ${roasColor}">${roas?roas.toFixed(1)+'x':'—'}</div>
+        <div class="metric-lbl">ROAS</div>
+      </div>
+      <div class="metric-chip">
+        <div class="metric-val">$${displayRevenue.toFixed(0)}</div>
+        <div class="metric-lbl">Revenue from ads${d.period_since&&d.period_until?' ('+new Date(d.period_since+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'})+' – '+new Date(d.period_until+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'})+')':' ('+attrDays+'d)'}</div>
+      </div>
+      <div class="metric-chip">
+        <div class="metric-val">$${displaySpend.toFixed(0)}</div>
+        <div class="metric-lbl">Ad spend${d.period_since&&d.period_until?' ('+new Date(d.period_since+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'})+' – '+new Date(d.period_until+'T00:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'})+')':' ('+attrDays+'d)'}</div>
+      </div>
+      <div class="metric-chip">
+        <div class="metric-val">${displayJobs}</div>
+        <div class="metric-lbl">Paid jobs (${attrDays}d)</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <div class="metric-chip">
+        <div class="metric-val">${costPerJob?'$'+costPerJob:'—'}</div>
+        <div class="metric-lbl">Cost per booked job</div>
+      </div>
+      <div class="metric-chip">
+        <div class="metric-val ${convRate&&parseFloat(convRate)>=20?'green':convRate&&parseFloat(convRate)>=10?'amber':'red'}">${convRate?convRate+'%':'—'}</div>
+        <div class="metric-lbl">Lead → job rate</div>
+      </div>
+      <div class="metric-chip">
+        <div class="metric-val" style="color:${wowColor}">${wowLabel}</div>
+        <div class="metric-lbl">Revenue vs last week</div>
+      </div>
+    </div>
+
+    <!-- Confirmed upcoming income from ads — channel + campaign filters -->
+    <div class="card" style="border-left:3px solid #BA7517" id="upcoming-income-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+        <div class="card-label" style="margin-bottom:0">Confirmed upcoming income from ads</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="upcoming-channel"
+            style="border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:11px;background:#fff;color:var(--muted)"
+            onchange="upcomingFilterChannel(this.value)">
+            <option value="all">All channels</option>
+            <option value="meta">Meta Ads</option>
+          </select>
+          <select id="upcoming-campaign"
+            style="border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:11px;background:#fff;color:var(--muted);display:none"
+            onchange="upcomingFilterCampaign(this.value)">
+          </select>
+        </div>
+      </div>
+      <div id="upcoming-total" style="display:flex;align-items:baseline;gap:12px;margin-bottom:10px">
+        <div style="font-size:28px;font-weight:700;color:#BA7517">$${parseFloat(d.unpaid_ad_revenue||0).toFixed(0)}</div>
+        <div style="font-size:13px;color:var(--muted)">${(d.unpaid_ad_jobs||[]).length} active job${(d.unpaid_ad_jobs||[]).length===1?'':'s'} · all campaigns</div>
+      </div>
+      <div id="upcoming-jobs">
+        ${(d.unpaid_ad_jobs||[]).length > 0 ? (d.unpaid_ad_jobs||[]).map(j=>`
+          <div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid var(--border);font-size:12px">
+            <div>
+              <span style="font-weight:600;color:var(--black)">${j.client}</span>
+              <span style="color:var(--muted);margin-left:8px">${j.service||''}</span>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <span style="color:var(--muted);font-size:11px">${j.campaign_name||'Meta Ads'}</span>
+              <span style="font-weight:600;color:#BA7517">$${parseFloat(j.revenue||0).toFixed(0)}</span>
+            </div>
+          </div>`).join('') : '<div style="font-size:12px;color:var(--muted)">No active jobs from ad clients right now.</div>'}
+      </div>
+    </div>
+
+
+
+
+    <!-- Paid jobs list -->
+    ${jobRows?`<div class="card"><div class="card-label">Attributed paid jobs (${attrDays}d)</div>${jobRows}<div style="font-size:11px;color:var(--muted);margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">${d.attribution_note||''}</div></div>`:'<div class="card"><div style="font-size:13px;color:var(--muted)">No attributed paid jobs yet in this period. Tag clients with ad source as jobs get paid.</div></div>'}
+  `;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+(async function init() {
+  // Add initial Claude message
+  addMessage('ai', 'Morning Simon. I\'m monitoring your Meta Ads. Ask me anything about your campaigns or wait for my next auto-update.', 'Auto');
+
+  // Load meta data then render
+  await loadMetaData();
+  renderTab();
+})();
+
+// ── Add existing client as lead ────────────────────────────────────────────
+var _aclSelectedClient = null;
+
+function openAddClientAsLeadModal() {
+  _aclSelectedClient = null;
+  document.getElementById('acl-client-search').value = '';
+  document.getElementById('acl-client-results').style.display = 'none';
+  document.getElementById('acl-selected-client').style.display = 'none';
+  document.getElementById('acl-step2').style.display = 'none';
+  document.getElementById('acl-save-btn').style.display = 'none';
+  document.getElementById('acl-service').value = '';
+  document.getElementById('acl-notes').value = '';
+  document.getElementById('acl-source').value = '';
+  document.getElementById('acl-camp-field').style.display = 'none';
+  document.getElementById('acl-modal-overlay').style.display = 'flex';
+}
+
+function closeAclModal() {
+  document.getElementById('acl-modal-overlay').style.display = 'none';
+  _aclSelectedClient = null;
+}
+
+function onAclClientSearch() {
+  const q = document.getElementById('acl-client-search').value.toLowerCase();
+  const results = document.getElementById('acl-client-results');
+  if (q.length < 2) { results.style.display = 'none'; return; }
+  const matches = (_clientsData||[]).filter(c =>
+    (c.name||'').toLowerCase().includes(q) || (c.phone||'').includes(q)
+  ).slice(0, 8);
+  if (!matches.length) { results.style.display = 'none'; return; }
+  results.innerHTML = matches.map(c =>
+    `<div class="client-result-row" onclick="selectAclClient('${c.id}')">
+      <span style="font-weight:600">${c.name}</span>
+      <span style="color:var(--muted);font-size:11px;margin-left:8px">${c.phone||''} · ${c.suburb||''}</span>
+    </div>`
+  ).join('');
+  results.style.display = 'block';
+}
+
+function selectAclClient(id) {
+  _aclSelectedClient = (_clientsData||[]).find(c => c.id === id);
+  if (!_aclSelectedClient) return;
+  document.getElementById('acl-client-results').style.display = 'none';
+  document.getElementById('acl-client-search').value = '';
+  const chip = document.getElementById('acl-selected-client');
+  chip.innerHTML = `
+    <div><div class="linked-client-name">${_aclSelectedClient.name}</div>
+    <div class="linked-client-sub">${_aclSelectedClient.phone||''} · ${_aclSelectedClient.suburb||''}</div></div>
+    <button class="btn-unlink" onclick="clearAclClient()">✕ Change</button>`;
+  chip.style.display = 'flex';
+  document.getElementById('acl-step2').style.display = 'block';
+  document.getElementById('acl-save-btn').style.display = 'inline-block';
+}
+
+function clearAclClient() {
+  _aclSelectedClient = null;
+  document.getElementById('acl-selected-client').style.display = 'none';
+  document.getElementById('acl-step2').style.display = 'none';
+  document.getElementById('acl-save-btn').style.display = 'none';
+  document.getElementById('acl-client-search').value = '';
+}
+
+function onAclSourceChange() {
+  const source = document.getElementById('acl-source').value;
+  const campField = document.getElementById('acl-camp-field');
+  const campSel = document.getElementById('acl-camp-select');
+  const campTxt = document.getElementById('acl-camp-text');
+  if (!source) { campField.style.display = 'none'; return; }
+  campField.style.display = 'flex';
+  if (source === 'Meta Ads') {
+    const campaigns = metaData?.campaigns || [];
+    if (campaigns.length > 0) {
+      campSel.innerHTML = '<option value="">— Select campaign —</option>' +
+        campaigns.map(c => `<option value="${c.name}" data-id="${c.id}">${c.name}</option>`).join('');
+      campSel.style.display = 'block';
+      campTxt.style.display = 'none';
+      return;
+    }
+  }
+  campTxt.style.display = 'block';
+  campSel.style.display = 'none';
+}
+
+async function saveAclModal() {
+  if (!_aclSelectedClient) return;
+  const btn = document.getElementById('acl-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+
+  const source = document.getElementById('acl-source').value;
+  const campSel = document.getElementById('acl-camp-select');
+  const campTxt = document.getElementById('acl-camp-text');
+  let campName = '', campId = null;
+  if (source === 'Meta Ads' && campSel.style.display !== 'none') {
+    campName = campSel.value;
+    campId = campSel.options[campSel.selectedIndex]?.dataset?.id || null;
+  } else {
+    campName = campTxt.value;
+  }
+
+  const record = {
+    client_name: _aclSelectedClient.name,
+    client_id: _aclSelectedClient.id,
+    portal_token: null,
+    service: document.getElementById('acl-service').value || null,
+    notes: document.getElementById('acl-notes').value || null,
+    address: _aclSelectedClient.address || null,
+    status: 'pending',
+    ad_source: source || null,
+    campaign_name: campName || null,
+    campaign_id: campId || null,
+    created_at: new Date().toISOString(),
+  };
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
+      },
+      body: JSON.stringify(record)
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      console.error('Supabase bookings insert error:', errBody);
+      throw new Error((errBody.message || errBody.error || 'Save failed') + ' — see console');
+    }
+    const [newRow] = await res.json();
+    _leadsData = [newRow, ...(_leadsData||[])];
+    closeAclModal();
+    renderLeadsUI(document.getElementById('tab-content'));
+    showToast('Lead added ✓');
+  } catch(e) {
+    showToast('Error: ' + e.message);
+  }
+  btn.disabled = false; btn.textContent = 'Add as lead';
+}
+</script>
+
+<!-- Lead edit modal -->
+<div id="lead-modal-overlay" onclick="if(event.target===this)closeLeadModal()">
+  <div id="lead-modal">
+    <div class="modal-header">
+      <div class="modal-title">Edit lead</div>
+      <button class="modal-close" onclick="closeLeadModal()">✕</button>
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">Name</label>
+      <input class="modal-input" id="lm-name" type="text"/>
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">Service</label>
+      <input class="modal-input" id="lm-service" type="text"/>
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">Address</label>
+      <input class="modal-input" id="lm-address" type="text"/>
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">Notes</label>
+      <textarea class="modal-input" id="lm-notes" rows="3" style="resize:vertical"></textarea>
+    </div>
+    <div class="modal-field">
+      <label class="modal-label">Ad source</label>
+      <select class="modal-input" id="lm-source" onchange="onLeadSourceChange()">
+        <option value="">— None —</option>
+        <option value="Meta Ads">Meta Ads</option>
+        <option value="Google Ads">Google Ads</option>
+        <option value="Organic">Organic</option>
+        <option value="Referral">Referral</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+    <div class="modal-field" id="lm-camp-field">
+      <label class="modal-label">Campaign</label>
+      <select class="modal-input" id="lm-camp-select" style="display:none" onchange="onCampSelectChange()"></select>
+      <input class="modal-input" id="lm-camp-text" type="text" placeholder="Campaign name" style="display:none"/>
+    </div>
+    <hr class="modal-divider"/>
+    <div class="modal-field">
+      <label class="modal-label">Link to existing client</label>
+      <div id="lm-linked-display"></div>
+      <div id="client-link-box" style="margin-top:6px">
+        <input class="modal-input" id="lm-client-search" type="text" placeholder="Search by name or phone…" oninput="onClientSearch()" onfocus="onClientSearch()"/>
+        <div id="client-link-results"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeLeadModal()">Cancel</button>
+      <button class="btn-save" id="lm-save-btn" onclick="saveLeadModal()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add existing client as lead modal -->
+<div id="acl-modal-overlay" onclick="if(event.target===this)closeAclModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:1000;align-items:center;justify-content:center;padding:16px">
+  <div style="background:#fff;border-radius:12px;width:100%;max-width:460px;max-height:90vh;overflow-y:auto;padding:20px">
+    <div class="modal-header">
+      <div class="modal-title">Add existing client as lead</div>
+      <button class="modal-close" onclick="closeAclModal()">✕</button>
+    </div>
+
+    <!-- Step 1: pick client -->
+    <div id="acl-step1">
+      <div class="modal-field">
+        <label class="modal-label">Search client</label>
+        <div style="position:relative">
+          <input class="modal-input" id="acl-client-search" type="text" placeholder="Name or phone…" oninput="onAclClientSearch()" onfocus="onAclClientSearch()" autocomplete="off"/>
+          <div id="acl-client-results" style="position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:8px;z-index:10;box-shadow:0 4px 12px rgba(0,0,0,.1);max-height:200px;overflow-y:auto;display:none"></div>
+        </div>
+      </div>
+      <div id="acl-selected-client" style="display:none" class="linked-client-chip" style="margin-top:8px"></div>
+    </div>
+
+    <!-- Step 2: attribution + details (shown after client selected) -->
+    <div id="acl-step2" style="display:none">
+      <div class="modal-field">
+        <label class="modal-label">Service</label>
+        <input class="modal-input" id="acl-service" type="text" placeholder="e.g. House Washing"/>
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Notes</label>
+        <textarea class="modal-input" id="acl-notes" rows="2" style="resize:vertical" placeholder="Optional…"></textarea>
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">Ad source</label>
+        <select class="modal-input" id="acl-source" onchange="onAclSourceChange()">
+          <option value="">— None —</option>
+          <option value="Meta Ads">Meta Ads</option>
+          <option value="Google Ads">Google Ads</option>
+          <option value="Organic">Organic</option>
+          <option value="Referral">Referral</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="modal-field" id="acl-camp-field" style="display:none">
+        <label class="modal-label">Campaign</label>
+        <select class="modal-input" id="acl-camp-select" style="display:none"></select>
+        <input class="modal-input" id="acl-camp-text" type="text" placeholder="Campaign name" style="display:none"/>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeAclModal()">Cancel</button>
+      <button class="btn-save" id="acl-save-btn" onclick="saveAclModal()" style="display:none">Add as lead</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
