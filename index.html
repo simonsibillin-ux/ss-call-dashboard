@@ -1441,6 +1441,11 @@ function updateClientInfo() {
   clientInfo.source = (document.getElementById('client-source') || {}).value || 'phone-call';
 }
 
+function syncQuoteEndSource() {
+  const endSource = document.getElementById('quote-end-source');
+  if (endSource && clientInfo.source) endSource.value = clientInfo.source;
+}
+
 function normaliseSuburb(raw) {
   if (!raw) return '';
   return String(raw)
@@ -2319,6 +2324,7 @@ function showQuote() {
     </div>`;
 
   // Render combined multi-service summary if items exist
+  syncQuoteEndSource();
   renderCombinedSummary(result);
 
   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2869,56 +2875,62 @@ async function confirmCalBooking(dateStr, label, total, jobId) {
 // EMAIL QUOTE
 // ============================================================
 function emailQuote(total) {
-  // Gather all services (multi-service aware)
   const allItems = getMultiItems();
   const grandTotal = (allItems.length > 0 ? allItems.reduce((s, i) => s + i.total, 0) : total) + (clientInfo.travelCost || 0);
-  const email = clientInfo.email;
-  const name = clientInfo.name || 'there';
-  const firstName = name.split(' ')[0];
-
-  const isMulti = allItems.length > 1;
   const serviceLabel = allItems.length > 0 ? allItems.map(i => i.name).join(' + ') : (SERVICES[currentService] ? SERVICES[currentService].name : 'Service');
-  const subject = `Your Quote from SS Exterior Services — ${serviceLabel}`;
-
-  // Build per-service breakdown sections
-  let servicesSections = '';
+  let emailItems = [];
   if (allItems.length > 0) {
-    allItems.forEach((item, idx) => {
+    emailItems = allItems.map((item, idx) => {
       const inclusionSource = item.inclusions || (SERVICES[item.serviceKey] && SERVICES[item.serviceKey].inclusions) || [];
-      const inclusions = inclusionSource.length > 0 ? inclusionSource.map(i => `  • ${i}`).join('\n') : '';
-      const _eqItemTotal = idx === 0 ? item.total + (clientInfo.travelCost || 0) : item.total;
-      servicesSections += `\n─────────────────────────────────────────
-SERVICE: ${item.name}
-  Subtotal: $${_eqItemTotal.toFixed(2)}
-${inclusions ? `\nWHAT'S INCLUDED:\n${inclusions}\n` : ''}`;
+      return {
+        name: item.name,
+        total: Number(item.total || 0) + (idx === 0 ? (clientInfo.travelCost || 0) : 0),
+        inclusions: inclusionSource
+      };
     });
   } else {
-    // Fallback: single service from current state
     const svc = SERVICES[currentService];
     if (svc) {
       const result = svc.calcQuote(answers);
-      const lines = (result.lines || []).map(l => `  • ${l.label}: ${l.value}`).join('\n');
-      const inclusions = svc.inclusions && svc.inclusions.length > 0
-        ? svc.inclusions.map(i => `  • ${i}`).join('\n')
-        : '';
-      const _eqSingleTotal = result.total + (clientInfo.travelCost || 0);
-      const _eqSingleInclusions = (result.inclusions || svc.inclusions || []).map(i => `  • ${i}`).join('\n');
-      servicesSections += `\n─────────────────────────────────────────
-SERVICE: ${svc.name}
-  Subtotal: $${_eqSingleTotal.toFixed(2)}
-${_eqSingleInclusions ? `\nWHAT'S INCLUDED:\n${_eqSingleInclusions}\n` : ''}`;
+      emailItems = [{
+        name: svc.name,
+        total: Number(result.total || 0) + (clientInfo.travelCost || 0),
+        inclusions: result.inclusions || svc.inclusions || []
+      }];
     }
   }
+
+  sendQuoteEmail({
+    email: clientInfo.email,
+    name: clientInfo.name,
+    address: clientInfo.suburb,
+    serviceLabel,
+    items: emailItems,
+    total: grandTotal,
+    printPdf: () => printQuote(grandTotal)
+  });
+}
+
+function sendQuoteEmail({ email, name, address, serviceLabel, items, total, printPdf }) {
+  const firstName = (name || 'there').split(' ')[0];
+  const subject = `Your Quote from SS Exterior Services — ${serviceLabel || 'Service'}`;
+  const servicesSections = (items || []).map(item => {
+    const inclusions = (item.inclusions || []).map(i => `  • ${i}`).join('\n');
+    return `\n─────────────────────────────────────────
+SERVICE: ${item.name}
+  Subtotal: $${Number(item.total || 0).toFixed(2)}
+${inclusions ? `\nWHAT'S INCLUDED:\n${inclusions}\n` : ''}`;
+  }).join('');
 
   const body =
 `Hi ${firstName},
 
 Thank you for calling SS Exterior Services! Here is your quote as discussed:
 
-ADDRESS: ${clientInfo.suburb || 'As discussed'}
+ADDRESS: ${address || 'As discussed'}
 ${servicesSections}
 ═════════════════════════════════════════
-TOTAL (inc. GST): $${grandTotal.toFixed(2)}
+TOTAL (inc. GST): $${Number(total || 0).toFixed(2)}
 ═════════════════════════════════════════
 
 IMPORTANT NOTES:
@@ -2942,8 +2954,8 @@ SS Exterior Services
 ---
 Google Review: g.page/r/ssexteriorservices | Facebook | Instagram | TikTok`;
 
-  // Trigger print/PDF first (doesn't block)
-  setTimeout(() => printQuote(grandTotal), 400);
+  window._lastQuoteEmailBody = body;
+  if (printPdf) setTimeout(printPdf, 400);
 
   // --- Email dispatch ---
   // mailto: with full body silently fails on iOS (>2000 encoded chars) and
@@ -2951,13 +2963,10 @@ Google Review: g.page/r/ssexteriorservices | Facebook | Instagram | TikTok`;
   // Solution: copy body to clipboard, show modal with Outlook links.
 
   if (navigator.share && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
-    // Mobile: use native share sheet (no length limit)
     navigator.share({ title: subject, text: body }).catch(() => {
       showEmailModal(email, subject, false);
     });
   } else {
-    // Desktop: copy to clipboard and show modal
-    window._lastQuoteEmailBody = body;
     navigator.clipboard.writeText(body).then(() => {
       showEmailModal(email, subject, true);
     }).catch(() => {
@@ -4589,98 +4598,61 @@ async function pqShowCalendarModal(total, jobId) {
   }
 }
 
-function pqEmailQuote() {
+function findServiceForQuoteDescription(description) {
+  const descriptionLower = String(description || '').toLowerCase();
+  return Object.values(SERVICES).find(service => {
+    if (service.name === description) return true;
+    const nameLower = service.name.toLowerCase();
+    if (nameLower.includes('gutter') && nameLower.includes('softwash')) return descriptionLower.includes('softwash') || (descriptionLower.includes('gutter') && descriptionLower.includes('soft'));
+    if (nameLower.includes('gutter')) return descriptionLower.includes('gutter') && !descriptionLower.includes('softwash') && !descriptionLower.includes('soft');
+    if (nameLower.includes('solar') && nameLower.includes('bird')) return (descriptionLower.includes('bird') || descriptionLower.includes('proof')) && descriptionLower.includes('solar');
+    if (nameLower.includes('solar')) return descriptionLower.includes('solar') && !descriptionLower.includes('bird') && !descriptionLower.includes('proof');
+    if (nameLower.includes('window')) return descriptionLower.includes('window');
+    if (nameLower.includes('house')) return descriptionLower.includes('house') || descriptionLower.includes('wash');
+    if (nameLower.includes('roof') && nameLower.includes('biocide')) return descriptionLower.includes('biocide') || (descriptionLower.includes('roof') && descriptionLower.includes('treat'));
+    if (nameLower.includes('roof')) return descriptionLower.includes('roof') && !descriptionLower.includes('biocide');
+    if (nameLower.includes('pressure')) return descriptionLower.includes('pressure') || descriptionLower.includes('pres');
+    return false;
+  });
+}
+
+async function pqEmailQuote() {
   const q = _pqSelectedQuote;
   if (!q) return;
 
   const items = (q.items || []).filter(i => i.description !== 'TOTAL');
   const serviceLabel = items.map(i => i.description).join(' + ') || 'Service';
 
-  // Fetch client email then build email using same template as emailQuote()
-  fetch(
-    `${SUPABASE_URL}/rest/v1/clients?name=eq.${encodeURIComponent(q.client)}&select=email,name,suburb,address&limit=1`,
-    { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
-  ).then(r => r.json()).then(data => {
+  try {
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/clients?name=eq.${encodeURIComponent(q.client)}&select=email,name,suburb,address,phone&limit=1`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    if (!response.ok) throw new Error(await response.text());
+    const data = await response.json();
     const client = data && data[0] ? data[0] : {};
-    const email = client.email || '';
-    const firstName = (q.client || 'there').split(' ')[0];
-    const suburb = client.suburb || client.address || 'As discussed';
-
-    // Build breakdown same format as emailQuote()
-    let servicesSections = '';
-    items.forEach(item => {
-      servicesSections += `\n─────────────────────────────────────────\nSERVICE: ${item.description}\n─────────────────────────────────────────\n  Subtotal: $${Number(item.total||0).toFixed(2)}\n`;
-      // Fuzzy keyword match for inclusions in email body
-      const _snE = (item.description || '').toLowerCase();
-      const svcEntry = Object.values(SERVICES).find(s => {
-        if (s.name === item.description) return true;
-        const nm = s.name.toLowerCase();
-        if (nm.includes('gutter') && nm.includes('softwash')) return _snE.includes('softwash') || (_snE.includes('gutter') && _snE.includes('soft'));
-        if (nm.includes('gutter')) return _snE.includes('gutter') && !_snE.includes('softwash') && !_snE.includes('soft');
-        if (nm.includes('solar') && nm.includes('bird')) return (_snE.includes('bird') || _snE.includes('proof')) && _snE.includes('solar');
-        if (nm.includes('solar')) return _snE.includes('solar') && !_snE.includes('bird') && !_snE.includes('proof');
-        if (nm.includes('window')) return _snE.includes('window');
-        if (nm.includes('house')) return _snE.includes('house') || _snE.includes('wash');
-        if (nm.includes('roof') && nm.includes('biocide')) return _snE.includes('biocide') || (_snE.includes('roof') && _snE.includes('treat'));
-        if (nm.includes('roof')) return _snE.includes('roof') && !_snE.includes('biocide');
-        if (nm.includes('pressure')) return _snE.includes('pressure') || _snE.includes('pres');
-        return false;
-      });
-      if (svcEntry && svcEntry.inclusions && svcEntry.inclusions.length > 0) {
-        servicesSections += `\nWHAT'S INCLUDED:\n${svcEntry.inclusions.map(i => `  • ${i}`).join('\n')}\n`;
-      }
+    const emailItems = items.map(item => {
+      const service = findServiceForQuoteDescription(item.description);
+      return {
+        name: item.description,
+        total: Number(item.total || 0),
+        inclusions: service ? (service.inclusions || []) : []
+      };
     });
 
-    const subject = `Your Quote from SS Exterior Services — ${serviceLabel}`;
-    const body =
-`Hi ${firstName},
-
-Thank you for your interest in SS Exterior Services! Here is your quote as discussed:
-
-ADDRESS: ${suburb}
-${servicesSections}
-═════════════════════════════════════════
-TOTAL (inc. GST): $${(q.total||0).toFixed(2)}
-═════════════════════════════════════════
-
-IMPORTANT NOTES:
-  • Please ensure clear access to all areas to be serviced on the day
-  • A responsible adult must be present or access arrangements confirmed in advance
-  • Prices may vary if site conditions differ materially from what was described
-  • This quote is valid for 30 days from today's date
-  • All prices are inclusive of GST
-
-To accept this quote, simply reply to this email or call/text Simon directly. We'll then lock in a suitable date and time.
-
-If you have any questions at all, don't hesitate to get in touch — we're happy to help!
-
-Kind regards,
-Simon Sibillin
-SS Exterior Services
-📞 0447 130 743
-📧 ssexteriorservices@outlook.com
-🌐 ssexteriorservices.com.au
-
----
-Google Review: g.page/r/ssexteriorservices | Facebook | Instagram | TikTok`;
-
-    window._lastQuoteEmailBody = body;
-
-    // Trigger PDF download using same logic as original printQuote()
-    setTimeout(() => pqPrintQuoteFromData(q, client), 400);
-
-    if (navigator.share && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
-      navigator.share({ title: subject, text: body }).catch(() => showEmailModal(email, subject, false));
-    } else {
-      navigator.clipboard.writeText(body).then(() => {
-        showEmailModal(email, subject, true);
-      }).catch(() => {
-        showEmailModal(email, subject, false);
-      });
-    }
-  }).catch(() => {
+    sendQuoteEmail({
+      email: client.email,
+      name: q.client,
+      address: client.suburb || client.address,
+      serviceLabel,
+      items: emailItems,
+      total: q.total,
+      printPdf: () => pqPrintQuoteFromData(q, client)
+    });
+  } catch (error) {
+    console.error(error);
     showToast('Could not fetch client email — check connection', 'error');
-  });
+  }
 }
 
 function pqPrintQuoteFromData(q, client) {
@@ -5396,6 +5368,7 @@ function buildChatQuote() {
       </div>
     </div>`;
 
+  syncQuoteEndSource();
   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
