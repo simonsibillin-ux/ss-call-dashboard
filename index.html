@@ -4384,7 +4384,7 @@ async function pqOpenDetail(quoteId) {
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;padding-bottom:40px;">
       <button onclick="pqAcceptAndBook()" style="width:100%;background:var(--ss-green);color:#fff;border:none;border-radius:12px;padding:16px;font-size:15px;font-weight:800;cursor:pointer;">✅ Quote Accepted — Book the Job</button>
       <button onclick="pqRejectQuote()" style="width:100%;background:#c62828;color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:700;cursor:pointer;">✗ Reject Quote</button>
-      <button onclick="pqEmailQuote()" style="width:100%;background:#0078d4;color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:700;cursor:pointer;">📧 Resend Quote Email</button>
+      <button onclick="pqEmailQuote()" style="width:100%;background:#0078d4;color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:700;cursor:pointer;">📧 Resend Quote Email + PDF</button>
       <button onclick="pqAddFollowUp()" style="width:100%;background:#fff;border:1px solid var(--border);color:var(--text1);border-radius:12px;padding:14px;font-size:14px;font-weight:600;cursor:pointer;">🔔 Add Follow-up</button>
     </div>
   `;
@@ -4622,6 +4622,12 @@ async function pqEmailQuote() {
 
   const items = (q.items || []).filter(i => i.description !== 'TOTAL');
   const serviceLabel = items.map(i => i.description).join(' + ') || 'Service';
+  // Reserve the print window while this click still has browser user activation.
+  // Opening it after the client fetch is commonly blocked as an unsolicited popup.
+  const printWindow = window.open('', '_blank');
+  if (printWindow) {
+    printWindow.document.write('<!doctype html><title>Preparing quote…</title><div style="font-family:Arial,sans-serif;padding:32px;">Preparing quote PDF…</div>');
+  }
 
   try {
     const response = await fetch(
@@ -4647,23 +4653,24 @@ async function pqEmailQuote() {
       serviceLabel,
       items: emailItems,
       total: q.total,
-      printPdf: () => pqPrintQuoteFromData(q, client)
+      printPdf: () => pqPrintQuoteFromData(q, client, printWindow)
     });
   } catch (error) {
+    if (printWindow) printWindow.close();
     console.error(error);
     showToast('Could not fetch client email — check connection', 'error');
   }
 }
 
-function pqPrintQuoteFromData(q, client) {
+function pqPrintQuoteFromData(q, client, reservedWindow) {
   // Build service rows from stored items — same format as printQuote()
   const allItems = (q.items || []).filter(i => i.description !== 'TOTAL');
   const total = q.total || 0;
   const date = new Date().toLocaleDateString('en-AU', { day:'2-digit', month:'2-digit', year:'numeric' });
   const quoteId = q.id || ('Q-' + Date.now());
 
-  // Client-facing: travel baked into first service subtotal only, no travel row
-  const _pqpTravel = travelCost || 0;
+  // Stored pending-quote item totals already include travel in the first service.
+  const _pqpTravel = 0;
   let serviceRows = '';
   allItems.forEach((item, idx) => {
     const itemTotal = idx === 0 ? Number(item.total||0) + _pqpTravel : Number(item.total||0);
@@ -4775,8 +4782,9 @@ function pqPrintQuoteFromData(q, client) {
 
   const blob = new Blob([html], { type: 'text/html' });
   const blobUrl = URL.createObjectURL(blob);
-  const win = window.open(blobUrl, '_blank');
+  const win = reservedWindow && !reservedWindow.closed ? reservedWindow : window.open('', '_blank');
   if (win) {
+    win.location.replace(blobUrl);
     win.addEventListener('load', () => {
       setTimeout(() => { win.print(); setTimeout(() => URL.revokeObjectURL(blobUrl), 30000); }, 300);
     });
