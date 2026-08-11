@@ -1814,45 +1814,55 @@ async function saveMultiQuoteToCRM() {
   }));
 }
 
+async function ensureClientProfile() {
+  const phone = String(clientInfo.phone || '').trim();
+  if (!phone) throw new Error('A client phone number is required to create a CRM profile.');
+
+  const profile = {
+    name: clientInfo.name,
+    phone,
+    email: clientInfo.email || null,
+    address: clientInfo.address || null,
+    suburb: clientInfo.suburb || null,
+    source: clientInfo.source || 'phone-call'
+  };
+  const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' };
+  const existingRes = await fetch(
+    `${SUPABASE_URL}/rest/v1/clients?phone=eq.${encodeURIComponent(phone)}&select=id&limit=1`,
+    { headers }
+  );
+  if (!existingRes.ok) throw new Error(`Client lookup failed: ${await existingRes.text()}`);
+  const existing = await existingRes.json();
+
+  if (existing && existing[0]) {
+    const clientId = existing[0].id;
+    const updateRes = await fetch(`${SUPABASE_URL}/rest/v1/clients?id=eq.${encodeURIComponent(clientId)}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(profile)
+    });
+    if (!updateRes.ok) throw new Error(`Client profile update failed: ${await updateRes.text()}`);
+    return clientId;
+  }
+
+  const clientId = 'C-' + Date.now();
+  const createRes = await fetch(`${SUPABASE_URL}/rest/v1/clients`, {
+    method: 'POST',
+    headers: { ...headers, 'Prefer': 'return=representation' },
+    body: JSON.stringify({ id: clientId, ...profile, created_at: new Date().toISOString() })
+  });
+  if (!createRes.ok) throw new Error(`Client profile creation failed: ${await createRes.text()}`);
+  const created = await createRes.json();
+  if (!created || !created[0]?.id) throw new Error('Client profile creation returned no client ID.');
+  return created[0].id;
+}
+
 // Shared CRM save helper for manual and chat-built multi-service quotes.
 // Passing customNotes overrides the default Call Dashboard note string.
 async function saveQuoteToCRMWithOverride(total, serviceName, quoteItems, customNotes) {
   try {
     const quoteId = 'Q-' + Date.now();
-    let clientId = null;
-    const existingRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/clients?phone=eq.${encodeURIComponent(clientInfo.phone)}&select=id`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
-    );
-    const existing = await existingRes.json();
-
-    if (existing && existing.length > 0) {
-      clientId = existing[0].id;
-      await fetch(`${SUPABASE_URL}/rest/v1/clients?id=eq.${clientId}`, {
-        method: 'PATCH',
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: clientInfo.name,
-          email: clientInfo.email || null,
-          address: clientInfo.address || null,
-          suburb: clientInfo.suburb,
-          source: clientInfo.source || 'phone-call'
-        })
-      });
-    } else {
-      const newClient = await supabase('clients', 'POST', {
-        id: 'C-' + Date.now(),
-        name: clientInfo.name,
-        phone: clientInfo.phone,
-        email: clientInfo.email || null,
-        address: clientInfo.address || null,
-        suburb: clientInfo.suburb,
-        status: 'lead',
-        source: clientInfo.source || 'phone-call',
-        created_at: new Date().toISOString()
-      });
-      if (newClient && newClient[0]) clientId = newClient[0].id;
-    }
+    const clientId = await ensureClientProfile();
 
     const noteExtras = [
       ...(window._chatQueuedNotes || []),
@@ -1871,6 +1881,7 @@ async function saveQuoteToCRMWithOverride(total, serviceName, quoteItems, custom
       body: JSON.stringify({
         id: quoteId,
         client: clientInfo.name,
+        client_id: clientId,
         date: localToday(),
         total,
         status: 'pending',
@@ -2353,38 +2364,7 @@ async function saveQuoteToCRM(total) {
   try {
     const svc = SERVICES[currentService];
     const quoteId = 'Q-' + Date.now();
-
-    // Upsert client
-    let clientId = null;
-    const existingRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/clients?phone=eq.${encodeURIComponent(clientInfo.phone)}&select=id`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
-    );
-    const existing = await existingRes.json();
-
-    if (existing && existing.length > 0) {
-      clientId = existing[0].id;
-      if (clientInfo.address || clientInfo.email) {
-        await fetch(`${SUPABASE_URL}/rest/v1/clients?id=eq.${clientId}`, {
-          method: 'PATCH',
-          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...(clientInfo.address && { address: clientInfo.address }), ...(clientInfo.email && { email: clientInfo.email }) })
-        });
-      }
-    } else {
-      const newClient = await supabase('clients', 'POST', {
-        id: 'C-' + Date.now(),
-        name: clientInfo.name,
-        phone: clientInfo.phone,
-        email: clientInfo.email || null,
-        address: clientInfo.address || null,
-        suburb: clientInfo.suburb,
-        status: 'lead',
-        source: 'phone-call',
-        created_at: new Date().toISOString()
-      });
-      if (newClient && newClient[0]) clientId = newClient[0].id;
-    }
+    const clientId = await ensureClientProfile();
 
     // Single line item: service name + scope suffix for window cleaning
     let _itemDesc = svc.name;
@@ -2397,6 +2377,7 @@ async function saveQuoteToCRM(total) {
     const quotePayload = JSON.stringify({
       id: quoteId,
       client: clientInfo.name,
+      client_id: clientId,
       date: localToday(),
       total: total,
       status: 'pending',
@@ -2592,51 +2573,29 @@ async function _doAcceptQuote(total) {
   const quoteId = 'Q-' + Date.now();
   const jobId = 'J-' + Date.now();
   try {
-    // Upsert client
-    let clientId = null;
-    const existingRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/clients?phone=eq.${encodeURIComponent(clientInfo.phone)}&select=id`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
-    );
-    const existing = await existingRes.json();
-    if (existing && existing.length > 0) {
-      clientId = existing[0].id;
-      // Update address/email if we now have them and they didn't before
-      if (clientInfo.address || clientInfo.email) {
-        await fetch(`${SUPABASE_URL}/rest/v1/clients?id=eq.${clientId}`, {
-          method: 'PATCH',
-          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...(clientInfo.address && { address: clientInfo.address }), ...(clientInfo.email && { email: clientInfo.email }) })
-        });
-      }
-    } else {
-      const nc = await fetch(`${SUPABASE_URL}/rest/v1/clients`, {
-        method: 'POST',
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
-        body: JSON.stringify({ id: 'C-' + Date.now(), name: clientInfo.name, phone: clientInfo.phone, email: clientInfo.email || null, address: clientInfo.address || null, suburb: clientInfo.suburb, status: 'active', source: clientInfo.source || 'phone-call', created_at: new Date().toISOString() })
-      });
-      const ncData = await nc.json();
-      if (ncData && ncData[0]) clientId = ncData[0].id;
-    }
+    const clientId = await ensureClientProfile();
 
     // Save quote as accepted
-    await fetch(`${SUPABASE_URL}/rest/v1/quotes`, {
+    const acceptedQuoteRes = await fetch(`${SUPABASE_URL}/rest/v1/quotes`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ id: quoteId, client: clientInfo.name, date: localToday(), total, status: 'approved', items: lineItems, notes: `Accepted on call. Service: ${combinedLabel}. Address: ${clientInfo.address || clientInfo.suburb}. Source: ${clientInfo.source || 'phone-call'}. Travel: $${clientInfo.travelCost.toFixed(2)}.`, created_at: new Date().toISOString() })
+      body: JSON.stringify({ id: quoteId, client: clientInfo.name, client_id: clientId, date: localToday(), total, status: 'approved', items: lineItems, notes: `Accepted on call. Service: ${combinedLabel}. Address: ${clientInfo.address || clientInfo.suburb}. Source: ${clientInfo.source || 'phone-call'}. Travel: $${clientInfo.travelCost.toFixed(2)}.`, created_at: new Date().toISOString() })
     });
+    if (!acceptedQuoteRes.ok) throw new Error(`Accepted quote save failed: ${await acceptedQuoteRes.text()}`);
 
     // Create job
-    await fetch(`${SUPABASE_URL}/rest/v1/jobs`, {
+    const jobRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ id: jobId, client: clientInfo.name, service: combinedLabel, description: `Phone-quoted job. Address: ${clientInfo.address || clientInfo.suburb}.`, status: 'Active', revenue: total, hours: 0, completion_date: null, notes: `Booked via Call Dashboard. Rep: ${currentRep ? currentRep.name : 'unknown'}. Quote: ${quoteId}.`, created_at: new Date().toISOString() })
+      body: JSON.stringify({ id: jobId, client: clientInfo.name, client_id: clientId, service: combinedLabel, description: `Phone-quoted job. Address: ${clientInfo.address || clientInfo.suburb}.`, status: 'Active', revenue: total, hours: 0, completion_date: null, notes: `Booked via Call Dashboard. Rep: ${currentRep ? currentRep.name : 'unknown'}. Quote: ${quoteId}.`, created_at: new Date().toISOString() })
     });
+    if (!jobRes.ok) throw new Error(`Job creation failed: ${await jobRes.text()}`);
 
     showToast('Quote accepted ✓ — Job created in CRM');
   } catch(e) {
     showToast('CRM save error — check connection', 'error');
     console.error(e);
+    return;
   }
 
   // Step 2: Marketing hub prompt
