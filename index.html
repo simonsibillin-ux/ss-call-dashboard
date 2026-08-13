@@ -4167,7 +4167,7 @@ async function loadPendingQuotesTab() {
 
   try {
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/quotes?status=eq.pending&select=id,client,date,total,items,notes,created_at&order=created_at.desc`,
+      `${SUPABASE_URL}/rest/v1/quotes?status=eq.pending&select=id,client,client_id,date,total,items,notes,created_at&order=created_at.desc`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
     );
     if (!res.ok) throw new Error('Fetch failed');
@@ -4213,8 +4213,11 @@ async function pqOpenDetail(quoteId) {
   // Fetch client info for this quote
   let client = null;
   try {
+    const clientFilter = _pqSelectedQuote.client_id
+      ? `id=eq.${encodeURIComponent(_pqSelectedQuote.client_id)}`
+      : `name=eq.${encodeURIComponent(_pqSelectedQuote.client)}`;
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/clients?name=eq.${encodeURIComponent(_pqSelectedQuote.client)}&select=id,name,phone,email,address,suburb,source&limit=1`,
+      `${SUPABASE_URL}/rest/v1/clients?${clientFilter}&select=id,name,phone,email,address,suburb,source&limit=1`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
     );
     if (res.ok) { const data = await res.json(); client = data && data[0] ? data[0] : null; }
@@ -4334,10 +4337,14 @@ async function pqOpenDetail(quoteId) {
     </div>
 
     <!-- Notes -->
-    ${q.notes ? `<div class="card" style="margin-bottom:16px;">
+    <div class="card" style="margin-bottom:16px;">
       <div class="card-title" style="margin-bottom:8px;">🗒 Notes</div>
-      <div style="font-size:12px;color:var(--text2);line-height:1.6;">${q.notes}</div>
-    </div>` : ''}
+      <textarea id="pq-notes-input" class="form-input" rows="5" placeholder="Add notes for this quote…" style="width:100%;box-sizing:border-box;resize:vertical;line-height:1.5;">${_escHtml(q.notes || '')}</textarea>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;">
+        <span id="pq-notes-status" style="font-size:11px;color:var(--text3);">Saved against quote ${_escHtml(q.id)}</span>
+        <button id="pq-save-notes-btn" onclick="pqSaveNotes()" style="background:var(--ss-green);color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;">Save Notes</button>
+      </div>
+    </div>
 
     <!-- Action Buttons -->
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;padding-bottom:40px;">
@@ -4353,6 +4360,63 @@ function pqBackToList() {
   document.getElementById('pq-list-view').style.display = 'block';
   document.getElementById('pq-detail-view').style.display = 'none';
   _pqSelectedQuote = null;
+}
+
+async function pqUpdateSelectedQuote(changes) {
+  const quoteId = _pqSelectedQuote && _pqSelectedQuote.id;
+  if (!quoteId) throw new Error('No pending quote is selected.');
+
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/quotes?id=eq.${encodeURIComponent(quoteId)}&select=id,notes,status`,
+    {
+      method: 'PATCH',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
+      },
+      body: JSON.stringify(changes)
+    }
+  );
+
+  const responseText = await res.text();
+  if (!res.ok) throw new Error(responseText || `Quote update failed (${res.status})`);
+
+  const updatedRows = responseText ? JSON.parse(responseText) : [];
+  const updatedQuote = updatedRows.find(row => row.id === quoteId);
+  if (!updatedQuote) throw new Error(`Quote ${quoteId} was not updated.`);
+
+  Object.assign(_pqSelectedQuote, updatedQuote);
+  const listQuote = _pqQuotes.find(row => row.id === quoteId);
+  if (listQuote) Object.assign(listQuote, updatedQuote);
+  return updatedQuote;
+}
+
+async function pqSaveNotes() {
+  const textarea = document.getElementById('pq-notes-input');
+  const saveButton = document.getElementById('pq-save-notes-btn');
+  const status = document.getElementById('pq-notes-status');
+  if (!_pqSelectedQuote || !textarea || !saveButton) return;
+
+  saveButton.disabled = true;
+  saveButton.textContent = 'Saving…';
+  if (status) status.textContent = 'Saving to CRM…';
+
+  try {
+    const notes = textarea.value.trim();
+    const updatedQuote = await pqUpdateSelectedQuote({ notes: notes || null });
+    textarea.value = updatedQuote.notes || '';
+    if (status) status.textContent = `Saved to quote ${updatedQuote.id}`;
+    showToast('Quote notes saved to CRM ✓');
+  } catch (error) {
+    console.error('Pending quote notes save failed:', error);
+    if (status) status.textContent = 'Save failed — please try again';
+    showToast('Failed to save quote notes', 'error');
+  } finally {
+    saveButton.disabled = false;
+    saveButton.textContent = 'Save Notes';
+  }
 }
 
 async function pqAcceptAndBook() {
@@ -4761,25 +4825,14 @@ async function pqRejectQuote() {
   if (!q) return;
   if (!confirm('Mark this quote as rejected? This will update the status in the CRM.')) return;
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/quotes?id=eq.${q.id}`, {
-      method: 'PATCH',
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=minimal'
-      },
-      body: JSON.stringify({ status: 'rejected' })
-    });
-    if (res.ok) {
-      showToast('Quote marked as rejected', 'warn');
-      pqBackToList();
-      loadPendingQuotesTab();
-    } else {
-      showToast('Failed to update quote status — check connection', 'error');
-    }
-  } catch(e) {
-    showToast('Error rejecting quote — check connection', 'error');
+    const updatedQuote = await pqUpdateSelectedQuote({ status: 'rejected' });
+    if (updatedQuote.status !== 'rejected') throw new Error(`Unexpected quote status: ${updatedQuote.status}`);
+    showToast('Quote marked as rejected', 'warn');
+    pqBackToList();
+    await loadPendingQuotesTab();
+  } catch(error) {
+    console.error('Pending quote rejection failed:', error);
+    showToast('Failed to reject quote — please try again', 'error');
   }
 }
 
