@@ -1322,7 +1322,7 @@ function renderPricingPage() {
     ['Global', 'global', [['minimumJob', 'Minimum job', '$'], ['travelPerKm', 'Travel per km', '$'], ['debrisRemoval', 'Off-site debris removal', '$']]],
     ['Gutter Cleaning', 'gutterCleaning', [['estimatedMetres2Bed', '2-bed estimated guttering', 'm'], ['estimatedMetres3Bed', '3-bed estimated guttering', 'm'], ['estimatedMetres4Bed', '4-bed estimated guttering', 'm'], ['estimatedMetres5PlusBed', '5+ bed estimated guttering', 'm'], ['singleStoreyPerMetre', 'Single storey', '$/m'], ['doubleStoreyPerMetre', 'Double storey', '$/m'], ['structurePerMetre', 'Additional structure', '$/m'], ['gutterGuardMultiplier', 'Gutter guard', 'x'], ['difficultAccessMultiplier', 'Difficult access', 'x'], ['debrisMediumMultiplier', 'Debris medium', 'x'], ['debrisHeavyMultiplier', 'Debris heavy', 'x']]],
     ['Solar Panel Cleaning', 'solarCleaning', [['lessThan1YearPerPanel', '<1 year since clean', '$/panel'], ['oneToTwoYearsPerPanel', '1-2 years', '$/panel'], ['twoToFourYearsPerPanel', '2-4 years', '$/panel'], ['fourPlusYearsPerPanel', '4+ years / never', '$/panel'], ['hardAccessMultiplier', 'Double storey hard access', 'x']]],
-    ['Window Cleaning', 'windowCleaning', [['singleExteriorPerPane', 'Single exterior', '$/pane'], ['doubleExteriorPerPane', 'Double exterior', '$/pane'], ['interiorMultiplier', 'Interior add-on', 'x'], ['postConstructionSinglePerPane', 'Post-construction single', '$/pane'], ['postConstructionDoublePerPane', 'Post-construction double', '$/pane'], ['flyscreenEach', 'Flyscreens', '$ each'], ['trackDeepCleanEach', 'Deep clean tracks', '$/window']]],
+    ['Window Cleaning', 'windowCleaning', [['singleExteriorPerPane', 'Single exterior / all interior panes', '$/pane'], ['doubleExteriorPerPane', 'Double exterior', '$/pane'], ['postConstructionSinglePerPane', 'Post-construction single', '$/pane'], ['postConstructionDoublePerPane', 'Post-construction double', '$/pane'], ['flyscreenEach', 'Flyscreens', '$ each'], ['trackDeepCleanEach', 'Deep clean tracks', '$/window']]],
     ['House Washing', 'houseWashing', [['singleStoreyPhone', 'Single storey phone quote', '$'], ['doubleStoreyPhone', 'Double storey phone quote', '$'], ['patioSingleAddOn', 'Patio/veranda single', '+$'], ['patioMultipleAddOn', 'Patio/veranda multiple', '+$']]],
     ['Roof Cleaning', 'roofCleaning', [['under10SinglePerSqm', 'Under 10 yrs single', '$/sqm'], ['under10DoublePerSqm', 'Under 10 yrs double', '$/sqm'], ['tenTo20SinglePerSqm', '10-20 yrs single', '$/sqm'], ['tenTo20DoublePerSqm', '10-20 yrs double', '$/sqm'], ['twentyPlusSinglePerSqm', '20+ yrs single', '$/sqm'], ['twentyPlusDoublePerSqm', '20+ yrs double', '$/sqm']]],
     ['Roof Biocide', 'roofBiocide', [['singlePerSqm', 'Single storey', '$/sqm'], ['doublePerSqm', 'Double storey', '$/sqm']]],
@@ -5128,6 +5128,7 @@ function _chatQuoteItemSignature(item) {
     item.serviceKey || '',
     item.name || '',
     answers.gutterMetresExact || answers.roofSqmExact || answers.areaSqmExact || answers.panels || answers.windows || '',
+    answers.window_quantity_unit || '',
     answers.storeys || '',
     answers.debris || answers.last_clean || answers.last_wash || ''
   ].join('|').toLowerCase();
@@ -5399,6 +5400,7 @@ function buildChatQuote() {
 function _chatMeasurementsToAnswers(payload) {
   const svc = payload.serviceKey;
   if (!svc) return null;
+  if (svc === 'window-cleaning' && /(?:3\s*\+|three|commercial|industrial)/i.test(String(payload.storeys || ''))) return null;
 
   // Helper: normalise storeys string to what calcQuote expects
   function _storeys(raw) {
@@ -5526,10 +5528,22 @@ function _chatMeasurementsToAnswers(payload) {
   }
 
   if (svc === 'window-cleaning') {
-    const windows = Number(payload.windowCount) || Number(payload.windows) || null;
-    if (!windows) return null;
+    const paneCount = Number(payload.paneCount) || null;
+    const windowCount = Number(payload.windowCount) || Number(payload.windows) || null;
+    const rawUnit = String(payload.quantityUnit || payload.windowQuantityUnit || '').toLowerCase();
+    const suppliedAsPanes = rawUnit.includes('pane') || (!!paneCount && !windowCount);
+    const suppliedAsWindows = rawUnit.includes('window') || (!!windowCount && !paneCount);
+    if ((!paneCount && !windowCount) || (!suppliedAsPanes && !suppliedAsWindows)) return null;
+    const quantity = suppliedAsPanes ? paneCount : windowCount;
+    const flyscreenCount = Number(payload.flyscreenCount) || null;
+    const trackCount = Number(payload.trackCount) || null;
+    if (payload.flyscreens && !flyscreenCount) return null;
+    if (payload.tracks && !trackCount) return null;
     return {
-      windows,
+      windows:           quantity,
+      window_quantity_unit: suppliedAsPanes ? 'Individual panes' : 'Complete windows',
+      flyscreen_count:   flyscreenCount,
+      track_count:       trackCount,
       storeys:          _storeys(payload.storeys),
       scope:            payload.interior ? 'Interior + exterior' : 'Exterior only',
       post_construction: payload.postConstruction ? 'Yes — post-construction' : 'No — standard clean',

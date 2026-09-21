@@ -100,6 +100,17 @@ function validateServices(services, warnings) {
     const catalogue = SERVICE_CATALOGUE[serviceKey];
     const validatedAnswers = validateAnswers(svc.answers, serviceKey, catalogue, warnings, `${prefix}.answers`);
     const missingRequired = findMissingFields(validatedAnswers, catalogue.requiredForPricing, prefix);
+    if (serviceKey === 'window-cleaning') {
+      if (!(Number(validatedAnswers.windows) > 0) && !missingRequired.includes('windows')) {
+        missingRequired.push('windows');
+      }
+      if (validatedAnswers.flyscreens === 'Yes — include flyscreens' && !(Number(validatedAnswers.flyscreen_count) > 0)) {
+        missingRequired.push('flyscreen_count');
+      }
+      if (validatedAnswers.tracks === 'Yes — deep clean tracks' && !(Number(validatedAnswers.track_count) > 0)) {
+        missingRequired.push('track_count');
+      }
+    }
     const missingRecommended = findMissingFields(validatedAnswers, catalogue.recommendedForPricing, prefix);
 
     // Validate confidence object (strip non-numeric values)

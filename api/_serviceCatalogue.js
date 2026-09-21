@@ -177,11 +177,31 @@ const SERVICE_CATALOGUE = {
         required: true,
         type: 'number',
         extractionHints: [
-          'Number of window panes (not frames)',
-          'If client says "windows" without specifying panes, flag as ambiguous',
-          '"About 12 windows" → 12'
+          'The numeric quantity supplied for windows or panes; window_quantity_unit identifies which one',
+          '"About 12 windows" → 12',
+          '"30 panes" → 30'
         ],
-        suggestedQuestion: 'How many window panes does the property have?'
+        suggestedQuestion: 'How many windows or individual panes does the property have?'
+      },
+      window_quantity_unit: {
+        required: true,
+        type: 'enum',
+        allowedValues: ['Individual panes', 'Complete windows'],
+        extractionHints: [
+          '"30 panes" → "Individual panes"',
+          '"30 windows" → "Complete windows"',
+          'If only a number is supplied without windows or panes, leave this null and ask which unit they mean'
+        ],
+        suggestedQuestion: 'Is that figure complete windows or individual glass panes?'
+      },
+      flyscreen_count: {
+        required: false,
+        type: 'number',
+        extractionHints: [
+          'Exact number of flyscreens to clean when flyscreens is Yes',
+          'Do not assume every window has a flyscreen; ask for the count'
+        ],
+        suggestedQuestion: 'How many flyscreens need cleaning?'
       },
       scope: {
         required: true,
@@ -189,7 +209,9 @@ const SERVICE_CATALOGUE = {
         allowedValues: ['Exterior only', 'Interior + exterior'],
         extractionHints: [
           '"Exterior windows quoted" from CSR notes → "Exterior only"',
-          'If client says "inside and out" → "Interior + exterior"'
+          'If client says "inside and out" → "Interior + exterior"',
+          'Interior panes always use the single-storey exterior per-pane rate, regardless of property height',
+          'Unusual interior ladder work is manually priced and must not change the automatic interior rate'
         ],
         suggestedQuestion: 'Are you after exterior cleaning only, or interior and exterior?'
       },
@@ -211,11 +233,29 @@ const SERVICE_CATALOGUE = {
           'If client mentions flyscreens, capture. Otherwise leave null for CSR to ask.'
         ],
         suggestedQuestion: 'Do you have flyscreens you would like cleaned as well?'
+      },
+      tracks: {
+        required: false,
+        type: 'enum',
+        allowedValues: ['No', 'Yes — deep clean tracks'],
+        extractionHints: [
+          'Capture whether track deep cleaning is requested; if Yes, also capture track_count'
+        ],
+        suggestedQuestion: 'Would you like the window tracks deep cleaned as well?'
+      },
+      track_count: {
+        required: false,
+        type: 'number',
+        extractionHints: [
+          'Exact number of window tracks to deep clean when track cleaning is requested',
+          'Do not assume it matches the window, pane, or flyscreen count'
+        ],
+        suggestedQuestion: 'How many window tracks need deep cleaning?'
       }
     },
-    requiredForPricing: ['storeys', 'windows', 'scope', 'post_construction'],
-    recommendedForPricing: ['flyscreens'],
-    optionalForPricing: [],
+    requiredForPricing: ['storeys', 'windows', 'window_quantity_unit', 'scope', 'post_construction'],
+    recommendedForPricing: ['flyscreens', 'tracks'],
+    optionalForPricing: ['flyscreen_count', 'track_count'],
     escalationTriggers: [
       { field: 'storeys', value: '3+ storeys', action: 'custom-quote' },
       { field: 'storeys', value: 'Commercial / Industrial', action: 'custom-quote' }

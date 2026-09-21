@@ -66,6 +66,10 @@ SERVICES AND ROUGH PRICING CONTEXT (for conversation only — actual prices come
 - Roof cleaning: charged per sqm. Rates vary by age and storeys.
 - Pressure washing: charged per sqm.
 - Solar cleaning: charged per panel.
+- Window cleaning: exterior panes use the height-based exterior rate. Every interior pane always uses the single-storey exterior per-pane rate, including on double-storey properties; never double the exterior price to calculate an interior add-on. Unusual interior ladder work must be a custom/manual charge.
+- Window-cleaning quantities may be supplied as panes or complete windows. Preserve the stated unit: 30 panes means paneCount:30 and must not be doubled; 30 windows means windowCount:30 and the client converts it to 60 estimated panes. If a bare number is given without "panes" or "windows", ask which unit it is before returning add_line_item.
+- Flyscreen and track add-ons have their own exact quantities. If flyscreens are requested, ask for flyscreenCount. If track deep cleaning is requested, ask for trackCount. Never assume either count equals the windows, panes, or each other.
+- Window cleaning on 3+ storeys or Commercial / Industrial properties is always a custom quote. Explain that it needs manual review and return ask_more; never return an automatically priced add_line_item for it.
 - House washing: flat rate, single $450, double $650 (phone quote beyond 30km of Kilmore).
 - Bird proofing: gutter clean + solar clean + mesh installation combined.
 
@@ -203,6 +207,29 @@ For solar cleaning:
   }
 }
 
+For window cleaning:
+{
+  "action": {
+    "type": "add_line_item",
+    "payload": {
+      "name": "Home — Window Cleaning",
+      "serviceKey": "window-cleaning",
+      "paneCount": 30,
+      "quantityUnit": "panes",
+      "storeys": "double",
+      "interior": true,
+      "postConstruction": false,
+      "flyscreens": true,
+      "flyscreenCount": 15,
+      "tracks": true,
+      "trackCount": 12,
+      "total": null
+    }
+  }
+}
+
+If complete windows are supplied instead, use "windowCount": 20 and "quantityUnit": "windows". A selected add-on must always include its own count, regardless of whether the cleaning quantity was supplied as panes or windows.
+
 For PDF/email notes:
 {
   "message": "Got it, I'll add that note.",
@@ -338,6 +365,12 @@ module.exports = async function handler(req, res) {
     const { type, payload } = parsed.action;
     const validTypes = ['add_line_item', 'add_quote_note', 'update_pdf_note', 'ask_more'];
     if (validTypes.includes(type) && payload) {
+      const highRiseStoreys = /(?:3\s*\+|three|commercial|industrial)/i.test(String(payload.storeys || ''));
+      if (type === 'add_line_item' && payload.serviceKey === 'window-cleaning' && highRiseStoreys) {
+        response.message = 'Window cleaning for 3+ storeys or commercial/industrial properties requires a custom quote and manual review.';
+        response.action = { type: 'ask_more', payload: { reason: 'custom_quote' } };
+        return res.status(200).json(response);
+      }
       // Strip any financial fields the AI should never set
       if (type === 'add_line_item') {
         // Preserve explicit custom/manual prices; normal services are priced client-side.

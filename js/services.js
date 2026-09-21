@@ -33,7 +33,6 @@ const DEFAULT_PRICING = {
     doubleExteriorPerPane: 10.5,
     postConstructionSinglePerPane: 17.5,
     postConstructionDoublePerPane: 24,
-    interiorMultiplier: 2,
     flyscreenEach: 5,
     trackDeepCleanEach: 9
   },
@@ -318,12 +317,19 @@ const SERVICES = {
         onSelect: (val) => { if (val === '3+ storeys' || val === 'Commercial / Industrial') return 'custom'; }
       },
       {
+        id: 'window_quantity_unit',
+        label: 'Is the supplied quantity windows or individual panes?',
+        script: '"Is that the number of complete windows, or the actual number of individual glass panes?"',
+        type: 'options',
+        options: ['Individual panes', 'Complete windows']
+      },
+      {
         id: 'windows',
-        label: 'How many windows does the property have?',
-        script: '"How many windows does the property have? We\'ll work from there."',
+        label: 'How many are there?',
+        script: '"How many individual panes or complete windows are there?"',
         type: 'input',
         inputType: 'number',
-        placeholder: 'e.g. 12'
+        placeholder: 'e.g. 30'
       },
       {
         id: 'scope',
@@ -347,11 +353,29 @@ const SERVICES = {
         options: ['No', 'Yes — include flyscreens'],
       },
       {
+        id: 'flyscreen_count',
+        label: 'How many flyscreens need cleaning?',
+        script: '"How many flyscreens would you like cleaned?"',
+        type: 'input',
+        inputType: 'number',
+        placeholder: 'e.g. 15',
+        showIf: (a) => a.flyscreens === 'Yes — include flyscreens'
+      },
+      {
         id: 'tracks',
         label: 'Would you like window tracks deep cleaned?',
         script: '"Would you like the window tracks deep cleaned as well?"',
         type: 'options',
         options: ['No', 'Yes — deep clean tracks']
+      },
+      {
+        id: 'track_count',
+        label: 'How many window tracks need deep cleaning?',
+        script: '"How many window tracks would you like deep cleaned?"',
+        type: 'input',
+        inputType: 'number',
+        placeholder: 'e.g. 15',
+        showIf: (a) => a.tracks === 'Yes — deep clean tracks'
       }
     ],
     inclusions: [
@@ -360,21 +384,29 @@ const SERVICES = {
       'Standard clean disclaimer: does not include hard water stains, paint residue, silicone, or heavy buildup without prior agreement'
     ],
     calcQuote: (a) => {
-      const windows = parseInt(a.windows) || 0;
-      const panes = windows * 2;
+      const suppliedCount = parseInt(a.windows) || 0;
+      // Legacy saved quotes did not carry a unit and always stored complete windows.
+      const quantityUnit = a.window_quantity_unit || 'Complete windows';
+      const suppliedAsPanes = quantityUnit === 'Individual panes';
+      const panes = suppliedAsPanes ? suppliedCount : suppliedCount * 2;
+      const legacyWindowCount = suppliedAsPanes ? 0 : suppliedCount;
+      const flyscreenCount = parseInt(a.flyscreen_count) || legacyWindowCount;
+      const trackCount = parseInt(a.track_count) || legacyWindowCount;
       const isPost = a.post_construction === 'Yes — post-construction';
       const isDouble = a.storeys === 'Double storey';
-      const isInterior = !isPost && a.scope === 'Interior + exterior';
-      let paneRate = isPost
+      const isInterior = a.scope === 'Interior + exterior';
+      const exteriorPaneRate = isPost
         ? (isDouble ? price('windowCleaning.postConstructionDoublePerPane', 24) : price('windowCleaning.postConstructionSinglePerPane', 17.5))
         : (isDouble ? price('windowCleaning.doubleExteriorPerPane', 10.5) : price('windowCleaning.singleExteriorPerPane', 6));
-      let exteriorTotal = panes * paneRate;
-      let total = exteriorTotal;
-      if (isInterior) total *= price('windowCleaning.interiorMultiplier', 2);
-      const flyTotal = a.flyscreens === 'Yes — include flyscreens' ? windows * price('windowCleaning.flyscreenEach', 5) : 0;
-      const trackTotal = a.tracks === 'Yes — deep clean tracks' ? windows * price('windowCleaning.trackDeepCleanEach', 9) : 0;
-      total += flyTotal + trackTotal;
-      const scopeLabel = isPost ? 'Post-construction' : (isInterior ? 'Interior + exterior' : 'Exterior only');
+      const interiorPaneRate = price('windowCleaning.singleExteriorPerPane', 6);
+      const exteriorTotal = panes * exteriorPaneRate;
+      const interiorTotal = isInterior ? panes * interiorPaneRate : 0;
+      const flyTotal = a.flyscreens === 'Yes — include flyscreens' ? flyscreenCount * price('windowCleaning.flyscreenEach', 5) : 0;
+      const trackTotal = a.tracks === 'Yes — deep clean tracks' ? trackCount * price('windowCleaning.trackDeepCleanEach', 9) : 0;
+      const total = exteriorTotal + interiorTotal + flyTotal + trackTotal;
+      const scopeLabel = isPost
+        ? `Post-construction — ${isInterior ? 'interior + exterior' : 'exterior only'}`
+        : (isInterior ? 'Interior + exterior' : 'Exterior only');
       const dynamicInclusions = [
         'Scope: ' + scopeLabel,
         isInterior
@@ -388,15 +420,17 @@ const SERVICES = {
       return {
         lines: [
           { label: 'Scope', value: scopeLabel },
-          { label: 'Windows × 2 panes', value: panes + ' panes' },
-          { label: 'Rate (' + (isPost ? 'post-construction ' : '') + (a.storeys || 'standard') + ')', value: '$' + paneRate.toFixed(2) + '/pane' },
-          isInterior ? { label: 'Interior + exterior (×2)', value: '$' + (exteriorTotal * 2).toFixed(2) } : null,
-          flyTotal > 0 ? { label: 'Flyscreens (' + windows + ' × $' + price('windowCleaning.flyscreenEach', 5) + ')', value: '$' + flyTotal.toFixed(2) } : null,
-          trackTotal > 0 ? { label: 'Track deep clean (' + windows + ' × $' + price('windowCleaning.trackDeepCleanEach', 9) + ')', value: '$' + trackTotal.toFixed(2) } : null,
-          total < minJob() ? { label: 'Minimum call-out applied', value: '$' + minJob().toFixed(2) } : null,
+          suppliedAsPanes
+            ? { label: 'Pane count supplied', value: panes + ' panes' }
+            : { label: `${suppliedCount} windows × estimated 2 panes`, value: panes + ' panes' },
+          { label: `Exterior (${panes} panes × $${exteriorPaneRate.toFixed(2)})`, value: '$' + exteriorTotal.toFixed(2) },
+          isInterior ? { label: `Interior add-on (${panes} panes × $${interiorPaneRate.toFixed(2)} single-storey rate)`, value: '$' + interiorTotal.toFixed(2) } : null,
+          flyTotal > 0 ? { label: 'Flyscreens (' + flyscreenCount + ' × $' + price('windowCleaning.flyscreenEach', 5) + ')', value: '$' + flyTotal.toFixed(2) } : null,
+          trackTotal > 0 ? { label: 'Track deep clean (' + trackCount + ' × $' + price('windowCleaning.trackDeepCleanEach', 9) + ')', value: '$' + trackTotal.toFixed(2) } : null,
         ].filter(Boolean),
         inclusions: dynamicInclusions,
         travel: clientInfo.travelCost,
+        rawTotal: total,
         total: Math.max(minJob(), total),
         disclaimer: 'Remind client: standard clean only — no hard water stains, paint residue, or silicone included.'
       };
