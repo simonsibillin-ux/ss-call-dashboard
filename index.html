@@ -599,21 +599,29 @@
 
       <!-- ==================== FOLLOW-UPS PAGE ==================== -->
       <div class="page" id="page-followups">
-        <div class="page-title">Follow-ups</div>
-        <div class="page-subtitle">Browse by date &mdash; past, today, or ahead</div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
-          <button onclick="fuDateShift(-1)" style="border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:14px;">&#9664;</button>
-          <input type="date" id="fu-browse-date" style="font-size:14px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;cursor:pointer;" onchange="renderFollowUps()">
-          <button onclick="fuDateShift(1)" style="border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:14px;">&#9654;</button>
-          <button onclick="fuGoToday()" style="border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;color:var(--ss-green);font-weight:600;">Today</button>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;">
+          <div><div class="page-title">AI Follow-up Priorities</div><div class="page-subtitle">What to action next across quotes, unscheduled jobs, and callbacks</div></div>
+          <button id="priority-refresh-btn" class="btn-secondary" onclick="loadAiFollowUpPriorities(true)" style="width:auto;">✨ Reanalyse</button>
         </div>
-        <div id="followups-list">
-          <div class="empty-state">
-            <div class="empty-state-icon">&#128276;</div>
-            <div class="empty-state-title">No follow-ups due</div>
-            <div class="empty-state-desc">All caught up</div>
+        <div id="priority-status" style="font-size:11px;color:var(--text3);margin:-8px 0 14px;"></div>
+        <div id="priority-overview" class="priority-overview"></div>
+        <div id="priority-list"><div class="empty-state"><div class="empty-state-icon">✨</div><div class="empty-state-title">Analysing follow-ups…</div><div class="empty-state-desc">Scanning live quote, job, and note activity</div></div></div>
+
+        <details class="detail-accordion" style="margin-top:24px;">
+          <summary>📅 Browse manually scheduled follow-ups</summary>
+          <div class="detail-accordion-content">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+              <button onclick="fuDateShift(-1)" style="border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:14px;">&#9664;</button>
+              <input type="date" id="fu-browse-date" style="font-size:14px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;cursor:pointer;" onchange="renderFollowUps()">
+              <button onclick="fuDateShift(1)" style="border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:14px;">&#9654;</button>
+              <button onclick="fuGoToday()" style="border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;color:var(--ss-green);font-weight:600;">Today</button>
+              <button class="btn-primary" style="width:auto;margin-left:auto;" onclick="openAddFollowUp()">+ Add Follow-up</button>
+            </div>
+            <div id="followups-list">
+              <div class="empty-state"><div class="empty-state-icon">&#128276;</div><div class="empty-state-title">No follow-ups due</div><div class="empty-state-desc">All caught up</div></div>
+            </div>
           </div>
-        </div>
+        </details>
       </div>
 
       <!-- ==================== PRICING PAGE ==================== -->
@@ -1234,6 +1242,7 @@ function showPage(page, navItem) {
     renderFollowUps();
     renderTodoList();
   }
+  if (page === 'followups') loadAiFollowUpPriorities();
   if (page === 'pendingquotes') {
     loadPendingQuotesTab();
   }
@@ -3411,6 +3420,7 @@ async function loadFollowUps() {
     if (res.ok) {
       followUps = await res.json();
       renderFollowUps();
+      if (document.getElementById('page-followups')?.classList.contains('active')) loadAiFollowUpPriorities(true);
       // Layer in pending quotes as synthetic follow-ups
       loadPendingQuoteFollowUps();
     }
@@ -3768,6 +3778,157 @@ function localToday() {
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
+}
+
+let _priorityCandidatesById = {};
+let _priorityRequestId = 0;
+
+function priorityNavItem(label) {
+  return [...document.querySelectorAll('.nav-item')].find(item => item.textContent.includes(label)) || null;
+}
+
+async function openPriorityItem(candidateId) {
+  const candidate = _priorityCandidatesById[candidateId];
+  if (!candidate) return;
+  if (candidate.kind === 'pending_quote') {
+    showPage('pendingquotes', priorityNavItem('Pending Quotes'));
+    await loadPendingQuotesTab();
+    await pqOpenDetail(candidate.recordId);
+    return;
+  }
+  if (candidate.kind === 'unscheduled_job') {
+    showPage('unscheduled', priorityNavItem('Unscheduled Jobs'));
+    await loadUnscheduledTab();
+    const item = _ujItems.find(row => candidate.sourceRecordType === 'calendar_event'
+      ? String(row.event?.id) === String(candidate.recordId)
+      : String(row.job?.id) === String(candidate.recordId));
+    if (item) ujOpenDetail(item.key);
+    else showToast('This job is no longer unscheduled');
+    return;
+  }
+  openEditFollowUp(candidate.recordId);
+}
+
+function priorityCandidateDate(value) {
+  if (!value) return '';
+  const date = new Date(String(value).length === 10 ? `${value}T00:00:00` : value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' });
+}
+
+async function fetchFollowUpPriorityCandidates() {
+  const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` };
+  const [quoteResponse, jobResponse, noteResponse, followUpResponse] = await Promise.all([
+    fetch(`${SUPABASE_URL}/rest/v1/quotes?status=eq.pending&select=id,client,date,total,items,notes,created_at&order=created_at.desc`, { headers }),
+    fetch(`${SUPABASE_URL}/rest/v1/jobs?status=eq.Active&select=id,client,service,revenue,items,notes,description,created_at,completion_date,google_calendar_event_id&order=created_at.asc`, { headers }),
+    fetch(`${SUPABASE_URL}/rest/v1/record_notes?deleted_at=is.null&record_type=in.(quote,job,calendar_event)&select=record_type,record_id,body,author_name,created_at&order=created_at.desc`, { headers }),
+    fetch(`${SUPABASE_URL}/rest/v1/call_followups?status=neq.done&select=*&order=call_date.asc,call_time.asc`, { headers })
+  ]);
+  if (!quoteResponse.ok || !jobResponse.ok || !noteResponse.ok || !followUpResponse.ok) throw new Error('Could not load the complete follow-up data set.');
+  const [quotes, jobs, notes, scheduledFollowUps] = await Promise.all([quoteResponse.json(), jobResponse.json(), noteResponse.json(), followUpResponse.json()]);
+  let calendarEvents = [];
+  try { calendarEvents = (await ujFetchCalendarEvents()).events || []; } catch (error) { console.warn('Standalone unscheduled calendar events were not included:', error); }
+  const notesByRecord = {};
+  notes.forEach(note => {
+    const key = `${note.record_type}:${note.record_id}`;
+    if (!notesByRecord[key]) notesByRecord[key] = [];
+    notesByRecord[key].push(note);
+  });
+  const entryPayload = (type, id) => (notesByRecord[`${type}:${id}`] || []).map(note => ({ at:note.created_at, body:note.body, author:note.author_name }));
+
+  const quoteCandidates = quotes.map(quote => {
+    const entries = entryPayload('quote', quote.id);
+    return {
+      id:`quote:${quote.id}`, kind:'pending_quote', recordId:String(quote.id), clientName:quote.client || 'Unknown client',
+      services:(quote.items || []).map(item => item.description || item.name).filter(name => name && name !== 'TOTAL'),
+      total:Number(quote.total) || 0, createdAt:quote.created_at, recordDate:quote.date,
+      latestActivityAt:entries[0]?.at || quote.created_at || quote.date, legacyNotes:recordNotesWithoutProjection(quote.notes), noteEntries:entries
+    };
+  });
+  const unscheduledJobs = jobs.filter(job => ujIsBlankDate(job.completion_date));
+  const jobCandidates = unscheduledJobs.map(job => {
+    const entries = entryPayload('job', job.id);
+    const services = (job.items || []).map(item => item.description || item.name).filter(Boolean);
+    return {
+      id:`job:${job.id}`, kind:'unscheduled_job', sourceRecordType:'job', recordId:String(job.id), clientName:job.client || 'Unknown client',
+      services:services.length ? services : [job.service || 'Unscheduled service'], total:Number(job.revenue) || 0,
+      createdAt:job.created_at, latestActivityAt:entries[0]?.at || job.created_at,
+      legacyNotes:[recordNotesWithoutProjection(job.notes), job.description].filter(Boolean).join(' | '), noteEntries:entries
+    };
+  });
+  const linkedEventIds = new Set(unscheduledJobs.map(job => job.google_calendar_event_id).filter(Boolean).map(String));
+  const linkedJobIds = new Set(unscheduledJobs.map(job => String(job.id)));
+  const calendarCandidates = calendarEvents.filter(event => !linkedEventIds.has(String(event.id)) && !linkedJobIds.has(String(ujEventJobId(event)))).map(event => {
+    const entries = entryPayload('calendar_event', event.id);
+    return {
+      id:`calendar:${event.id}`, kind:'unscheduled_job', sourceRecordType:'calendar_event', recordId:String(event.id),
+      clientName:event.summary || 'Unscheduled calendar event', services:[event.summary || 'Calendar event'], total:0,
+      createdAt:event.created || event.updated, latestActivityAt:entries[0]?.at || event.updated || event.created,
+      legacyNotes:recordNotesWithoutProjection(event.description), noteEntries:entries
+    };
+  });
+  const scheduledCandidates = scheduledFollowUps.map(followUp => ({
+    id:`followup:${followUp.id}`, kind:'scheduled_followup', recordId:String(followUp.id), clientName:followUp.client_name || 'Unknown client',
+    services:followUp.service ? [followUp.service] : [], total:0, createdAt:followUp.created_at,
+    scheduledDate:followUp.call_date, latestActivityAt:followUp.updated_at || followUp.created_at,
+    legacyNotes:followUp.notes || '', noteEntries:[]
+  }));
+  return [...quoteCandidates, ...jobCandidates, ...calendarCandidates, ...scheduledCandidates];
+}
+
+function renderAiFollowUpPriorities(candidates, analysis) {
+  const container = document.getElementById('priority-list');
+  const overview = document.getElementById('priority-overview');
+  const status = document.getElementById('priority-status');
+  if (!container || !overview || !status) return;
+  const resultById = new Map((analysis.priorities || []).map(result => [result.id, result]));
+  const rows = candidates.map(candidate => ({ ...candidate, ...(resultById.get(candidate.id) || {}) }));
+  const groups = [
+    ['urgent', '🔴 Urgent — action today'], ['high', '🟠 High priority'], ['medium', '🟡 Medium priority'],
+    ['low', '🔵 Low priority'], ['upcoming', '⚪ Upcoming']
+  ];
+  const counts = Object.fromEntries(groups.map(([key]) => [key, rows.filter(row => row.priority === key).length]));
+  overview.innerHTML = groups.slice(0, 4).map(([key, label]) => `<div class="priority-stat"><div class="priority-stat-value">${counts[key]}</div><div class="priority-stat-label">${label.replace(/^.. /, '')}</div></div>`).join('');
+  status.textContent = `${analysis.source === 'ai' ? 'AI analysis' : 'Rules-based fallback'} · ${rows.length} active item${rows.length === 1 ? '' : 's'} · Updated ${new Date(analysis.generatedAt || Date.now()).toLocaleString('en-AU')}${analysis.warning ? ` · ${analysis.warning}` : ''}`;
+  if (!rows.length) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✓</div><div class="empty-state-title">Nothing needs following up</div><div class="empty-state-desc">No pending quotes, unscheduled jobs, or open callbacks were found.</div></div>';
+    return;
+  }
+  const typeLabel = { pending_quote:'Pending quote', unscheduled_job:'Unscheduled job', scheduled_followup:'Scheduled callback' };
+  container.innerHTML = groups.map(([key, label]) => {
+    const groupRows = rows.filter(row => row.priority === key).sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+    if (!groupRows.length) return '';
+    return `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">${label}</div><span class="priority-group-count">${groupRows.length}</span></div>${groupRows.map(row => `
+      <div class="priority-card priority-card--${key}" onclick="openPriorityItem('${_escHtml(row.id)}')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;"><div><div style="font-size:15px;font-weight:800;color:var(--text1);">${_escHtml(row.clientName)}</div><div style="font-size:12px;color:var(--ss-green);margin-top:3px;">${_escHtml(row.services.join(' + ') || typeLabel[row.kind])}</div></div><span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);white-space:nowrap;">${typeLabel[row.kind]}</span></div>
+        <div class="priority-card-reason">${_escHtml(row.reason || 'Awaiting analysis')}</div>
+        <div class="priority-card-action">Recommended: ${_escHtml(row.recommendedAction || 'Review and contact the customer.')}</div>
+        <div class="priority-card-meta">${row.total ? `<span>$${Number(row.total).toFixed(2)}</span>` : ''}${row.createdAt || row.recordDate ? `<span>Created ${_escHtml(priorityCandidateDate(row.createdAt || row.recordDate))}</span>` : ''}${row.latestActivityAt ? `<span>Last activity ${_escHtml(priorityCandidateDate(row.latestActivityAt))}</span>` : ''}${row.recommendedDate ? `<span>Action date ${_escHtml(priorityCandidateDate(row.recommendedDate))}</span>` : ''}</div>
+      </div>`).join('')}</section>`;
+  }).join('');
+}
+
+async function loadAiFollowUpPriorities(force = false) {
+  const container = document.getElementById('priority-list');
+  const button = document.getElementById('priority-refresh-btn');
+  if (!container) return;
+  const requestId = ++_priorityRequestId;
+  container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✨</div><div class="empty-state-title">Analysing follow-ups…</div><div class="empty-state-desc">Scanning live quote, job, and note activity</div></div>';
+  if (button) { button.disabled = true; button.textContent = 'Analysing…'; }
+  try {
+    const candidates = await fetchFollowUpPriorityCandidates();
+    if (requestId !== _priorityRequestId) return;
+    _priorityCandidatesById = Object.fromEntries(candidates.map(candidate => [candidate.id, candidate]));
+    const response = await fetch('/api/follow-up-priority', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ items:candidates, force }) });
+    const analysis = await response.json().catch(() => ({}));
+    if (!response.ok || !Array.isArray(analysis.priorities)) throw new Error(analysis.error || 'Priority analysis failed.');
+    if (requestId !== _priorityRequestId) return;
+    renderAiFollowUpPriorities(candidates, analysis);
+  } catch (error) {
+    console.error('AI follow-up priority load failed:', error);
+    container.innerHTML = `<div class="alert alert-danger">Could not build the priority list. ${_escHtml(error.message)} <button onclick="loadAiFollowUpPriorities(true)" style="border:none;background:none;color:inherit;font-weight:800;cursor:pointer;">Try again</button></div>`;
+  } finally {
+    if (button && requestId === _priorityRequestId) { button.disabled = false; button.textContent = '✨ Reanalyse'; }
+  }
 }
 
 function fuDateShift(delta) {
