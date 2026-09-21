@@ -972,12 +972,16 @@ const approveQuote = async (id) => {
   }
   } catch(err) { console.error("[approveQuote] ERROR:", err?.message, err); }
 };
-const rejectQuote = async (id) => {
+const rejectQuote = async (id, rejectionReason) => {
   const q = quotes.find(x=>x.id===id);
   if (!q) return;
+  const reason = String(rejectionReason||"").trim();
+  if (!reason) throw new Error("A rejection reason is required.");
+  const rejectedAt = new Date().toISOString();
+  const {error} = await supabase.from("quotes").update({status:"rejected",rejection_reason:reason,rejected_at:rejectedAt}).eq("id",id);
+  if (error) throw error;
   await releaseQuoteCredit(q);
-  await supabase.from("quotes").update({status:"rejected"}).eq("id",id);
-  setQuotes(qs=>qs.map(x=>x.id===id?{...x,status:"rejected"}:x));
+  setQuotes(qs=>qs.map(x=>x.id===id?{...x,status:"rejected",rejection_reason:reason,rejected_at:rejectedAt}:x));
 };
 const deleteQuote = async (id) => {
   const q = quotes.find(x=>x.id===id);

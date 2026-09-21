@@ -354,6 +354,7 @@
 
 @media (max-width: 480px) {
   #chat-bubble { bottom: 16px; right: 16px; }
+  #chat-panel { min-height: calc(100dvh - 190px); }
 }
 @media (max-width: 900px) {
   .chat-workspace { grid-template-columns: 1fr; }
@@ -398,6 +399,9 @@
       </div>
       <div class="nav-item" onclick="showPage('pendingquotes'); loadPendingQuotesTab();">
         <span class="nav-icon">📝</span> Pending Quotes
+      </div>
+      <div class="nav-item" onclick="showPage('unscheduled')">
+        <span class="nav-icon">🗓️</span> Unscheduled Jobs
       </div>
       <div class="sidebar-section">Reference</div>
       <div class="nav-item" onclick="showPage('pricing')">
@@ -781,6 +785,22 @@
         </div>
       </div>
 
+      <!-- ==================== UNSCHEDULED JOBS PAGE ==================== -->
+      <div class="page" id="page-unscheduled">
+        <div class="page-title">Unscheduled Jobs</div>
+        <div class="page-subtitle">Contact customers, record an outcome, and book active jobs or unscheduled calendar events</div>
+        <div id="uj-list-view">
+          <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+            <input id="uj-search" class="form-input" type="search" placeholder="Search client, service, phone, or notes…" oninput="renderUnscheduledList()" style="max-width:420px;">
+            <button class="btn-secondary" onclick="loadUnscheduledTab()" style="width:auto;">↻ Refresh</button>
+          </div>
+          <div id="uj-list-container">
+            <div class="empty-state"><div class="empty-state-icon">🗓️</div><div class="empty-state-title">Loading unscheduled items…</div></div>
+          </div>
+        </div>
+        <div id="uj-detail-view" style="display:none;"></div>
+      </div>
+
     </div><!-- /content -->
   </div><!-- /main -->
 </div><!-- /app -->
@@ -921,6 +941,20 @@ let currentStep = 0;
 let answers = {};
 let multiServiceItems = []; // accumulated line items for multi-service quotes
 let clientInfo = { name: '', phone: '', suburb: '', email: '', address: '', source: '', travelKm: 0, travelCost: 0 };
+
+function serviceAmount(item) {
+  const value = Number(item && item.rawTotal !== undefined ? item.rawTotal : item && item.total);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function calculateQuoteTotals(items, travelCost = clientInfo.travelCost) {
+  const serviceSubtotal = (items || []).reduce((sum, item) => sum + serviceAmount(item), 0);
+  const travel = Math.max(0, Number(travelCost) || 0);
+  const runningSubtotal = serviceSubtotal + travel;
+  const minimum = Math.max(0, Number(minJob()) || 0);
+  const minimumAdjustment = Math.max(0, minimum - runningSubtotal);
+  return { serviceSubtotal, travel, runningSubtotal, minimum, minimumAdjustment, total: runningSubtotal + minimumAdjustment };
+}
 let followUps = [];
 let currentRep = null; // { id, name, pin }
 let isOwner = false;
@@ -1190,7 +1224,10 @@ function showPage(page, navItem) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-' + page).classList.add('active');
   const activeNav = navItem || (typeof event !== 'undefined' ? event.currentTarget : null);
-  if (activeNav) activeNav.classList.add('active');
+  if (activeNav) {
+    activeNav.classList.add('active');
+    if (window.innerWidth <= 900) activeNav.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  }
   if (page === 'calendar' || page === 'followups') {
     const bd = document.getElementById('fu-browse-date');
     if (bd && !bd.value) bd.value = localToday();
@@ -1199,6 +1236,9 @@ function showPage(page, navItem) {
   }
   if (page === 'pendingquotes') {
     loadPendingQuotesTab();
+  }
+  if (page === 'unscheduled') {
+    loadUnscheduledTab();
   }
   if (page === 'pricing') renderPricingPage();
   if (page === 'scripts') renderScriptsPage();
@@ -1582,7 +1622,8 @@ function addAnotherService() {
           serviceKey: currentService,
           name: svc.name,
           lines: result.lines,
-          total: result.total, // already excludes travel
+          total: serviceAmount(result), // raw service amount; quote minimum is applied once globally
+          rawTotal: serviceAmount(result),
           note: result.note || null,
           inclusions: result.inclusions || svc.inclusions || [],
           savedAnswers: { ...answers }
@@ -1605,7 +1646,8 @@ function renderMultiServiceBanner() {
   if (existing) existing.remove();
   if (!multiServiceItems.length) return;
   const travel = clientInfo.travelCost || 0;
-  const runningTotal = multiServiceItems.reduce((s, i) => s + i.total, 0) + travel;
+  const quoteTotals = calculateQuoteTotals(multiServiceItems, travel);
+  const runningTotal = quoteTotals.total;
   const banner = document.createElement('div');
   banner.id = 'multi-svc-banner';
   banner.style.cssText = 'background:#f0fdf4;border:1px solid var(--ss-green);border-radius:10px;padding:12px 14px;margin-bottom:12px;';
@@ -1623,6 +1665,7 @@ function renderMultiServiceBanner() {
     <div style="display:flex;justify-content:space-between;font-size:12px;color:#888;padding:3px 0;border-bottom:1px solid #d1fae5;">
       <span>Travel</span><span>$${travel.toFixed(2)}</span>
     </div>` : ''}
+    ${quoteTotals.minimumAdjustment > 0 ? `<div style="display:flex;justify-content:space-between;font-size:12px;color:#888;padding:3px 0;"><span>Minimum job adjustment</span><span>$${quoteTotals.minimumAdjustment.toFixed(2)}</span></div>` : ''}
     <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:800;color:var(--ss-green);margin-top:6px;">
       <span>Running Total</span><span>$${runningTotal.toFixed(2)}</span>
     </div>
@@ -1660,11 +1703,12 @@ function renderCombinedSummary(currentResult) {
 
   // Always update closing script with the correct total
   const allItems = getMultiItems();
-  const grandTotal = allItems.reduce((s, i) => s + i.total, 0);
+  const quoteTotals = calculateQuoteTotals(allItems);
+  const grandTotal = quoteTotals.total;
   const combinedLabel = allItems.length > 1 ? allItems.map(i => i.name).join(' + ') : (SERVICES[currentService] ? SERVICES[currentService].name : '');
   const closingEl = document.getElementById('closing-script-dynamic');
   if (closingEl) {
-    const displayTotal = allItems.length > 1 ? (allItems.reduce((s,i)=>s+i.total,0) + (clientInfo.travelCost||0)) : (currentResult.total + (currentResult.travel||0));
+    const displayTotal = quoteTotals.total;
     const svcLabel = combinedLabel || (clientInfo.suburb || '[suburb]');
     closingEl.innerHTML = `"So we're all good to go — that's <strong>$${displayTotal.toFixed(2)}</strong> all up${combinedLabel ? ` for the ${combinedLabel}` : ''} in ${clientInfo.suburb || '[suburb]'}. To lock it in I just need to grab a date that works for you. Are you flexible on timing, or is there a particular day or week that would suit best?"`;
   }
@@ -1672,22 +1716,23 @@ function renderCombinedSummary(currentResult) {
   if (!multiServiceItems.length) { el.innerHTML = ''; return; }
   const travel = clientInfo.travelCost || 0;
   const currentSvcName = SERVICES[currentService] ? SERVICES[currentService].name : 'Current service';
-  const servicesTotal = allItems.reduce((s, i) => s + i.total, 0);
-  const grandTotalWithTravel = servicesTotal + travel;
+  const servicesTotal = quoteTotals.serviceSubtotal;
+  const grandTotalWithTravel = quoteTotals.total;
   el.innerHTML = `
     <div style="background:#f0fdf4;border:1px solid var(--ss-green);border-radius:10px;padding:12px 14px;margin:12px 0;">
       <div style="font-size:12px;font-weight:700;color:var(--ss-green);margin-bottom:8px;">🧾 Combined Quote Total</div>
       ${multiServiceItems.map(item => `
         <div style="display:flex;justify-content:space-between;font-size:12px;color:#555;padding:2px 0;">
-          <span>${item.name}</span><span>$${item.total.toFixed(2)}</span>
+          <span>${item.name}</span><span>$${serviceAmount(item).toFixed(2)}</span>
         </div>`).join('')}
       <div style="display:flex;justify-content:space-between;font-size:12px;color:#555;padding:2px 0;">
-        <span>${currentSvcName}</span><span>$${currentResult.total.toFixed(2)}</span>
+        <span>${currentSvcName}</span><span>$${serviceAmount(currentResult).toFixed(2)}</span>
       </div>
       ${travel > 0 ? `
       <div style="display:flex;justify-content:space-between;font-size:12px;color:#888;padding:2px 0;margin-top:4px;border-top:1px dashed #d1fae5;padding-top:4px;">
         <span>Travel</span><span>$${travel.toFixed(2)}</span>
       </div>` : ''}
+      ${quoteTotals.minimumAdjustment > 0 ? `<div style="display:flex;justify-content:space-between;font-size:12px;color:#888;padding:2px 0;"><span>Minimum job adjustment</span><span>$${quoteTotals.minimumAdjustment.toFixed(2)}</span></div>` : ''}
       <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:800;color:var(--ss-green);margin-top:8px;padding-top:8px;border-top:1px solid #d1fae5;">
         <span>Grand Total</span><span>$${grandTotalWithTravel.toFixed(2)}</span>
       </div>
@@ -1714,10 +1759,12 @@ function showInclusionsReference() {
     // Get dynamic inclusions from result if available, fallback to svc.inclusions
     const svcResult = svc.calcQuote ? svc.calcQuote(item.serviceKey === currentService ? answers : (item.savedAnswers || {})) : null;
     const inclusions = (svcResult && svcResult.inclusions) || svc.inclusions || [];
+    const referenceDisclaimers = serviceNotesAndDisclaimers(item.serviceKey || currentService, svcResult || {});
     html += `<div style="margin-bottom:14px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
       <div style="background:#f0fdf4;padding:8px 12px;font-weight:700;font-size:13px;color:var(--ss-green);">${item.name}</div>
       <div style="padding:8px 12px;">
         ${inclusions.map(i => `<div style="font-size:12px;padding:3px 0;border-bottom:1px solid #f3f4f6;color:#333;">✓ ${i}</div>`).join('')}
+        ${referenceDisclaimers.length ? `<div style="font-size:11px;font-weight:800;color:#92400e;margin-top:9px;">NOTES &amp; DISCLAIMERS</div>${referenceDisclaimers.map(note => `<div style="font-size:12px;color:#78350f;padding:3px 0;">⚠️ ${_escHtml(note)}</div>`).join('')}` : ''}
       </div>
     </div>`;
   });
@@ -1725,6 +1772,45 @@ function showInclusionsReference() {
   const div = document.createElement('div');
   div.innerHTML = html;
   document.body.appendChild(div.firstElementChild);
+}
+
+const _aiClosingContexts = {};
+
+function serviceNotesAndDisclaimers(serviceKey, result = {}) {
+  const service = SERVICES[serviceKey] || {};
+  const candidates = [result.note, result.disclaimer, service.note, service.disclaimer];
+  const inclusionSource = result.inclusions || service.inclusions || [];
+  inclusionSource.forEach(line => {
+    if (/not include|does not|doesn't|disclaimer|separate|additional|may vary|subject to/i.test(String(line))) candidates.push(line);
+  });
+  return [...new Set(candidates.map(value => String(value || '').trim()).filter(Boolean))];
+}
+
+function notesAndDisclaimersHtml(items) {
+  const sections = (items || []).map(item => {
+    const notes = serviceNotesAndDisclaimers(item.serviceKey, item.result || item);
+    if (!notes.length) return '';
+    return `<div style="margin-top:8px;"><div style="font-size:12px;font-weight:800;color:#92400e;margin-bottom:4px;">${_escHtml(item.name || SERVICES[item.serviceKey]?.name || 'Service')}</div>${notes.map(note => `<div style="font-size:12px;line-height:1.55;padding:2px 0;color:#78350f;">⚠️ ${_escHtml(note)}</div>`).join('')}</div>`;
+  }).filter(Boolean);
+  if (!sections.length) return '';
+  return `<div class="quote-disclaimer" style="margin-top:12px;"><div style="font-size:12px;font-weight:800;margin-bottom:5px;">Notes &amp; disclaimers — explain to the client</div>${sections.join('')}</div>`;
+}
+
+async function generateAiClosingScript(elementId, context) {
+  if (context) _aiClosingContexts[elementId] = context;
+  const payload = context || _aiClosingContexts[elementId];
+  const element = document.getElementById(elementId);
+  if (!payload || !element) return;
+  element.textContent = 'Generating a personalised closing script…';
+  try {
+    const response = await fetch('/api/closing-script', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const data = await response.json();
+    if (!response.ok || !data.script) throw new Error(data.error || 'Could not generate script');
+    element.textContent = data.script;
+  } catch (error) {
+    element.textContent = payload.fallback || 'Confirm the quoted services, explain the important inclusions and notes, then ask the client if they would like to choose a suitable date.';
+    showToast('AI closing script unavailable — showing the standard close', 'warn');
+  }
 }
 
 function showFullQuoteModal() {
@@ -1749,9 +1835,9 @@ function showFullQuoteModal() {
       </div>`;
     });
     html += `<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:800;margin-top:6px;padding-top:6px;border-top:2px solid #d1fae5;">
-        <span>Subtotal</span><span style="color:var(--ss-green);">$${item.total.toFixed(2)}</span>
+        <span>Subtotal</span><span style="color:var(--ss-green);">$${serviceAmount(item).toFixed(2)}</span>
       </div></div></div>`;
-    grandTotal += item.total;
+    grandTotal += serviceAmount(item);
   });
   const modalTravel = clientInfo.travelCost || 0;
   if (modalTravel > 0) {
@@ -1759,8 +1845,12 @@ function showFullQuoteModal() {
       <span>Travel</span><span>$${modalTravel.toFixed(2)}</span>
     </div>`;
   }
+  const modalTotals = calculateQuoteTotals(allItems, modalTravel);
+  if (modalTotals.minimumAdjustment > 0) {
+    html += `<div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 12px;color:#888;"><span>Minimum job adjustment</span><span>$${modalTotals.minimumAdjustment.toFixed(2)}</span></div>`;
+  }
   html += `<div style="display:flex;justify-content:space-between;font-size:16px;font-weight:900;padding:12px;background:#f0fdf4;border-radius:8px;color:var(--ss-green);">
-    <span>GRAND TOTAL</span><span>$${(grandTotal + modalTravel).toFixed(2)}</span>
+    <span>GRAND TOTAL</span><span>$${modalTotals.total.toFixed(2)}</span>
   </div>
   <div style="font-size:11px;color:#888;margin-top:8px;text-align:center;">Tap outside to close</div>
   </div></div>`;
@@ -1771,8 +1861,7 @@ function showFullQuoteModal() {
 
 function getMultiTotal() {
   const items = getMultiItems();
-  const servicesTotal = items.reduce((s, i) => s + i.total, 0);
-  return servicesTotal + (clientInfo.travelCost || 0);
+  return calculateQuoteTotals(items).total;
 }
 
 function getMultiItems() {
@@ -1784,13 +1873,36 @@ function getMultiItems() {
     items.push({
       name: svc.name,
       serviceKey: currentService,
-      total: currentResult.total,
+      total: serviceAmount(currentResult),
+      rawTotal: serviceAmount(currentResult),
       lines: currentResult.lines,
       travel: currentResult.travel,
       inclusions: currentResult.inclusions || svc.inclusions || []
     });
   }
   return items;
+}
+
+function buildCrmLineItems(items, travelCost = 0) {
+  const lineItems = (items || []).map(item => {
+    const total = Number(item.total) || 0;
+    return {
+      description: item.name || item.description || 'Service',
+      qty: Number(item.qty) || 1,
+      unit: item.unit || '',
+      rate: Number(item.rate) || total,
+      total
+    };
+  });
+  const travel = Number(travelCost) || 0;
+  if (travel > 0) {
+    lineItems.push({ description: 'Travel', qty: 1, unit: '', rate: travel, total: travel });
+  }
+  const totals = calculateQuoteTotals(items, travel);
+  if (totals.minimumAdjustment > 0) {
+    lineItems.push({ description: 'Minimum job adjustment', qty: 1, unit: '', rate: totals.minimumAdjustment, total: totals.minimumAdjustment });
+  }
+  return lineItems;
 }
 
 function finaliseQuote() {
@@ -1800,18 +1912,16 @@ function finaliseQuote() {
 
 async function saveMultiQuoteToCRM() {
   const items = getMultiItems();
-  // Travel already baked into first item total — grand total is just sum of items
-  const total = items.reduce((s, i) => s + i.total, 0) + (clientInfo.travelCost || 0);
+  const total = calculateQuoteTotals(items).total;
   // Build combined notes
   const svcNames = items.map(i => i.name).join(' + ');
-  const _travel = clientInfo.travelCost || 0;
-  await saveQuoteToCRMWithOverride(total, svcNames, items.map((i, idx) => {
+  await saveQuoteToCRMWithOverride(total, svcNames, buildCrmLineItems(items.map(i => {
     let desc = i.name;
     if (i.serviceKey === 'window-cleaning' && i.savedAnswers && i.savedAnswers.scope) {
       desc = `${i.name} (${i.savedAnswers.scope})`;
     }
-    return { description: desc, total: idx === 0 ? i.total + _travel : i.total };
-  }));
+    return { ...i, name: desc };
+  }), clientInfo.travelCost));
 }
 
 async function ensureClientProfile() {
@@ -1905,7 +2015,7 @@ function showQuoteSuccessScreen(mode) {
   const existing = document.getElementById('quote-success-screen');
   if (existing) existing.remove();
   const allItems = getMultiItems();
-  const grandTotal = allItems.reduce((s, i) => s + i.total, 0) + (clientInfo.travelCost || 0);
+  const grandTotal = calculateQuoteTotals(allItems).total;
   const serviceLabel = allItems.map(i => i.name).join(' + ') || (SERVICES[currentService] ? SERVICES[currentService].name : 'Service');
   const isAccepted = mode === 'accepted';
   const div = document.createElement('div');
@@ -2272,6 +2382,11 @@ function showQuote() {
 
   const inclusionSource = result.inclusions || svc.inclusions || [];
   const inclusions = inclusionSource.map(i => `<div class="inclusion-item">${i}</div>`).join('');
+  const disclaimerPanel = notesAndDisclaimersHtml([{serviceKey:currentService,name:svc.name,result}]);
+  const singleQuoteTotals = calculateQuoteTotals([
+    ...multiServiceItems,
+    {...result, total:serviceAmount(result), rawTotal:serviceAmount(result)}
+  ], result.travel || 0);
   const lines = result.lines.map(l => `
     <div class="quote-line">
       <span class="quote-line-label">${l.label}</span>
@@ -2287,9 +2402,10 @@ function showQuote() {
         <span class="quote-line-label">Travel</span>
         <span class="quote-line-value">$${result.travel.toFixed(2)}</span>
       </div>` : ''}
+      ${singleQuoteTotals.minimumAdjustment > 0 ? `<div class="quote-line"><span class="quote-line-label">Minimum job adjustment</span><span class="quote-line-value">$${singleQuoteTotals.minimumAdjustment.toFixed(2)}</span></div>` : ''}
       <div class="quote-total">
         <span class="quote-total-label">Total (inc. GST)</span>
-        <span class="quote-total-value">$${(result.total + (result.travel||0)).toFixed(2)}</span>
+        <span class="quote-total-value">$${singleQuoteTotals.total.toFixed(2)}</span>
       </div>
       ${result.note ? `<div class="quote-disclaimer">⚠️ ${result.note}</div>` : ''}
       ${result.upsell ? `<div class="alert alert-info" style="margin-top:10px;">💡 ${result.upsell}</div>` : ''}
@@ -2298,6 +2414,7 @@ function showQuote() {
         <div class="inclusions-title">What's included</div>
         ${inclusions}
       </div>
+      ${disclaimerPanel}
 
       <div id="multi-svc-combined-summary"></div>
 
@@ -2317,17 +2434,15 @@ function showQuote() {
       </div>
 
       <div class="closing-script">
-        <div class="closing-script-title">💬 Closing Script</div>
-        <div class="closing-script-text" id="closing-script-dynamic">
-          "So we're all good to go — that's <strong>$${result.total.toFixed(2)}</strong> all up for ${clientInfo.suburb || '[suburb]'}. To lock it in I just need to grab a date that works for you. Are you flexible on timing, or is there a particular day or week that would suit best?"
-        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><div class="closing-script-title">✨ AI Closing Script</div><button onclick="generateAiClosingScript('closing-script-dynamic')" style="border:1px solid #86efac;background:#fff;color:var(--ss-green);border-radius:7px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer;">Regenerate</button></div>
+        <div class="closing-script-text" id="closing-script-dynamic">Generating a personalised closing script…</div>
       </div>
 
       <div class="quote-actions">
         <button class="btn-secondary" onclick="addAnotherService()" style="border:1px solid var(--ss-green);color:var(--ss-green);font-weight:700;">＋ Add Another Service</button>
         <button class="btn-primary" onclick="finaliseQuote()" style="background:#14532d;">&#10003; Quote Accepted — Book Job</button>
         <button class="btn-primary" onclick="saveMultiQuoteToCRM()">Save to CRM</button>
-        <button class="btn-secondary" onclick="emailQuote(${result.total})">&#128231; Email Quote</button>
+        <button class="btn-secondary" onclick="emailQuote(${singleQuoteTotals.total})">&#128231; Email Quote</button>
         <button class="btn-secondary" onclick="showInclusionsReference()">📋 What's Included</button>
         <button class="btn-secondary" onclick="openAddFollowUp()">Add Follow-up</button>
         <button class="btn-secondary" onclick="clearAndNewQuote()">New Quote</button>
@@ -2337,6 +2452,17 @@ function showQuote() {
   // Render combined multi-service summary if items exist
   syncQuoteEndSource();
   renderCombinedSummary(result);
+  const manualClosingItems = getMultiItems();
+  const manualClosingInclusions = manualClosingItems.flatMap(item => item.inclusions || SERVICES[item.serviceKey]?.inclusions || []);
+  const manualClosingDisclaimers = manualClosingItems.flatMap(item => serviceNotesAndDisclaimers(item.serviceKey, item));
+  const manualClosingTotal = calculateQuoteTotals(manualClosingItems).total;
+  generateAiClosingScript('closing-script-dynamic', {
+    type:'quote',clientName:clientInfo.name,suburb:clientInfo.suburb,
+    services:manualClosingItems.map(item => item.name),total:manualClosingTotal,
+    notes:[result.note, result.upsell].filter(Boolean).join(' | '),
+    inclusions:manualClosingInclusions,disclaimers:manualClosingDisclaimers,
+    fallback:`So we're all good to go — that's $${manualClosingTotal.toFixed(2)} all up for ${manualClosingItems.map(item => item.name).join(' and ')} in ${clientInfo.suburb || 'your suburb'}. Would you like to go ahead and choose a suitable date?`
+  });
 
   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -2497,13 +2623,19 @@ async function loadCalendarFreeBusy(token, dateStr) {
   } catch(e) { return []; }
 }
 
-async function bookJobOnCalendar(token, dateStr, clientName, service, suburb, total) {
-  const title = `${clientName} | ${service} | ${suburb} | $${total.toFixed(0)}`;
+async function bookJobOnCalendar(token, dateStr, clientName, service, suburb, total, jobId) {
+  const phone = clientInfo.phone || '';
+  const address = clientInfo.address || suburb || '';
+  const title = [clientName, phone, address, service, `$${Number(total || 0).toFixed(2)}`].filter(Boolean).join(' | ');
+  const endDate = new Date(dateStr + 'T12:00:00');
+  endDate.setDate(endDate.getDate() + 1);
+  const endDateStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
   const body = {
     summary: title,
-    description: `Phone-quoted job booked via Call Dashboard.\nService: ${service}\nSuburb: ${suburb}\nTotal: $${total.toFixed(2)}\nRep: ${currentRep ? currentRep.name : 'unknown'}`,
+    description: `Job: ${jobId}\nService: ${service}\nPrice: $${Number(total || 0).toFixed(2)}\nAddress: ${address}\nPhone: ${phone}\nBooked via Call Dashboard\nRep: ${currentRep ? currentRep.name : 'unknown'}`,
     start: { date: dateStr },
-    end: { date: dateStr },
+    end: { date: endDateStr },
+    extendedProperties: { private: { job_id: jobId, source: 'call-dashboard' } },
     colorId: '2' // Sage green
   };
   const r = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
@@ -2511,7 +2643,9 @@ async function bookJobOnCalendar(token, dateStr, clientName, service, suburb, to
     headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
-  return r.ok;
+  const data = await r.json();
+  if (!r.ok || !data.id) throw new Error(data?.error?.message || 'Google Calendar event creation failed.');
+  return data.id;
 }
 
 async function acceptQuote(total) {
@@ -2565,9 +2699,7 @@ async function _doAcceptQuote(total) {
   const combinedLabel = allItems.length > 1
     ? allItems.map(i => i.name).join(' + ')
     : (allItems[0]?.name || svc.name);
-  const lineItems = allItems.length > 1
-    ? allItems.map(i => ({ description: i.name, total: i.total }))
-    : [{ description: allItems[0]?.name || svc.name, total }];
+  const lineItems = buildCrmLineItems(allItems, clientInfo.travelCost);
 
   // Step 1: Save quote as accepted + create job in CRM
   const quoteId = 'Q-' + Date.now();
@@ -2587,7 +2719,7 @@ async function _doAcceptQuote(total) {
     const jobRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ id: jobId, client: clientInfo.name, client_id: clientId, service: combinedLabel, description: `Phone-quoted job. Address: ${clientInfo.address || clientInfo.suburb}.`, status: 'Active', revenue: total, hours: 0, completion_date: null, notes: `Booked via Call Dashboard. Rep: ${currentRep ? currentRep.name : 'unknown'}. Quote: ${quoteId}.`, created_at: new Date().toISOString() })
+      body: JSON.stringify({ id: jobId, client: clientInfo.name, client_id: clientId, service: combinedLabel, description: `Phone-quoted job. Address: ${clientInfo.address || clientInfo.suburb}.`, status: 'Active', revenue: total, items: lineItems, hours: 0, completion_date: null, notes: `Booked via Call Dashboard. Rep: ${currentRep ? currentRep.name : 'unknown'}. Quote: ${quoteId}.`, created_at: new Date().toISOString() })
     });
     if (!jobRes.ok) throw new Error(`Job creation failed: ${await jobRes.text()}`);
 
@@ -2603,12 +2735,32 @@ async function _doAcceptQuote(total) {
 
   // Step 3: Success screen + calendar booking
   showQuoteSuccessScreen('accepted');
-  showCalendarBookingModal(total, jobId);
+  showCalendarBookingModal(total, jobId, {
+    clientName: clientInfo.name,
+    phone: clientInfo.phone,
+    address: clientInfo.address,
+    suburb: clientInfo.suburb,
+    serviceLabel: combinedLabel
+  });
 }
 
-async function showCalendarBookingModal(total, jobId) {
+let activeCalendarBookingContext = null;
+
+async function showCalendarBookingModal(total, jobId, bookingContext = {}) {
   const svc = SERVICES[currentService];
-  const serviceLabel = getMultiItems().map(i => i.name).join(' + ') || (svc ? svc.name : 'Service');
+  const serviceLabel = bookingContext.serviceLabel || getMultiItems().map(i => i.name).join(' + ') || (svc ? svc.name : 'Service');
+  activeCalendarBookingContext = {
+    clientName: bookingContext.clientName || clientInfo.name,
+    phone: bookingContext.phone || clientInfo.phone || '',
+    address: bookingContext.address || clientInfo.address || '',
+    suburb: bookingContext.suburb || clientInfo.suburb || '',
+    serviceLabel,
+    restoreClientInfo: bookingContext.restoreClientInfo || null,
+    existingCalendarEventId: bookingContext.existingCalendarEventId || null,
+    existingCalendarDescription: bookingContext.existingCalendarDescription || '',
+    showPrice: bookingContext.showPrice !== false,
+    onBooked: typeof bookingContext.onBooked === 'function' ? bookingContext.onBooked : null
+  };
   const existing = document.getElementById('cal-booking-modal');
   if (existing) existing.remove();
 
@@ -2618,7 +2770,7 @@ async function showCalendarBookingModal(total, jobId) {
   modal.innerHTML = `
     <div style="background:var(--surface);border-radius:16px;padding:24px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.4);margin:auto;">
       <div style="font-size:17px;font-weight:800;margin-bottom:4px;">&#128197; Book the Job</div>
-      <div style="font-size:13px;color:var(--text3);margin-bottom:16px;">${clientInfo.name} &middot; ${serviceLabel} &middot; $${total.toFixed(2)}</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:16px;">${activeCalendarBookingContext.clientName} &middot; ${serviceLabel}${activeCalendarBookingContext.showPrice ? ` &middot; $${total.toFixed(2)}` : ''}</div>
 
       <div id="cal-booking-body">
         <div style="text-align:center;padding:24px;">
@@ -2766,7 +2918,8 @@ async function loadCalBooking(total, jobId) {
     }
   } catch(e) { /* degrade gracefully — proximity badges just won't show */ }
 
-  const targetSuburb = (clientInfo.suburb || (clientInfo.address || '').split(',').pop().trim()).toLowerCase();
+  const bookingContext = activeCalendarBookingContext || {};
+  const targetSuburb = (bookingContext.suburb || (bookingContext.address || '').split(',').pop().trim() || clientInfo.suburb || (clientInfo.address || '').split(',').pop().trim()).toLowerCase();
   // ─────────────────────────────────────────────────────────────────────────
 
   const dayCards = days.map(dateStr => {
@@ -2813,21 +2966,68 @@ async function confirmCalBooking(dateStr, label, total, jobId) {
     return;
   }
 
+  const context = activeCalendarBookingContext || {};
   const svc = SERVICES[currentService];
-  const serviceLabel = getMultiItems().map(i => i.name).join(' + ') || (svc ? svc.name : 'Job');
-  const booked = await bookJobOnCalendar(token, dateStr, clientInfo.name, serviceLabel, clientInfo.suburb, total);
-
-  // Update job in CRM with the date
+  const serviceLabel = context.serviceLabel || getMultiItems().map(i => i.name).join(' + ') || (svc ? svc.name : 'Job');
+  const originalClientInfo = { ...clientInfo };
+  Object.assign(clientInfo, {
+    phone: context.phone || clientInfo.phone,
+    address: context.address || clientInfo.address,
+    suburb: context.suburb || clientInfo.suburb
+  });
+  let calendarEventId = null;
+  let calendarUpdated = false;
   try {
-    await fetch(`${SUPABASE_URL}/rest/v1/jobs?id=eq.${jobId}`, {
-      method: 'PATCH',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ completion_date: dateStr })
-    });
-  } catch(e) {}
+    if (context.existingCalendarEventId) {
+      const endDate = new Date(dateStr + 'T12:00:00');
+      endDate.setDate(endDate.getDate() + 1);
+      const endDateStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+      const eventUpdateRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(context.existingCalendarEventId)}`, {
+        method: 'PATCH',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ start: { date: dateStr }, end: { date: endDateStr } })
+      });
+      const eventUpdate = await eventUpdateRes.json().catch(() => ({}));
+      if (!eventUpdateRes.ok) throw new Error(eventUpdate?.error?.message || 'Calendar event update failed.');
+      calendarEventId = eventUpdate.id || context.existingCalendarEventId;
+      calendarUpdated = true;
+    } else {
+      calendarEventId = await bookJobOnCalendar(token, dateStr, context.clientName || clientInfo.name, serviceLabel, context.suburb || clientInfo.suburb, total, jobId);
+      calendarUpdated = true;
+    }
+  } catch (error) {
+    console.error('Google Calendar booking failed:', error);
+  } finally {
+    Object.assign(clientInfo, originalClientInfo);
+  }
 
+  // Update the CRM job only after its calendar event has been successfully created or moved.
+  let crmUpdated = !jobId;
+  if (jobId && calendarUpdated) {
+    try {
+      const jobUpdateRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}`, {
+        method: 'PATCH',
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+        body: JSON.stringify({ completion_date: dateStr, google_calendar_event_id: calendarEventId })
+      });
+      const updatedJobs = await jobUpdateRes.json().catch(() => []);
+      if (!jobUpdateRes.ok || !Array.isArray(updatedJobs) || updatedJobs.length !== 1) throw new Error(`Job calendar link failed: ${JSON.stringify(updatedJobs)}`);
+      crmUpdated = true;
+    } catch(e) { console.error(e); }
+  }
+
+  if (context.restoreClientInfo) Object.assign(clientInfo, context.restoreClientInfo);
+  const onBooked = context.onBooked;
+  activeCalendarBookingContext = null;
   if (modal) modal.remove();
-  showToast(booked ? `Job booked for ${label} ✓` : `Job saved in CRM — add to calendar manually`);
+  if (calendarUpdated && crmUpdated) {
+    showToast(`${jobId ? 'Job' : 'Event'} booked for ${label} ✓`);
+    if (onBooked) await onBooked({ dateStr, calendarEventId });
+  } else if (calendarUpdated && jobId) {
+    showToast('Calendar moved, but the CRM job did not update — check the CRM', 'error');
+  } else {
+    showToast('Booking failed — the item remains unscheduled', 'error');
+  }
 }
 
 // ============================================================
@@ -2835,7 +3035,10 @@ async function confirmCalBooking(dateStr, label, total, jobId) {
 // ============================================================
 function emailQuote(total) {
   const allItems = getMultiItems();
-  const grandTotal = (allItems.length > 0 ? allItems.reduce((s, i) => s + i.total, 0) : total) + (clientInfo.travelCost || 0);
+  const quoteTotals = allItems.length > 0
+    ? calculateQuoteTotals(allItems)
+    : calculateQuoteTotals([{total:Number(total) || 0}], clientInfo.travelCost || 0);
+  const grandTotal = quoteTotals.total;
   const serviceLabel = allItems.length > 0 ? allItems.map(i => i.name).join(' + ') : (SERVICES[currentService] ? SERVICES[currentService].name : 'Service');
   let emailItems = [];
   if (allItems.length > 0) {
@@ -2843,7 +3046,7 @@ function emailQuote(total) {
       const inclusionSource = item.inclusions || (SERVICES[item.serviceKey] && SERVICES[item.serviceKey].inclusions) || [];
       return {
         name: item.name,
-        total: Number(item.total || 0) + (idx === 0 ? (clientInfo.travelCost || 0) : 0),
+        total: serviceAmount(item) + (idx === 0 ? (clientInfo.travelCost || 0) : 0),
         inclusions: inclusionSource
       };
     });
@@ -2853,10 +3056,13 @@ function emailQuote(total) {
       const result = svc.calcQuote(answers);
       emailItems = [{
         name: svc.name,
-        total: Number(result.total || 0) + (clientInfo.travelCost || 0),
+        total: serviceAmount(result) + (clientInfo.travelCost || 0),
         inclusions: result.inclusions || svc.inclusions || []
       }];
     }
+  }
+  if (quoteTotals.minimumAdjustment > 0) {
+    emailItems.push({ name:'Minimum job adjustment', total:quoteTotals.minimumAdjustment, inclusions:[] });
   }
 
   sendQuoteEmail({
@@ -2988,7 +3194,8 @@ function showEmailModal(email, subject, bodyCopied) {
 
 function printQuote(grandTotal) {
   const allItems = getMultiItems();
-  const totalToPrint = grandTotal || (allItems.length > 0 ? allItems.reduce((s, i) => s + i.total, 0) : 0);
+  const quoteTotals = calculateQuoteTotals(allItems);
+  const totalToPrint = Number(grandTotal) || quoteTotals.total;
   const date = new Date().toLocaleDateString('en-AU', { day:'2-digit', month:'2-digit', year:'numeric' });
   const quoteId = 'Q-' + Date.now();
 
@@ -2997,7 +3204,7 @@ function printQuote(grandTotal) {
   let serviceRows = '';
   if (allItems.length > 0) {
     allItems.forEach((item, idx) => {
-      const itemTotal = idx === 0 ? item.total + _pqTravel : item.total;
+      const itemTotal = idx === 0 ? serviceAmount(item) + _pqTravel : serviceAmount(item);
       serviceRows += `<tr>
         <td>${item.name}</td>
         <td style="text-align:center;"></td>
@@ -3010,13 +3217,16 @@ function printQuote(grandTotal) {
     const svc = SERVICES[currentService];
     if (svc) {
       const result = svc.calcQuote(answers);
-      const singleTotal = result.total + _pqTravel;
+      const singleTotal = serviceAmount(result) + _pqTravel;
       serviceRows += `<tr>
         <td>${svc.name}</td>
         <td></td><td></td><td></td>
         <td style="text-align:right;">$${singleTotal.toFixed(2)}</td>
       </tr>`;
     }
+  }
+  if (quoteTotals.minimumAdjustment > 0) {
+    serviceRows += `<tr><td>Minimum job adjustment</td><td></td><td></td><td></td><td style="text-align:right;">$${quoteTotals.minimumAdjustment.toFixed(2)}</td></tr>`;
   }
 
   // Grand total = sum of base totals + travel (travel already in first item display but total still needs it added once)
@@ -3159,7 +3369,7 @@ async function saveFollowUp() {
     call_date: document.getElementById('fu-date').value,
     call_time: document.getElementById('fu-time').value,
     notes: document.getElementById('fu-notes').value,
-    rep_name: currentRep || 'Unknown',
+    rep_name: currentRep ? currentRep.name : 'Unknown',
     status: 'pending',
     created_at: new Date().toISOString()
   };
@@ -4154,6 +4364,440 @@ todoSyncTimer = setInterval(() => {
 }, 15000);
 
 // ============================================================
+// UNSCHEDULED JOBS TAB
+// ============================================================
+
+const UNSCHEDULED_CALENDAR_DATE = '2099-01-01';
+let _ujItems = [];
+let _ujSelectedItem = null;
+let _ujInclusionSelections = {};
+
+function ujEventJobId(event) {
+  return event?.extendedProperties?.private?.job_id || '';
+}
+
+function ujIsBlankDate(value) {
+  return value === null || value === undefined || String(value).trim() === '' || String(value).startsWith(UNSCHEDULED_CALENDAR_DATE);
+}
+
+function ujServiceNames(item) {
+  const jobItems = Array.isArray(item.job?.items) ? item.job.items : [];
+  const names = jobItems.map(row => row.description || row.name).filter(name => name && name !== 'TOTAL');
+  if (names.length) return names;
+  if (item.job?.service) return [item.job.service];
+  return [item.event?.summary || 'Unscheduled event'];
+}
+
+function ujServiceOptionsHtml() {
+  return Object.entries(SERVICES).map(([key, service]) => `<option value="${_escHtml(key)}">${_escHtml(service.name)}</option>`).join('');
+}
+
+function ujAddInclusion() {
+  if (!_ujSelectedItem) return;
+  const select = document.getElementById('uj-inclusion-select');
+  const serviceKey = select?.value;
+  if (!serviceKey || !SERVICES[serviceKey]) return;
+  const selected = _ujInclusionSelections[_ujSelectedItem.key] || [];
+  if (!selected.includes(serviceKey)) selected.push(serviceKey);
+  _ujInclusionSelections[_ujSelectedItem.key] = selected;
+  ujRenderSelectedInclusions();
+}
+
+function ujRemoveInclusion(serviceKey) {
+  if (!_ujSelectedItem) return;
+  _ujInclusionSelections[_ujSelectedItem.key] = (_ujInclusionSelections[_ujSelectedItem.key] || []).filter(key => key !== serviceKey);
+  ujRenderSelectedInclusions();
+}
+
+function ujRenderSelectedInclusions() {
+  const container = document.getElementById('uj-selected-inclusions');
+  if (!container || !_ujSelectedItem) return;
+  const selected = _ujInclusionSelections[_ujSelectedItem.key] || [];
+  if (!selected.length) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:12px 0 4px;">No inclusions selected yet. Choose a service above, then select Add Inclusions.</div>';
+    return;
+  }
+  container.innerHTML = selected.map(serviceKey => {
+    const service = SERVICES[serviceKey];
+    const inclusions = service?.inclusions || [];
+    const disclaimers = serviceNotesAndDisclaimers(serviceKey);
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:10px;background:#fff;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;">
+        <div style="font-size:13px;font-weight:800;color:var(--text1);">${_escHtml(service?.name || serviceKey)}</div>
+        <button onclick="ujRemoveInclusion('${_escHtml(serviceKey)}')" style="border:none;background:#fee2e2;color:#991b1b;border-radius:7px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer;">Remove</button>
+      </div>
+      ${inclusions.length ? inclusions.map(line => `<div style="font-size:13px;color:var(--text2);line-height:1.6;padding:1px 0;">✓ ${_escHtml(line)}</div>`).join('') : '<div style="font-size:12px;color:var(--text3);">No inclusion list configured for this service.</div>'}
+      ${disclaimers.length ? `<div style="margin-top:9px;padding-top:8px;border-top:1px solid #fde68a;"><div style="font-size:11px;font-weight:800;color:#92400e;margin-bottom:4px;">NOTES &amp; DISCLAIMERS</div>${disclaimers.map(line => `<div style="font-size:12px;color:#78350f;line-height:1.55;">⚠️ ${_escHtml(line)}</div>`).join('')}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function ujFetchCalendarEvents() {
+  const token = await getGoogleToken();
+  if (!token) return { events: [], connected: false };
+  const start = encodeURIComponent('2099-01-01T00:00:00Z');
+  const end = encodeURIComponent('2099-01-03T00:00:00Z');
+  const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${start}&timeMax=${end}&singleEvents=true&maxResults=2500`, {
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error?.message || 'Could not load Google Calendar events.');
+  return { events: data.items || [], connected: true };
+}
+
+async function loadUnscheduledTab() {
+  const container = document.getElementById('uj-list-container');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center;padding:32px;color:var(--text3);">Loading active jobs and calendar events…</div>';
+
+  try {
+    const jobsResponse = await fetch(`${SUPABASE_URL}/rest/v1/jobs?select=*&order=created_at.asc`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    if (!jobsResponse.ok) throw new Error(`CRM jobs failed: ${await jobsResponse.text()}`);
+    const allJobs = await jobsResponse.json();
+    const activeJobs = allJobs.filter(job => String(job.status || '').toLowerCase() === 'active' && ujIsBlankDate(job.completion_date || job.completionDate));
+
+    let calendarResult = { events: [], connected: false };
+    let calendarWarning = '';
+    try {
+      calendarResult = await ujFetchCalendarEvents();
+    } catch (error) {
+      console.error('Unscheduled Google Calendar load failed:', error);
+      calendarWarning = error.message;
+    }
+
+    const clientsById = {};
+    const clientIds = [...new Set(activeJobs.map(job => job.client_id).filter(Boolean))];
+    await Promise.all(clientIds.map(async id => {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/clients?id=eq.${encodeURIComponent(id)}&select=id,name,phone,email,address,suburb,source&limit=1`, {
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+      });
+      if (!response.ok) return;
+      const rows = await response.json();
+      if (rows[0]) clientsById[id] = rows[0];
+    }));
+
+    const anyJobById = new Map(allJobs.map(job => [String(job.id), job]));
+    const anyJobByEventId = new Map(allJobs.filter(job => job.google_calendar_event_id).map(job => [String(job.google_calendar_event_id), job]));
+    const events = calendarResult.events.filter(event => {
+      const linkedByPrivateId = ujEventJobId(event);
+      const linkedJob = linkedByPrivateId ? anyJobById.get(String(linkedByPrivateId)) : anyJobByEventId.get(String(event.id));
+      return !linkedJob || String(linkedJob.status || '').toLowerCase() === 'active';
+    });
+    const eventById = new Map(events.map(event => [String(event.id), event]));
+    const eventByJobId = new Map(events.filter(event => ujEventJobId(event)).map(event => [String(ujEventJobId(event)), event]));
+    const usedEventIds = new Set();
+
+    const mergedJobs = activeJobs.map(job => {
+      const event = (job.google_calendar_event_id && eventById.get(String(job.google_calendar_event_id))) || eventByJobId.get(String(job.id)) || null;
+      if (event) usedEventIds.add(String(event.id));
+      return {
+        key: `job:${job.id}`,
+        type: event ? 'linked' : 'job',
+        job,
+        event,
+        client: job.client_id ? clientsById[job.client_id] || null : null,
+        createdAt: job.created_at || event?.created || ''
+      };
+    });
+
+    const standaloneEvents = events.filter(event => !usedEventIds.has(String(event.id))).map(event => ({
+      key: `event:${event.id}`,
+      type: 'event',
+      job: null,
+      event,
+      client: null,
+      createdAt: event.created || event.updated || ''
+    }));
+
+    _ujItems = [...mergedJobs, ...standaloneEvents].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+    _ujSelectedItem = null;
+    document.getElementById('uj-list-view').style.display = 'block';
+    document.getElementById('uj-detail-view').style.display = 'none';
+    renderUnscheduledList({ connected: calendarResult.connected, warning: calendarWarning });
+  } catch (error) {
+    console.error('Unscheduled queue load failed:', error);
+    container.innerHTML = `<div class="alert alert-danger">Could not load unscheduled items. ${_escHtml(error.message)}</div>`;
+  }
+}
+
+function renderUnscheduledList(calendarState) {
+  const container = document.getElementById('uj-list-container');
+  if (!container) return;
+  const query = (document.getElementById('uj-search')?.value || '').trim().toLowerCase();
+  const items = _ujItems.filter(item => {
+    const haystack = [item.job?.client, item.client?.name, item.client?.phone, item.job?.service, item.job?.notes, item.event?.summary, item.event?.description].filter(Boolean).join(' ').toLowerCase();
+    return !query || haystack.includes(query);
+  });
+  const connectionMessage = calendarState && !calendarState.connected
+    ? `<div class="alert alert-info" style="margin-bottom:14px;">Google Calendar is not connected, so CRM jobs are shown but standalone calendar events may be missing. <button onclick="ujConnectCalendar()" style="border:none;background:none;color:var(--ss-green);font-weight:700;cursor:pointer;">Connect Calendar</button></div>`
+    : calendarState?.warning ? `<div class="alert alert-danger" style="margin-bottom:14px;">Calendar events could not be loaded: ${_escHtml(calendarState.warning)}</div>` : '';
+  if (!items.length) {
+    container.innerHTML = connectionMessage + `<div class="empty-state"><div class="empty-state-icon">✓</div><div class="empty-state-title">No unscheduled items</div><div class="empty-state-desc">${query ? 'No items match this search' : 'All active jobs and events are scheduled'}</div></div>`;
+    return;
+  }
+  container.innerHTML = connectionMessage + items.map(item => {
+    const title = item.client?.name || item.job?.client || item.event?.summary || 'Unscheduled event';
+    const services = ujServiceNames(item).join(' + ');
+    const badge = item.type === 'linked' ? 'Linked Job + Event' : item.type === 'job' ? 'CRM Job' : 'Calendar Event';
+    const phone = item.client?.phone || '';
+    return `<div onclick="ujOpenDetail('${_escHtml(item.key)}')" style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;cursor:pointer;">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
+        <div><div style="font-size:15px;font-weight:800;color:var(--text1);">${_escHtml(title)}</div><div style="font-size:12px;color:var(--text2);margin-top:4px;">${_escHtml(services)}</div>${phone ? `<div style="font-size:12px;color:var(--text3);margin-top:4px;">📞 ${_escHtml(phone)}</div>` : ''}</div>
+        <span style="font-size:10px;background:${item.type === 'event' ? '#eef2ff' : '#f0fdf4'};color:${item.type === 'event' ? '#3730a3' : '#166534'};padding:4px 8px;border-radius:10px;font-weight:800;white-space:nowrap;">${badge}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function ujConnectCalendar() {
+  const token = await signInGoogleCalendar();
+  if (token) loadUnscheduledTab();
+  else showToast('Could not connect Google Calendar', 'error');
+}
+
+function ujOpenDetail(key) {
+  const item = _ujItems.find(row => row.key === key);
+  if (!item) return;
+  _ujSelectedItem = item;
+  const client = item.client;
+  const job = item.job;
+  const event = item.event;
+  const title = client?.name || job?.client || event?.summary || 'Unscheduled event';
+  const services = ujServiceNames(item);
+  const total = Number(job?.revenue || 0);
+  const fallbackClosingScript = `Hi ${String(title).split(' ')[0] || 'there'}, this is ______ from SS Exterior Services. I'm calling about your ${services.join(' and ')}. Would you like to get this scheduled in within the next couple of weeks?`;
+
+  document.getElementById('uj-list-view').style.display = 'none';
+  const detail = document.getElementById('uj-detail-view');
+  detail.style.display = 'block';
+  detail.innerHTML = `
+    <button onclick="ujBackToList()" style="background:none;border:none;color:var(--ss-green);font-size:14px;font-weight:700;cursor:pointer;padding:0;margin-bottom:16px;">← Back to Unscheduled Jobs</button>
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-title" style="margin-bottom:10px;">👤 Client</div>
+      <div style="font-size:17px;font-weight:800;margin-bottom:8px;">${_escHtml(title)}</div>
+      ${client ? `<div style="display:flex;gap:10px;flex-wrap:wrap;">${client.phone ? `<a href="tel:${_escHtml(client.phone)}" style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 14px;text-decoration:none;color:var(--ss-green);font-weight:700;">📞 ${_escHtml(client.phone)}</a>` : ''}${client.email ? `<span style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 14px;color:#1d4ed8;">✉️ ${_escHtml(client.email)}</span>` : ''}</div><div style="font-size:12px;color:var(--text3);margin-top:8px;">📍 ${_escHtml([client.address, client.suburb].filter(Boolean).join(', ') || 'No address on file')}</div>` : `<div class="alert alert-info" style="margin:0;">No client info detected — refer to CRM client log.</div>`}
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><div class="card-title">🔧 ${job ? `Job #${_escHtml(job.id)}` : 'Calendar Event'}</div><span style="font-size:11px;color:#92400e;background:#fef3c7;padding:3px 8px;border-radius:8px;font-weight:700;">Unscheduled</span></div>
+      <div style="font-size:13px;color:var(--text2);margin-top:10px;">${services.map(_escHtml).join(' + ')}</div>
+      ${job ? `<div style="font-size:18px;font-weight:800;color:var(--ss-green);margin-top:8px;">$${total.toFixed(2)}</div>` : ''}
+    </div>
+    <details class="detail-accordion">
+      <summary>✅ Inclusions, Notes &amp; Disclaimers</summary>
+      <div class="detail-accordion-content">
+        <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">Choose the relevant service manually. Add as many different service inclusion lists as needed.</div>
+        <div style="display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;">
+          <select id="uj-inclusion-select" class="form-input" style="flex:1;min-width:220px;background:#fff;">${ujServiceOptionsHtml()}</select>
+          <button onclick="ujAddInclusion()" class="btn-primary" style="width:auto;white-space:nowrap;">+ Add Inclusions</button>
+        </div>
+        <div id="uj-selected-inclusions"></div>
+      </div>
+    </details>
+    <details class="detail-accordion detail-accordion--green">
+      <summary>✨ AI Closing Script</summary>
+      <div class="detail-accordion-content">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><button onclick="generateAiClosingScript('uj-closing-script')" style="border:1px solid #86efac;background:#fff;color:var(--ss-green);border-radius:7px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer;">Regenerate</button></div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:9px;">Generated from the client, job, service and notes below. You can edit it while speaking.</div>
+        <textarea id="uj-closing-script" class="form-input" rows="6" style="resize:vertical;line-height:1.6;background:#fff;">Generating a personalised closing script…</textarea>
+      </div>
+    </details>
+    <details class="detail-accordion">
+      <summary>🗒 Notes</summary>
+      <div class="detail-accordion-content">
+        ${job ? `<label class="form-label">CRM Job Notes</label><textarea id="uj-job-notes" class="form-input" rows="4" style="resize:vertical;">${_escHtml(job.notes || '')}</textarea><div style="font-size:11px;color:var(--text3);margin:5px 0 14px;">Saved only to CRM job ${_escHtml(job.id)}</div>` : ''}
+        ${event ? `<label class="form-label">Google Calendar Event Notes</label><textarea id="uj-event-notes" class="form-input" rows="4" style="resize:vertical;">${_escHtml(event.description || '')}</textarea><div style="font-size:11px;color:var(--text3);margin-top:5px;">Saved only to Google Calendar event ${_escHtml(event.id)}</div>` : ''}
+        <button id="uj-save-notes" onclick="ujSaveNotes()" class="btn-primary" style="width:auto;margin-top:12px;">Save Notes</button>
+      </div>
+    </details>
+    <div style="display:flex;flex-direction:column;gap:10px;padding-bottom:40px;">
+      <button onclick="ujBookSelected()" class="btn-primary" style="padding:15px;font-size:15px;">📅 Book ${job ? 'the Job' : 'the Event'}</button>
+      <button onclick="ujFollowUpLater()" style="background:#fef3c7;color:#92400e;border:1px solid #f59e0b;border-radius:12px;padding:14px;font-weight:700;cursor:pointer;">🔔 Follow Up Later</button>
+      <button onclick="ujLeaveUnscheduled()" style="background:#fff;color:var(--text1);border:1px solid var(--border);border-radius:12px;padding:14px;font-weight:700;cursor:pointer;">🗒 Leave Unscheduled</button>
+      <button onclick="ujDeclineSelected()" style="background:#c62828;color:#fff;border:none;border-radius:12px;padding:14px;font-weight:700;cursor:pointer;">✗ Customer Declined</button>
+    </div>`;
+  ujRenderSelectedInclusions();
+  const detectedServiceKeys = services.map(name => {
+    const detected = findServiceForQuoteDescription(name);
+    return Object.entries(SERVICES).find(([, service]) => service === detected)?.[0];
+  }).filter(Boolean);
+  const detectedInclusions = detectedServiceKeys.flatMap(key => SERVICES[key]?.inclusions || []);
+  const detectedDisclaimers = detectedServiceKeys.flatMap(key => serviceNotesAndDisclaimers(key));
+  generateAiClosingScript('uj-closing-script', {
+    type:'unscheduled_job',clientName:title,suburb:client?.suburb || client?.address || '',services,total,
+    notes:[job?.description,job?.notes,event?.description].filter(Boolean).join(' | '),
+    inclusions:detectedInclusions,disclaimers:detectedDisclaimers,fallback:fallbackClosingScript
+  });
+}
+
+function ujBackToList() {
+  _ujSelectedItem = null;
+  document.getElementById('uj-list-view').style.display = 'block';
+  document.getElementById('uj-detail-view').style.display = 'none';
+  renderUnscheduledList();
+}
+
+async function ujPatchJob(jobId, changes) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}`, {
+    method: 'PATCH',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+    body: JSON.stringify(changes)
+  });
+  const rows = await response.json().catch(() => []);
+  if (!response.ok || !Array.isArray(rows) || rows.length !== 1) throw new Error(`CRM job update failed (${response.status}).`);
+  return rows[0];
+}
+
+async function ujPatchEvent(eventId, changes) {
+  const token = await getGoogleToken() || await signInGoogleCalendar();
+  if (!token) throw new Error('Google Calendar is not connected.');
+  const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`, {
+    method: 'PATCH',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(changes)
+  });
+  const event = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(event?.error?.message || 'Calendar event update failed.');
+  return event;
+}
+
+async function ujSaveNotes() {
+  const item = _ujSelectedItem;
+  if (!item) return;
+  const button = document.getElementById('uj-save-notes');
+  if (button) { button.disabled = true; button.textContent = 'Saving…'; }
+  const failures = [];
+  try {
+    if (item.job) {
+      const notes = document.getElementById('uj-job-notes')?.value || '';
+      try { item.job = await ujPatchJob(item.job.id, { notes: notes || null }); } catch (error) { failures.push('CRM job notes'); }
+    }
+    if (item.event) {
+      const description = document.getElementById('uj-event-notes')?.value || '';
+      try { item.event = await ujPatchEvent(item.event.id, { description }); } catch (error) { failures.push('calendar event notes'); }
+    }
+    showToast(failures.length ? `Could not save ${failures.join(' and ')}` : 'Job and calendar notes saved separately ✓', failures.length ? 'error' : 'success');
+  } finally {
+    if (button) { button.disabled = false; button.textContent = 'Save Notes'; }
+  }
+}
+
+async function ujBookSelected() {
+  const item = _ujSelectedItem;
+  if (!item) return;
+  const client = item.client || {};
+  const job = item.job;
+  await showCalendarBookingModal(Number(job?.revenue || 0), job?.id || '', {
+    clientName: client.name || job?.client || item.event?.summary || 'Calendar event',
+    phone: client.phone || '',
+    address: client.address || '',
+    suburb: client.suburb || '',
+    serviceLabel: ujServiceNames(item).join(' + '),
+    existingCalendarEventId: item.event?.id || null,
+    existingCalendarDescription: item.event?.description || '',
+    showPrice: Boolean(job),
+    onBooked: async () => { await loadUnscheduledTab(); }
+  });
+}
+
+function ujFollowUpLater() {
+  const item = _ujSelectedItem;
+  if (!item) return;
+  const client = item.client || {};
+  const nextWeek = new Date();
+  nextWeek.setDate(nextWeek.getDate() + 7);
+  document.getElementById('fu-name').value = client.name || item.job?.client || item.event?.summary || '';
+  document.getElementById('fu-phone').value = client.phone || '';
+  const service = ujServiceNames(item).join(' + ');
+  const select = document.getElementById('fu-service');
+  if (select && ![...select.options].some(option => option.value === service)) select.add(new Option(service, service));
+  if (select) select.value = service;
+  document.getElementById('fu-date').value = nextWeek.toISOString().split('T')[0];
+  document.getElementById('fu-time').value = '09:00';
+  document.getElementById('fu-notes').value = `Follow up about unscheduled ${item.job ? `job ${item.job.id}` : 'calendar event'}.`;
+  document.getElementById('followup-modal').classList.add('open');
+}
+
+function ujShowNoteModal({ title, subtitle, confirmLabel, confirmColor, noteRequired = true, onConfirm }) {
+  document.getElementById('uj-action-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.id = 'uj-action-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.innerHTML = `<div style="background:var(--surface);border-radius:16px;padding:24px;max-width:430px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.4);"><div style="font-size:18px;font-weight:800;margin-bottom:6px;">${_escHtml(title)}</div><div style="font-size:13px;color:var(--text3);margin-bottom:14px;">${_escHtml(subtitle)}</div><textarea id="uj-action-note" class="form-input" rows="5" placeholder="${noteRequired ? 'A note is required…' : 'Reason (optional)…'}" style="resize:vertical;"></textarea><div id="uj-action-error" style="display:none;color:#c62828;font-size:12px;margin-top:6px;">Please enter a note before continuing.</div><div style="display:flex;gap:10px;margin-top:16px;"><button id="uj-action-confirm" style="flex:1;background:${confirmColor};color:#fff;border:none;border-radius:10px;padding:12px;font-weight:700;cursor:pointer;">${_escHtml(confirmLabel)}</button><button onclick="document.getElementById('uj-action-modal').remove()" style="flex:1;background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px;cursor:pointer;">Cancel</button></div></div>`;
+  document.body.appendChild(modal);
+  document.getElementById('uj-action-confirm').onclick = async () => {
+    const note = document.getElementById('uj-action-note').value.trim();
+    if (noteRequired && !note) { document.getElementById('uj-action-error').style.display = 'block'; return; }
+    const button = document.getElementById('uj-action-confirm');
+    button.disabled = true;
+    button.textContent = 'Saving…';
+    try { await onConfirm(note); } catch (error) { showToast(error.message || 'Action failed', 'error'); button.disabled = false; button.textContent = confirmLabel; }
+  };
+  setTimeout(() => document.getElementById('uj-action-note')?.focus(), 50);
+}
+
+function ujLeaveUnscheduled() {
+  const item = _ujSelectedItem;
+  if (!item) return;
+  ujShowNoteModal({
+    title: 'Leave Unscheduled',
+    subtitle: 'Record why the customer did not book today or what should happen next. The item will remain in this list.',
+    confirmLabel: 'Save Update',
+    confirmColor: 'var(--ss-green)',
+    onConfirm: async note => {
+      const stamp = new Date().toLocaleString('en-AU');
+      const failures = [];
+      if (item.job) {
+        const existing = item.job.notes || '';
+        try { item.job = await ujPatchJob(item.job.id, { notes: `${existing}${existing ? '\n\n' : ''}[Unscheduled update — ${stamp}] ${note}` }); } catch { failures.push('CRM job'); }
+      }
+      if (item.event) {
+        const existing = item.event.description || '';
+        try { item.event = await ujPatchEvent(item.event.id, { description: `${existing}${existing ? '\n\n' : ''}CALL DASHBOARD — UNSCHEDULED UPDATE (${stamp}): ${note}` }); } catch { failures.push('calendar event'); }
+      }
+      if (failures.length) throw new Error(`Could not update ${failures.join(' and ')}.`);
+      document.getElementById('uj-action-modal')?.remove();
+      showToast('Update saved — item remains unscheduled ✓');
+      ujOpenDetail(item.key);
+    }
+  });
+}
+
+function ujDeclineSelected() {
+  const item = _ujSelectedItem;
+  if (!item) return;
+  ujShowNoteModal({
+    title: 'Customer Declined',
+    subtitle: `This permanently deletes ${item.event ? 'the Google Calendar event' : ''}${item.event && item.job ? ' and ' : ''}${item.job ? `CRM job ${item.job.id}` : ''}. This cannot be undone.`,
+    confirmLabel: 'Delete Permanently',
+    confirmColor: '#c62828',
+    noteRequired: false,
+    onConfirm: async note => {
+      // Calendar first: never delete the CRM job if its linked event could not be removed.
+      if (item.event) {
+        const token = await getGoogleToken() || await signInGoogleCalendar();
+        if (!token) throw new Error('Connect Google Calendar before deleting this event.');
+        const eventResponse = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(item.event.id)}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
+        if (!eventResponse.ok && eventResponse.status !== 410) throw new Error('The calendar event could not be deleted. Nothing else was removed.');
+      }
+      if (item.job) {
+        const jobResponse = await fetch(`${SUPABASE_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(item.job.id)}`, {
+          method: 'DELETE',
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Prefer': 'return=representation' }
+        });
+        const deleted = await jobResponse.json().catch(() => []);
+        if (!jobResponse.ok || !Array.isArray(deleted) || deleted.length !== 1) throw new Error('The calendar event was removed, but the CRM job could not be deleted. Check the CRM.');
+      }
+      console.info('Unscheduled item declined and deleted:', { key: item.key, reason: note });
+      document.getElementById('uj-action-modal')?.remove();
+      showToast('Declined item deleted ✓');
+      await loadUnscheduledTab();
+    }
+  });
+}
+
+// ============================================================
 // PENDING QUOTES TAB
 // ============================================================
 
@@ -4239,6 +4883,14 @@ async function pqOpenDetail(quoteId) {
   // Extract service name from items for closing script
   const serviceNames = items.map(i => i.description).filter(d => d && d !== 'TOTAL');
   const serviceLabel = serviceNames.join(' + ') || 'Service';
+  const pendingServices = serviceNames.map(name => {
+    const service = findServiceForQuoteDescription(name);
+    const serviceKey = Object.entries(SERVICES).find(([, candidate]) => candidate === service)?.[0] || '';
+    return {name,service,serviceKey};
+  });
+  const pendingInclusions = pendingServices.flatMap(entry => entry.service?.inclusions || []);
+  const pendingDisclaimers = pendingServices.flatMap(entry => serviceNotesAndDisclaimers(entry.serviceKey));
+  const pendingDisclaimerHtml = notesAndDisclaimersHtml(pendingServices.map(entry => ({serviceKey:entry.serviceKey,name:entry.name,result:{}})));
 
   // Closing script
   const locationLabel = (client && (client.suburb || client.address))
@@ -4281,9 +4933,9 @@ async function pqOpenDetail(quoteId) {
     </div>
 
     <!-- What's Included -->
-    <div class="card" style="margin-bottom:16px;">
-      <div class="card-title" style="margin-bottom:10px;">✅ What's Included</div>
-      <div style="font-size:13px;color:var(--text2);line-height:1.7;">
+    <details class="detail-accordion">
+      <summary>✅ What's Included</summary>
+      <div class="detail-accordion-content" style="font-size:13px;color:var(--text2);line-height:1.7;">
         ${serviceNames.map(sn => {
           // Fuzzy keyword match — handles typos, custom descriptions, and scope suffixes
           const snLower = sn.toLowerCase();
@@ -4325,26 +4977,31 @@ async function pqOpenDetail(quoteId) {
           return `<div style="font-weight:700;margin-bottom:4px;margin-top:8px;">${sn}</div><div style="color:var(--text3);font-size:12px;">Contact office for inclusions</div>`;
         }).join('') || '<div style="color:var(--text3);">See original quote for inclusions</div>'}
       </div>
-    </div>
+    </details>
+
+    ${pendingDisclaimerHtml ? `<details class="detail-accordion"><summary>⚠️ Notes &amp; Disclaimers — Explain to Client</summary><div class="detail-accordion-content">${pendingDisclaimerHtml}</div></details>` : ''}
 
     <!-- Closing Script -->
-    <div class="card" style="margin-bottom:16px;background:#f0fdf4;border:1px solid #86efac;">
-      <div class="card-title" style="margin-bottom:10px;color:var(--ss-green);">💬 Closing Script</div>
-      <div class="question-script" style="margin:0;font-size:13px;">${closingScript}</div>
-      <div style="margin-top:10px;font-size:12px;color:var(--text3);">
-        Reiterate: what's included · total price · valid for 30 days · easy to book — just say yes.
+    <details class="detail-accordion detail-accordion--green">
+      <summary>✨ AI Closing Script</summary>
+      <div class="detail-accordion-content">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><button onclick="generateAiClosingScript('pq-closing-script')" style="border:1px solid #86efac;background:#fff;color:var(--ss-green);border-radius:7px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer;">Regenerate</button></div>
+        <div class="question-script" id="pq-closing-script" style="margin:0;font-size:13px;">Generating a personalised closing script…</div>
+        <div style="margin-top:10px;font-size:12px;color:var(--text3);">Reiterate: what's included · total price · valid for 30 days · easy to book — just say yes.</div>
       </div>
-    </div>
+    </details>
 
     <!-- Notes -->
-    <div class="card" style="margin-bottom:16px;">
-      <div class="card-title" style="margin-bottom:8px;">🗒 Notes</div>
-      <textarea id="pq-notes-input" class="form-input" rows="5" placeholder="Add notes for this quote…" style="width:100%;box-sizing:border-box;resize:vertical;line-height:1.5;">${_escHtml(q.notes || '')}</textarea>
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;">
-        <span id="pq-notes-status" style="font-size:11px;color:var(--text3);">Saved against quote ${_escHtml(q.id)}</span>
-        <button id="pq-save-notes-btn" onclick="pqSaveNotes()" style="background:var(--ss-green);color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;">Save Notes</button>
+    <details class="detail-accordion">
+      <summary>🗒 Notes</summary>
+      <div class="detail-accordion-content">
+        <textarea id="pq-notes-input" class="form-input" rows="5" placeholder="Add notes for this quote…" style="width:100%;box-sizing:border-box;resize:vertical;line-height:1.5;">${_escHtml(q.notes || '')}</textarea>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;">
+          <span id="pq-notes-status" style="font-size:11px;color:var(--text3);">Saved against quote ${_escHtml(q.id)}</span>
+          <button id="pq-save-notes-btn" onclick="pqSaveNotes()" style="background:var(--ss-green);color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;">Save Notes</button>
+        </div>
       </div>
-    </div>
+    </details>
 
     <!-- Action Buttons -->
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;padding-bottom:40px;">
@@ -4354,6 +5011,10 @@ async function pqOpenDetail(quoteId) {
       <button onclick="pqAddFollowUp()" style="width:100%;background:#fff;border:1px solid var(--border);color:var(--text1);border-radius:12px;padding:14px;font-size:14px;font-weight:600;cursor:pointer;">🔔 Add Follow-up</button>
     </div>
   `;
+  generateAiClosingScript('pq-closing-script', {
+    type:'quote',clientName:q.client,suburb:client?.suburb || client?.address || '',services:serviceNames,total:q.total,
+    notes:q.notes || '',inclusions:pendingInclusions,disclaimers:pendingDisclaimers,fallback:closingScript
+  });
 }
 
 function pqBackToList() {
@@ -4367,7 +5028,7 @@ async function pqUpdateSelectedQuote(changes) {
   if (!quoteId) throw new Error('No pending quote is selected.');
 
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/quotes?id=eq.${encodeURIComponent(quoteId)}&select=id,notes,status`,
+    `${SUPABASE_URL}/rest/v1/quotes?id=eq.${encodeURIComponent(quoteId)}&select=id,notes,status,rejection_reason,rejected_at`,
     {
       method: 'PATCH',
       headers: {
@@ -4430,7 +5091,7 @@ async function pqAcceptAndBook() {
   let clientPhone = '';
   try {
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/clients?name=eq.${encodeURIComponent(q.client)}&select=id,address,suburb,email,phone&limit=1`,
+      `${SUPABASE_URL}/rest/v1/clients?${q.client_id ? `id=eq.${encodeURIComponent(q.client_id)}` : `name=eq.${encodeURIComponent(q.client)}`}&select=id,address,suburb,email,phone&limit=1`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
     );
     if (res.ok) {
@@ -4455,12 +5116,12 @@ async function pqAcceptAndBook() {
           body: JSON.stringify({ address: addr })
         });
       }
-      await _pqDoAccept(q, addr, clientEmail);
+      await _pqDoAccept(q, addr, clientEmail, clientId, clientPhone);
     });
     return;
   }
 
-  await _pqDoAccept(q, clientAddress, clientEmail);
+  await _pqDoAccept(q, clientAddress, clientEmail, clientId, clientPhone);
 }
 
 function pqPromptAddress(callback) {
@@ -4485,21 +5146,35 @@ function pqPromptAddress(callback) {
   setTimeout(() => { const i = document.getElementById('pq-address-input'); if(i) i.focus(); }, 100);
 }
 
-async function _pqDoAccept(q, address, clientEmail) {
-  const items = (q.items || []).filter(i => i.description !== 'TOTAL');
+async function _pqDoAccept(q, address, clientEmail, clientId, clientPhone) {
+  const items = (q.items || []).filter(i => i.description !== 'TOTAL').map(item => {
+    const total = Number(item.total) || 0;
+    return {
+      ...item,
+      description: item.description || item.name || 'Service',
+      qty: Number(item.qty) || 1,
+      unit: item.unit || '',
+      rate: Number(item.rate) || total,
+      total
+    };
+  });
   const serviceLabel = items.map(i => i.description).join(' + ') || 'Service';
+  const jobTotal = Number(q.total) || items.reduce((sum, item) => sum + item.total, 0);
   const jobId = 'J-' + Date.now();
 
   try {
     // 1. Mark quote as approved
-    await fetch(`${SUPABASE_URL}/rest/v1/quotes?id=eq.${q.id}`, {
+    const quoteUpdateRes = await fetch(`${SUPABASE_URL}/rest/v1/quotes?id=eq.${encodeURIComponent(q.id)}`, {
       method: 'PATCH',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'approved' })
+      body: JSON.stringify({ status: 'approved', total: jobTotal, items })
     });
+    if (!quoteUpdateRes.ok) throw new Error(`Quote approval failed: ${await quoteUpdateRes.text()}`);
+    q.total = jobTotal;
+    q.items = items;
 
     // 2. Create job in CRM
-    await fetch(`${SUPABASE_URL}/rest/v1/jobs`, {
+    const jobCreateRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
       body: JSON.stringify({
@@ -4508,18 +5183,21 @@ async function _pqDoAccept(q, address, clientEmail) {
         service: serviceLabel,
         description: `Accepted via Call Dashboard (Pending Quotes). Address: ${address}.`,
         status: 'Active',
-        revenue: q.total || 0,
+        revenue: jobTotal,
+        items,
+        client_id: clientId || q.client_id || null,
         hours: 0,
         completion_date: null,
         notes: `Accepted from pending quote ${q.id}. Rep: ${currentRep ? currentRep.name : 'unknown'}.`,
         created_at: new Date().toISOString()
       })
     });
+    if (!jobCreateRes.ok) throw new Error(`Job creation failed: ${await jobCreateRes.text()}`);
 
     // 3. Booking record (same as new quote flow)
     const clientSource = q.notes && (q.notes.includes('meta-ad') || q.notes.includes('Meta')) ? 'meta-ad'
       : q.notes && (q.notes.includes('google-ad') || q.notes.includes('Google')) ? 'google-ad' : 'phone-call';
-    await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
+    const bookingCreateRes = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
       body: JSON.stringify({
@@ -4528,10 +5206,11 @@ async function _pqDoAccept(q, address, clientEmail) {
         status: 'confirmed',
         portal_token: null,
         ad_source: clientSource !== 'phone-call' ? clientSource : null,
-        client_id: null,
+        client_id: clientId || q.client_id || null,
         created_at: new Date().toISOString()
       })
     });
+    if (!bookingCreateRes.ok) throw new Error(`Booking creation failed: ${await bookingCreateRes.text()}`);
 
     showToast('Quote accepted ✓ — Job created in CRM');
   } catch(e) {
@@ -4604,7 +5283,15 @@ async function pqShowCalendarModal(total, jobId) {
   calcTravel(clientInfo.suburb);
 
   // Show calendar booking modal — when it closes, restore clientInfo and go back to list
-  await showCalendarBookingModal(total, jobId);
+  const items = (q.items || []).filter(item => item.description !== 'TOTAL');
+  await showCalendarBookingModal(total, jobId, {
+    clientName: q.client,
+    phone: clientInfo.phone,
+    address: clientInfo.address,
+    suburb: clientInfo.suburb,
+    serviceLabel: items.map(item => item.description || item.name).filter(Boolean).join(' + ') || 'Service',
+    restoreClientInfo: orig
+  });
 
   // After modal is shown, patch the close/skip button to restore state
   const modal = document.getElementById('cal-booking-modal');
@@ -4823,16 +5510,50 @@ function pqPrintQuoteFromData(q, client, reservedWindow) {
 async function pqRejectQuote() {
   const q = _pqSelectedQuote;
   if (!q) return;
-  if (!confirm('Mark this quote as rejected? This will update the status in the CRM.')) return;
+  const existing = document.getElementById('pq-reject-modal');
+  if (existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'pq-reject-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:24px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+      <div style="font-size:18px;font-weight:800;margin-bottom:6px;">Reject Quote</div>
+      <div style="font-size:13px;color:#666;margin-bottom:14px;">Enter the specific reason quote <strong>${_escHtml(q.id)}</strong> was rejected. This is required and will be visible in the CRM.</div>
+      <textarea id="pq-rejection-reason" rows="5" placeholder="e.g. Client chose another provider because of timing" style="width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:10px;padding:11px 12px;font:inherit;font-size:14px;resize:vertical;outline:none;"></textarea>
+      <div id="pq-rejection-error" style="display:none;color:#c62828;font-size:12px;margin-top:6px;">Please enter a rejection reason.</div>
+      <div style="display:flex;gap:8px;margin-top:16px;">
+        <button id="pq-save-rejection" onclick="pqSaveRejection()" style="flex:1;background:#c62828;color:#fff;border:none;border-radius:9px;padding:11px 16px;font-size:14px;font-weight:700;cursor:pointer;">Save Rejection</button>
+        <button onclick="document.getElementById('pq-reject-modal').remove()" style="background:#f3f4f6;color:#555;border:none;border-radius:9px;padding:11px 16px;font-size:14px;cursor:pointer;">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  setTimeout(() => document.getElementById('pq-rejection-reason')?.focus(), 50);
+}
+
+async function pqSaveRejection() {
+  const q = _pqSelectedQuote;
+  const reasonInput = document.getElementById('pq-rejection-reason');
+  const error = document.getElementById('pq-rejection-error');
+  const saveButton = document.getElementById('pq-save-rejection');
+  const reason = String(reasonInput?.value || '').trim();
+  if (!q || !reason) {
+    if (error) error.style.display = 'block';
+    if (reasonInput) reasonInput.style.borderColor = '#c62828';
+    return;
+  }
+  if (error) error.style.display = 'none';
+  if (saveButton) { saveButton.disabled = true; saveButton.textContent = 'Saving…'; }
   try {
-    const updatedQuote = await pqUpdateSelectedQuote({ status: 'rejected' });
+    const updatedQuote = await pqUpdateSelectedQuote({ status: 'rejected', rejection_reason: reason, rejected_at: new Date().toISOString() });
     if (updatedQuote.status !== 'rejected') throw new Error(`Unexpected quote status: ${updatedQuote.status}`);
+    document.getElementById('pq-reject-modal')?.remove();
     showToast('Quote marked as rejected', 'warn');
     pqBackToList();
     await loadPendingQuotesTab();
   } catch(error) {
     console.error('Pending quote rejection failed:', error);
     showToast('Failed to reject quote — please try again', 'error');
+    if (saveButton) { saveButton.disabled = false; saveButton.textContent = 'Save Rejection'; }
   }
 }
 
@@ -5157,7 +5878,7 @@ function _chatConfirmAddLineItem(payload) {
     try {
       result = SERVICES[serviceKey].calcQuote(answers);
       if (result && typeof result.total === 'number' && Number.isFinite(result.total)) {
-        total = result.total;
+        total = serviceAmount(result);
         lines = result.lines || lines;
       } else if (result && (result.inPerson || result.customQuote || result.rerouteToService)) {
         // Special result — can't auto-price
@@ -5186,6 +5907,7 @@ function _chatConfirmAddLineItem(payload) {
     name,
     lines,
     total,
+    rawTotal: total,
     note: note || (result?.note) || null,
     inclusions: result?.inclusions || SERVICES[serviceKey]?.inclusions || [],
     savedAnswers: answers || {},
@@ -5273,7 +5995,8 @@ function renderChatQuoteItems() {
     el.innerHTML = `<div style="font-size:12px;color:var(--text3);line-height:1.5;">Quoted line items will appear here after the assistant has enough detail to add them.</div>`;
     return;
   }
-  const servicesTotal = multiServiceItems.reduce((s, item) => s + Number(item.total || 0), 0);
+  const quoteTotals = calculateQuoteTotals(multiServiceItems);
+  const servicesTotal = quoteTotals.serviceSubtotal;
   const travel = clientInfo.travelCost || 0;
   el.innerHTML = `<div style="border-top:1px solid var(--border);padding-top:12px;">
     <div style="font-size:12px;font-weight:800;color:var(--text1);margin-bottom:8px;">Quote Items</div>
@@ -5284,8 +6007,9 @@ function renderChatQuoteItems() {
       </span>
     </div>`).join('')}
     ${travel > 0 ? `<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:12px;color:var(--text3);"><span>Travel</span><span>$${travel.toFixed(2)}</span></div>` : ''}
+    ${quoteTotals.minimumAdjustment > 0 ? `<div style="display:flex;justify-content:space-between;padding:7px 0;font-size:12px;color:var(--text3);"><span>Minimum job adjustment</span><span>$${quoteTotals.minimumAdjustment.toFixed(2)}</span></div>` : ''}
     <div style="display:flex;justify-content:space-between;padding-top:8px;font-size:14px;font-weight:900;color:var(--ss-green);">
-      <span>Running Total</span><span>$${(servicesTotal + travel).toFixed(2)}</span>
+      <span>Running Total</span><span>$${quoteTotals.total.toFixed(2)}</span>
     </div>
   </div>`;
 }
@@ -5307,15 +6031,19 @@ function buildChatQuote() {
     return;
   }
 
-  const serviceTotal = items.reduce((sum, item) => sum + Number(item.total || 0), 0);
+  const quoteTotals = calculateQuoteTotals(items);
+  const serviceTotal = quoteTotals.serviceSubtotal;
   const travel = clientInfo.travelCost || 0;
-  const grandTotal = serviceTotal + travel;
+  const grandTotal = quoteTotals.total;
   const serviceLabel = items.map(i => i.name).join(' + ');
   const noteList = [
     ...(window._chatQueuedNotes || []),
     ...(window._chatPdfCustomizations || []),
     ...items.map(i => i.scopeNotes || i.note).filter(Boolean)
   ];
+  const chatDisclaimerItems = items.map(item => ({serviceKey:item.serviceKey,name:item.name,result:item}));
+  const chatDisclaimers = chatDisclaimerItems.flatMap(item => serviceNotesAndDisclaimers(item.serviceKey, item.result));
+  const chatInclusions = items.flatMap(item => item.inclusions || SERVICES[item.serviceKey]?.inclusions || []);
 
   el.style.display = 'block';
   el.innerHTML = `
@@ -5339,6 +6067,7 @@ function buildChatQuote() {
         <span class="quote-line-label">Travel</span>
         <span class="quote-line-value">$${travel.toFixed(2)}</span>
       </div>` : ''}
+      ${quoteTotals.minimumAdjustment > 0 ? `<div class="quote-line"><span class="quote-line-label">Minimum job adjustment</span><span class="quote-line-value">$${quoteTotals.minimumAdjustment.toFixed(2)}</span></div>` : ''}
       <div class="quote-total">
         <span class="quote-total-label">Total (inc. GST)</span>
         <span class="quote-total-value">$${grandTotal.toFixed(2)}</span>
@@ -5353,6 +6082,8 @@ function buildChatQuote() {
             ${inclusions.map(i => `<div class="inclusion-item">${_escHtml(i)}</div>`).join('')}`;
         }).join('') || '<div class="inclusion-item">As discussed with the client</div>'}
       </div>
+
+      ${notesAndDisclaimersHtml(chatDisclaimerItems)}
 
       ${noteList.length ? `<div class="quote-disclaimer">${noteList.map(n => _escHtml(n)).join('<br>')}</div>` : ''}
 
@@ -5372,10 +6103,8 @@ function buildChatQuote() {
       </div>
 
       <div class="closing-script">
-        <div class="closing-script-title">💬 Closing Script</div>
-        <div class="closing-script-text">
-          "So we're all good to go — that's <strong>$${grandTotal.toFixed(2)}</strong> all up for ${_escHtml(serviceLabel)} in ${_escHtml(clientInfo.suburb || '[suburb]')}. To lock it in I just need to grab a date that works for you."
-        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><div class="closing-script-title">✨ AI Closing Script</div><button onclick="generateAiClosingScript('chat-closing-script')" style="border:1px solid #86efac;background:#fff;color:var(--ss-green);border-radius:7px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer;">Regenerate</button></div>
+        <div class="closing-script-text" id="chat-closing-script">Generating a personalised closing script…</div>
       </div>
 
       <div class="quote-actions">
@@ -5390,6 +6119,11 @@ function buildChatQuote() {
     </div>`;
 
   syncQuoteEndSource();
+  generateAiClosingScript('chat-closing-script', {
+    type:'quote',clientName:clientInfo.name,suburb:clientInfo.suburb,services:items.map(item => item.name),total:grandTotal,
+    notes:noteList.join(' | '),inclusions:chatInclusions,disclaimers:chatDisclaimers,
+    fallback:`So we're all good to go — that's $${grandTotal.toFixed(2)} all up for ${serviceLabel} in ${clientInfo.suburb || 'your suburb'}. Would you like to go ahead and choose a suitable date?`
+  });
   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 

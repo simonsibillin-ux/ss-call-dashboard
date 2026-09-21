@@ -4,6 +4,7 @@ import { useAppContext } from "../context/AppContext.jsx";
 import { G, LOGO, supabase } from "../utils/constants.js";
 import { Topbar, Badge, Avatar, Card, StatCard, Modal, Field, BtnRow, showToast, showConfirm, showPrompt } from "../utils/ui.jsx";
 import { exportCSV, printQuote } from "../utils/helpers.js";
+import { deliverCoreQuote } from "../utils/quoteDelivery.js";
 
 export default function Quotes() {
   const ctx = useAppContext();
@@ -57,6 +58,11 @@ export default function Quotes() {
   const closeModal = () => setModal(null);
   const toggle = (id) => setExpandedId(p => p===id ? null : id);
   const [quoteSearch, setQuoteSearch] = useState("");
+  const [rejectingQuote, setRejectingQuote] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [rejectionError, setRejectionError] = useState("");
+  const [savingRejection, setSavingRejection] = useState(false);
+  const [viewingRejection, setViewingRejection] = useState(null);
 
   useEffect(() => {
     if (!quoteId) return;
@@ -97,7 +103,7 @@ export default function Quotes() {
         </div>
         <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3,flexShrink:0}}>
           <div style={{fontWeight:800,fontSize:14}}>${Number(q.total||0).toFixed(2)}</div>
-          <Badge s={q.status}/>
+          {(q.status||"").toLowerCase()==="rejected"?<button onClick={e=>{e.stopPropagation();setViewingRejection(q);}} title="View rejection reason" style={{border:"none",background:"none",padding:0,cursor:"pointer"}}><Badge s={q.status}/></button>:<Badge s={q.status}/>}
         </div>
       </div>
       {expandedQuote===q.id&&<div style={{padding:"0 14px 12px",borderTop:`1px solid ${G.border}`,paddingTop:10}}>
@@ -109,11 +115,8 @@ export default function Quotes() {
             await approveQuote(q.id);
             showToast("Quote approved — job created","success");
           }} style={{background:G.green,color:"#fff",border:"none",borderRadius:7,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>✓ Approve</button>}
-          {(q.status==="pending"||q.status==="sent")&&<button onClick={async()=>{
-            await rejectQuote(q.id);
-            showToast("Quote marked as rejected and any reserved credit released","warn");
-          }} style={{background:"#fce4ec",color:"#c62828",border:"none",borderRadius:7,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>✗ Reject</button>}
-          <button onClick={()=>{const to=getClientEmail(q.client);const subject=`Quote from SS Exterior Services — ${q.client}`;const body="Hi "+q.client.split(" ")[0]+",\n\nPlease find your quote below.\n\nQuote: "+q.id+"\nDate: "+q.date+"\nTotal: $"+Number(q.total||0).toFixed(2)+"\n\nItems:\n"+(q.items||[]).map(it=>"• "+it.description+" — $"+Number(it.total||0).toFixed(2)).join("\n")+"\n\nThis quote is valid for 30 days.\n\nKind regards,\nSimon — SS Exterior Services\n0447 130 743";window.open("https://outlook.office.com/mail/deeplink/compose?to="+encodeURIComponent(to)+"&subject="+encodeURIComponent(subject)+"&body="+encodeURIComponent(body),"_blank");setTimeout(()=>printQuote(q),500);}} style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:7,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>Email</button>
+          {(q.status==="pending"||q.status==="sent")&&<button onClick={()=>{setRejectingQuote(q);setRejectionReason("");setRejectionError("");}} style={{background:"#fce4ec",color:"#c62828",border:"none",borderRadius:7,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>✗ Reject</button>}
+          <button onClick={()=>deliverCoreQuote({quote:q,client:getClientByRecord(q)||{email:getClientEmail(q.client)},logo:LOGO})} style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:7,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>Email</button>
           <button onClick={()=>printQuote(q)} style={{background:"#fff",border:`1px solid ${G.border}`,borderRadius:7,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>Print</button>
           <button onClick={async()=>{const cl=getClientByRecord(q);if(cl)shareClientPortal(cl);else generatePortalLink("quotes",q.id,"quote");}} style={{background:"#fff3e0",border:"none",borderRadius:7,padding:"6px 12px",fontSize:12,cursor:"pointer",fontWeight:600,color:"#e65100"}}>🔗 Share portal</button>
           <button onClick={()=>{const p=getClientPhone(q.client);const msg=SMS_TEMPLATES.quoteFollowUp(q.client,"$"+(q.total||0).toFixed(0));if(p){setSmsModal({phone:p,message:msg,recipient:q.client});}else{setSmsModal(true);}}} style={{background:"#e8f5e9",border:"none",borderRadius:7,padding:"6px 12px",fontSize:12,cursor:"pointer",fontWeight:600,color:"#2e7d32"}}>💬 SMS reminder</button>
@@ -126,6 +129,22 @@ export default function Quotes() {
       </>);
     })()}
   </div>
+
+  {rejectingQuote&&<Modal title="Reject quote" onClose={()=>!savingRejection&&setRejectingQuote(null)}>
+    <div style={{fontSize:13,color:G.muted,marginBottom:10}}>Enter the specific reason <strong>{rejectingQuote.id}</strong> was rejected. This is required.</div>
+    <textarea autoFocus rows={5} value={rejectionReason} onChange={e=>{setRejectionReason(e.target.value);setRejectionError("");}} placeholder="e.g. Client chose another provider because of timing" style={{width:"100%",boxSizing:"border-box",border:`1px solid ${rejectionError?"#c62828":G.border}`,borderRadius:9,padding:"10px 12px",fontSize:13,fontFamily:"inherit",resize:"vertical",outline:"none"}}/>
+    {rejectionError&&<div style={{color:"#c62828",fontSize:12,marginTop:6}}>{rejectionError}</div>}
+    <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:14}}>
+      <button disabled={savingRejection} onClick={()=>setRejectingQuote(null)} style={{border:`1px solid ${G.border}`,background:"#fff",borderRadius:8,padding:"9px 14px",cursor:"pointer"}}>Cancel</button>
+      <button disabled={savingRejection} onClick={async()=>{const reason=rejectionReason.trim();if(!reason){setRejectionError("Please enter a rejection reason.");return;}setSavingRejection(true);try{await rejectQuote(rejectingQuote.id,reason);setRejectingQuote(null);showToast("Quote rejected — reason saved","warn");}catch(error){setRejectionError(error?.message||"Could not save the rejection reason.");}finally{setSavingRejection(false);}}} style={{border:"none",background:"#c62828",color:"#fff",borderRadius:8,padding:"9px 14px",fontWeight:700,cursor:"pointer"}}>{savingRejection?"Saving…":"Save Rejection"}</button>
+    </div>
+  </Modal>}
+
+  {viewingRejection&&<Modal title="Rejection reason" onClose={()=>setViewingRejection(null)}>
+    <div style={{fontSize:12,color:G.muted,marginBottom:8}}>{viewingRejection.client} · {viewingRejection.id}{viewingRejection.rejected_at?` · ${new Date(viewingRejection.rejected_at).toLocaleString("en-AU")}`:""}</div>
+    <div style={{background:"#fce4ec",border:"1px solid #ffcdd2",borderRadius:9,padding:"12px 14px",fontSize:13,lineHeight:1.5,color:"#7f1d1d",whiteSpace:"pre-wrap"}}>{viewingRejection.rejection_reason||"No rejection reason was recorded for this older quote."}</div>
+    <div style={{display:"flex",justifyContent:"flex-end",marginTop:14}}><button onClick={()=>setViewingRejection(null)} style={{border:"none",background:G.green,color:"#fff",borderRadius:8,padding:"9px 16px",fontWeight:700,cursor:"pointer"}}>Close</button></div>
+  </Modal>}
 
 {/* INVOICES */}
     </>

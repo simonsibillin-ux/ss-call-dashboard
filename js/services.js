@@ -234,6 +234,7 @@ const SERVICES = {
           ...structureLines,
         ].filter(Boolean),
         travel: clientInfo.travelCost,
+        rawTotal: base + structureTotal,
         total: Math.max(minJob(), base + structureTotal)
       };
     }
@@ -297,9 +298,10 @@ const SERVICES = {
           { label: 'Panel count', value: `${panels} panels` },
           { label: 'Rate (time since last clean)', value: `$${rate.toFixed(2)}/panel` },
           a.hard_access === 'Yes — difficult access' ? { label: 'Hard access double storey', value: '×2' } : null,
-          { label: 'Service subtotal', value: `$${Math.max(minJob(), base).toFixed(2)}` },
+          { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
         ].filter(Boolean),
         travel: clientInfo.travelCost,
+        rawTotal: base,
         total: Math.max(minJob(), base)
       };
     }
@@ -495,6 +497,7 @@ const SERVICES = {
           patioAdd > 0 ? { label: 'Patio/veranda add-on', value: `+$${patioAdd.toFixed(2)}` } : null,
         ].filter(Boolean),
         travel: clientInfo.travelCost,
+        rawTotal: base + patioAdd,
         total: Math.max(minJob(), base + patioAdd),
         upsell: 'Offer roof cleaning quote at end of call.'
       };
@@ -569,10 +572,10 @@ const SERVICES = {
           { label: `Est. roof sqm (${bedroomKey} bed avg)`, value: `${sqm}sqm` },
           { label: `Softwash rate (${a.age})`, value: `$${rate.toFixed(2)}/sqm` },
           { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
-          base < minJob() ? { label: 'Minimum call-out applied', value: '$' + minJob().toFixed(2) } : null,
         ].filter(Boolean),
         inclusions: dynamicInclusions,
         travel: clientInfo.travelCost,
+        rawTotal: base,
         total: Math.max(minJob(), base)
       };
     }
@@ -624,9 +627,10 @@ const SERVICES = {
         lines: [
           { label: `Est. roof sqm (${bedroomKey} bed avg)`, value: `${sqm}sqm` },
           { label: `Biocide rate (${a.storeys})`, value: `$${rate.toFixed(2)}/sqm` },
-          { label: 'Service subtotal', value: `$${Math.max(minJob(), base).toFixed(2)}` },
+          { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
         ],
         travel: clientInfo.travelCost,
+        rawTotal: base,
         total: Math.max(minJob(), base)
       };
     }
@@ -725,9 +729,9 @@ const SERVICES = {
           { label: `Rate (${a.last_wash})`, value: `$${rate.toFixed(2)}/sqm` },
           { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
           biocide > 0 ? { label: `Biocide post-treatment (${sqm}sqm × $${biocideRate})`, value: `$${biocide.toFixed(2)}` } : null,
-          biocide === 0 && base < minJob() ? { label: 'Minimum call-out applied', value: '$' + minJob().toFixed(2) } : null,
         ].filter(Boolean),
         travel: clientInfo.travelCost,
+        rawTotal: base + biocide,
         total: Math.max(minJob(), base + biocide),
         note: 'From price on call — confirm sqm via Google Earth and call back with confirmed total.'
       };
@@ -770,9 +774,10 @@ const SERVICES = {
         lines: [
           { label: `Est. linear metres (${bedroomKey || '?'} bed avg)`, value: `${metres}m` },
           { label: `Rate (${a.storeys})`, value: `$${rate.toFixed(2)}/m` },
-          { label: 'Service subtotal', value: `$${Math.max(minJob(), base).toFixed(2)}` },
+          { label: 'Service subtotal', value: `$${base.toFixed(2)}` },
         ],
         travel: clientInfo.travelCost,
+        rawTotal: base,
         total: Math.max(minJob(), base)
       };
     }
@@ -887,6 +892,7 @@ const SERVICES = {
           { label: `Bird proofing mesh (~${Math.round(meshEstimate)}m est. × $${meshRate})`, value: `$${meshEstTotal.toFixed(2)} est.` },
         ].filter(Boolean),
         travel: clientInfo.travelCost,
+        rawTotal: gutterTotal + panelTotal + nestFee + meshEstTotal,
         total: Math.max(minJob(), gutterTotal + panelTotal + nestFee + meshEstTotal),
         note: '⚠️ Mesh price is ESTIMATED. Measure linear metres on Google Earth and call client back with confirmed total.'
       };
