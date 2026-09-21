@@ -2407,14 +2407,13 @@ function showQuote() {
         <span class="quote-total-label">Total (inc. GST)</span>
         <span class="quote-total-value">$${singleQuoteTotals.total.toFixed(2)}</span>
       </div>
-      ${result.note ? `<div class="quote-disclaimer">⚠️ ${result.note}</div>` : ''}
       ${result.upsell ? `<div class="alert alert-info" style="margin-top:10px;">💡 ${result.upsell}</div>` : ''}
 
-      <div class="inclusions-box" style="margin-top:16px;">
-        <div class="inclusions-title">What's included</div>
-        ${inclusions}
-      </div>
-      ${disclaimerPanel}
+      <details class="detail-accordion" style="margin-top:16px;">
+        <summary>✅ What's Included</summary>
+        <div class="detail-accordion-content">${inclusions}</div>
+      </details>
+      ${disclaimerPanel ? `<details class="detail-accordion"><summary>⚠️ Notes &amp; Disclaimers — Explain to Client</summary><div class="detail-accordion-content">${disclaimerPanel}</div></details>` : ''}
 
       <div id="multi-svc-combined-summary"></div>
 
@@ -2433,10 +2432,13 @@ function showQuote() {
         </select>
       </div>
 
-      <div class="closing-script">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;"><div class="closing-script-title">✨ AI Closing Script</div><button onclick="generateAiClosingScript('closing-script-dynamic')" style="border:1px solid #86efac;background:#fff;color:var(--ss-green);border-radius:7px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer;">Regenerate</button></div>
-        <div class="closing-script-text" id="closing-script-dynamic">Generating a personalised closing script…</div>
-      </div>
+      <details class="detail-accordion detail-accordion--green">
+        <summary>✨ AI Closing Script</summary>
+        <div class="detail-accordion-content">
+          <div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><button onclick="generateAiClosingScript('closing-script-dynamic')" style="border:1px solid #86efac;background:#fff;color:var(--ss-green);border-radius:7px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer;">Regenerate</button></div>
+          <div class="closing-script-text" id="closing-script-dynamic">Generating a personalised closing script…</div>
+        </div>
+      </details>
 
       <div class="quote-actions">
         <button class="btn-secondary" onclick="addAnotherService()" style="border:1px solid var(--ss-green);color:var(--ss-green);font-weight:700;">＋ Add Another Service</button>
@@ -4367,6 +4369,153 @@ todoSyncTimer = setInterval(() => {
 // UNSCHEDULED JOBS TAB
 // ============================================================
 
+const RECORD_NOTES_START = '--- SS CALL DASHBOARD HISTORY ---';
+const RECORD_NOTES_END = '--- END SS CALL DASHBOARD HISTORY ---';
+
+function recordNotesWithoutProjection(value) {
+  const text = String(value || '');
+  const start = text.indexOf(RECORD_NOTES_START);
+  if (start < 0) return text.trim();
+  const end = text.indexOf(RECORD_NOTES_END, start);
+  const before = text.slice(0, start).trim();
+  const after = end < 0 ? '' : text.slice(end + RECORD_NOTES_END.length).trim();
+  return [before, after].filter(Boolean).join('\n\n');
+}
+
+function recordNoteDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown date';
+  return date.toLocaleString('en-AU', { day:'numeric', month:'short', year:'numeric', hour:'numeric', minute:'2-digit' });
+}
+
+function recordNotesProjection(existingText, notes) {
+  const legacy = recordNotesWithoutProjection(existingText);
+  if (!notes.length) return legacy || null;
+  const history = [...notes].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).map(note =>
+    `[${recordNoteDate(note.created_at)} — ${note.author_name || 'Unknown rep'}]\n${note.body}`
+  ).join('\n\n');
+  return [legacy, `${RECORD_NOTES_START}\n${history}\n${RECORD_NOTES_END}`].filter(Boolean).join('\n\n');
+}
+
+async function fetchRecordNotes(recordType, recordId) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/record_notes?record_type=eq.${encodeURIComponent(recordType)}&record_id=eq.${encodeURIComponent(recordId)}&deleted_at=is.null&select=*&order=created_at.desc`, {
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+  });
+  if (!response.ok) throw new Error(`Note history unavailable (${response.status}). Apply the record_notes migration if this is the first deployment.`);
+  return response.json();
+}
+
+async function createRecordNote(recordType, recordId, body) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/record_notes`, {
+    method: 'POST',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+    body: JSON.stringify({
+      record_type: recordType,
+      record_id: String(recordId),
+      body: String(body || '').trim(),
+      author_id: currentRep?.id || null,
+      author_name: currentRep?.name || 'Unknown rep',
+      source: 'call_dashboard'
+    })
+  });
+  const rows = await response.json().catch(() => []);
+  if (!response.ok || !rows[0]) throw new Error(rows?.message || 'Could not add the note entry.');
+  return rows[0];
+}
+
+async function softDeleteRecordNote(noteId) {
+  const now = new Date().toISOString();
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/record_notes?id=eq.${encodeURIComponent(noteId)}`, {
+    method: 'PATCH',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+    body: JSON.stringify({ deleted_at: now, updated_at: now })
+  });
+  const rows = await response.json().catch(() => []);
+  if (!response.ok || !rows[0]) throw new Error(rows?.message || 'Could not delete the note entry.');
+}
+
+async function updateRecordNote(noteId, body) {
+  const now = new Date().toISOString();
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/record_notes?id=eq.${encodeURIComponent(noteId)}`, {
+    method: 'PATCH',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+    body: JSON.stringify({ body: String(body || '').trim(), updated_at: now })
+  });
+  const rows = await response.json().catch(() => []);
+  if (!response.ok || !rows[0]) throw new Error(rows?.message || 'Could not edit the note entry.');
+  return rows[0];
+}
+
+async function copyRecordNotes(fromType, fromId, toType, toId) {
+  const sourceNotes = await fetchRecordNotes(fromType, fromId);
+  if (!sourceNotes.length) return [];
+  const payload = sourceNotes.map(note => ({
+    record_type: toType,
+    record_id: String(toId),
+    body: note.body,
+    author_id: note.author_id || null,
+    author_name: note.author_name || 'Unknown rep',
+    source: note.source || 'call_dashboard',
+    created_at: note.created_at,
+    updated_at: note.updated_at || note.created_at
+  }));
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/record_notes`, {
+    method: 'POST',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+    body: JSON.stringify(payload)
+  });
+  const rows = await response.json().catch(() => []);
+  if (!response.ok) throw new Error(rows?.message || 'Could not transfer note history.');
+  return rows;
+}
+
+let _recordNotesById = {};
+
+function recordNotesTimelineHtml(notes, legacySections = []) {
+  _recordNotesById = Object.fromEntries(notes.map(note => [String(note.id), note]));
+  const legacy = legacySections.filter(section => section.text).map(section => `
+    <div style="border:1px solid var(--border);border-radius:9px;padding:11px 12px;background:var(--surface2);margin-bottom:9px;">
+      <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:5px;">${_escHtml(section.label)}</div>
+      <div style="font-size:13px;line-height:1.55;color:var(--text2);white-space:pre-wrap;">${_escHtml(section.text)}</div>
+    </div>`).join('');
+  const entries = notes.map(note => `
+    <div style="border:1px solid var(--border);border-radius:9px;padding:11px 12px;background:#fff;margin-bottom:9px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:6px;">
+        <div style="font-size:11px;color:var(--text3);"><strong style="color:var(--text2);">${_escHtml(note.author_name || 'Unknown rep')}</strong> · ${_escHtml(recordNoteDate(note.created_at))}${note.updated_at && note.updated_at !== note.created_at ? ' · edited' : ''}</div>
+        <div style="display:flex;gap:9px;"><button onclick="editCurrentRecordNote('${_escHtml(note.id)}')" aria-label="Edit note" style="border:none;background:none;color:var(--ss-green);font-size:11px;font-weight:700;cursor:pointer;padding:0;">Edit</button><button onclick="deleteCurrentRecordNote('${_escHtml(note.id)}')" aria-label="Delete note" style="border:none;background:none;color:#b91c1c;font-size:11px;font-weight:700;cursor:pointer;padding:0;">Delete</button></div>
+      </div>
+      <div style="font-size:13px;line-height:1.55;color:var(--text1);white-space:pre-wrap;">${_escHtml(note.body)}</div>
+    </div>`).join('');
+  return legacy + entries || '<div style="font-size:12px;color:var(--text3);padding:4px 0 10px;">No notes have been added yet.</div>';
+}
+
+let _activeRecordNoteContext = null;
+
+async function editCurrentRecordNote(noteId) {
+  const note = _recordNotesById[String(noteId)];
+  if (!_activeRecordNoteContext || !note) return;
+  const nextBody = prompt('Edit note entry', note.body || '');
+  if (nextBody === null || !nextBody.trim() || nextBody.trim() === note.body) return;
+  try {
+    await updateRecordNote(noteId, nextBody);
+    await _activeRecordNoteContext.reloadAndSync();
+    showToast('Note entry updated');
+  } catch (error) {
+    showToast(error.message || 'Could not edit note', 'error');
+  }
+}
+
+async function deleteCurrentRecordNote(noteId) {
+  if (!_activeRecordNoteContext || !confirm('Delete this note entry? It can be recovered from the database if needed.')) return;
+  try {
+    await softDeleteRecordNote(noteId);
+    await _activeRecordNoteContext.reloadAndSync();
+    showToast('Note entry deleted');
+  } catch (error) {
+    showToast(error.message || 'Could not delete note', 'error');
+  }
+}
+
 const UNSCHEDULED_CALENDAR_DATE = '2099-01-01';
 let _ujItems = [];
 let _ujSelectedItem = null;
@@ -4606,9 +4755,13 @@ function ujOpenDetail(key) {
     <details class="detail-accordion">
       <summary>🗒 Notes</summary>
       <div class="detail-accordion-content">
-        ${job ? `<label class="form-label">CRM Job Notes</label><textarea id="uj-job-notes" class="form-input" rows="4" style="resize:vertical;">${_escHtml(job.notes || '')}</textarea><div style="font-size:11px;color:var(--text3);margin:5px 0 14px;">Saved only to CRM job ${_escHtml(job.id)}</div>` : ''}
-        ${event ? `<label class="form-label">Google Calendar Event Notes</label><textarea id="uj-event-notes" class="form-input" rows="4" style="resize:vertical;">${_escHtml(event.description || '')}</textarea><div style="font-size:11px;color:var(--text3);margin-top:5px;">Saved only to Google Calendar event ${_escHtml(event.id)}</div>` : ''}
-        <button id="uj-save-notes" onclick="ujSaveNotes()" class="btn-primary" style="width:auto;margin-top:12px;">Save Notes</button>
+        <div id="uj-note-timeline"><div style="font-size:12px;color:var(--text3);padding-bottom:10px;">Loading note history…</div></div>
+        <label class="form-label" for="uj-new-note">New note entry</label>
+        <textarea id="uj-new-note" class="form-input" rows="4" placeholder="Add the latest call outcome or next step…" style="resize:vertical;"></textarea>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:8px;">
+          <span style="font-size:11px;color:var(--text3);">Automatically timestamped and synced to ${job && event ? 'CRM + Google Calendar' : job ? 'CRM' : 'Google Calendar'}.</span>
+          <button id="uj-add-note" onclick="ujAddNoteEntry()" class="btn-primary" style="width:auto;white-space:nowrap;">Add Note</button>
+        </div>
       </div>
     </details>
     <div style="display:flex;flex-direction:column;gap:10px;padding-bottom:40px;">
@@ -4629,6 +4782,7 @@ function ujOpenDetail(key) {
     notes:[job?.description,job?.notes,event?.description].filter(Boolean).join(' | '),
     inclusions:detectedInclusions,disclaimers:detectedDisclaimers,fallback:fallbackClosingScript
   });
+  ujLoadNoteEntries(false);
 }
 
 function ujBackToList() {
@@ -4662,24 +4816,66 @@ async function ujPatchEvent(eventId, changes) {
   return event;
 }
 
-async function ujSaveNotes() {
+function ujNoteTarget(item = _ujSelectedItem) {
+  if (!item) return null;
+  return item.job
+    ? { recordType:'job', recordId:String(item.job.id) }
+    : item.event ? { recordType:'calendar_event', recordId:String(item.event.id) } : null;
+}
+
+async function ujLoadNoteEntries(syncProjection = false) {
   const item = _ujSelectedItem;
-  if (!item) return;
-  const button = document.getElementById('uj-save-notes');
-  if (button) { button.disabled = true; button.textContent = 'Saving…'; }
-  const failures = [];
+  const target = ujNoteTarget(item);
+  const timeline = document.getElementById('uj-note-timeline');
+  if (!item || !target || !timeline) return;
+  let notes;
   try {
-    if (item.job) {
-      const notes = document.getElementById('uj-job-notes')?.value || '';
-      try { item.job = await ujPatchJob(item.job.id, { notes: notes || null }); } catch (error) { failures.push('CRM job notes'); }
-    }
-    if (item.event) {
-      const description = document.getElementById('uj-event-notes')?.value || '';
-      try { item.event = await ujPatchEvent(item.event.id, { description }); } catch (error) { failures.push('calendar event notes'); }
-    }
-    showToast(failures.length ? `Could not save ${failures.join(' and ')}` : 'Job and calendar notes saved separately ✓', failures.length ? 'error' : 'success');
+    notes = await fetchRecordNotes(target.recordType, target.recordId);
+  } catch (error) {
+    timeline.innerHTML = `<div class="alert alert-danger">${_escHtml(error.message)}</div>`;
+    return;
+  }
+
+  const legacySections = [];
+  const jobLegacy = recordNotesWithoutProjection(item.job?.notes);
+  const eventLegacy = recordNotesWithoutProjection(item.event?.description);
+  if (jobLegacy) legacySections.push({ label:'Existing CRM note', text:jobLegacy });
+  if (eventLegacy && eventLegacy !== jobLegacy) legacySections.push({ label:'Existing Google Calendar note', text:eventLegacy });
+  timeline.innerHTML = recordNotesTimelineHtml(notes, legacySections);
+
+  _activeRecordNoteContext = {
+    recordType: target.recordType,
+    recordId: target.recordId,
+    reloadAndSync: () => ujLoadNoteEntries(true)
+  };
+
+  if (!syncProjection) return;
+  const failures = [];
+  if (item.job) {
+    try { item.job = await ujPatchJob(item.job.id, { notes: recordNotesProjection(item.job.notes, notes) }); } catch { failures.push('CRM job'); }
+  }
+  if (item.event) {
+    try { item.event = await ujPatchEvent(item.event.id, { description: recordNotesProjection(item.event.description, notes) || '' }); } catch { failures.push('Google Calendar'); }
+  }
+  if (failures.length) throw new Error(`The entry was saved, but ${failures.join(' and ')} could not be synchronised.`);
+}
+
+async function ujAddNoteEntry() {
+  const target = ujNoteTarget();
+  const input = document.getElementById('uj-new-note');
+  const button = document.getElementById('uj-add-note');
+  const body = input?.value.trim();
+  if (!target || !body) { showToast('Enter a note first', 'error'); return; }
+  if (button) { button.disabled = true; button.textContent = 'Adding…'; }
+  try {
+    await createRecordNote(target.recordType, target.recordId, body);
+    input.value = '';
+    await ujLoadNoteEntries(true);
+    showToast('Timestamped note added and synchronised ✓');
+  } catch (error) {
+    showToast(error.message || 'Could not add note', 'error');
   } finally {
-    if (button) { button.disabled = false; button.textContent = 'Save Notes'; }
+    if (button) { button.disabled = false; button.textContent = 'Add Note'; }
   }
 }
 
@@ -4746,17 +4942,10 @@ function ujLeaveUnscheduled() {
     confirmLabel: 'Save Update',
     confirmColor: 'var(--ss-green)',
     onConfirm: async note => {
-      const stamp = new Date().toLocaleString('en-AU');
-      const failures = [];
-      if (item.job) {
-        const existing = item.job.notes || '';
-        try { item.job = await ujPatchJob(item.job.id, { notes: `${existing}${existing ? '\n\n' : ''}[Unscheduled update — ${stamp}] ${note}` }); } catch { failures.push('CRM job'); }
-      }
-      if (item.event) {
-        const existing = item.event.description || '';
-        try { item.event = await ujPatchEvent(item.event.id, { description: `${existing}${existing ? '\n\n' : ''}CALL DASHBOARD — UNSCHEDULED UPDATE (${stamp}): ${note}` }); } catch { failures.push('calendar event'); }
-      }
-      if (failures.length) throw new Error(`Could not update ${failures.join(' and ')}.`);
+      const target = ujNoteTarget(item);
+      if (!target) throw new Error('No linked job or calendar event was found.');
+      await createRecordNote(target.recordType, target.recordId, `Left unscheduled: ${note}`);
+      await ujLoadNoteEntries(true);
       document.getElementById('uj-action-modal')?.remove();
       showToast('Update saved — item remains unscheduled ✓');
       ujOpenDetail(item.key);
@@ -4995,10 +5184,12 @@ async function pqOpenDetail(quoteId) {
     <details class="detail-accordion">
       <summary>🗒 Notes</summary>
       <div class="detail-accordion-content">
-        <textarea id="pq-notes-input" class="form-input" rows="5" placeholder="Add notes for this quote…" style="width:100%;box-sizing:border-box;resize:vertical;line-height:1.5;">${_escHtml(q.notes || '')}</textarea>
+        <div id="pq-note-timeline"><div style="font-size:12px;color:var(--text3);padding-bottom:10px;">Loading note history…</div></div>
+        <label class="form-label" for="pq-new-note">New note entry</label>
+        <textarea id="pq-new-note" class="form-input" rows="4" placeholder="Add the latest call outcome or next step…" style="width:100%;box-sizing:border-box;resize:vertical;line-height:1.5;"></textarea>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;">
-          <span id="pq-notes-status" style="font-size:11px;color:var(--text3);">Saved against quote ${_escHtml(q.id)}</span>
-          <button id="pq-save-notes-btn" onclick="pqSaveNotes()" style="background:var(--ss-green);color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;">Save Notes</button>
+          <span id="pq-notes-status" style="font-size:11px;color:var(--text3);">Automatically timestamped against quote ${_escHtml(q.id)}</span>
+          <button id="pq-add-note-btn" onclick="pqAddNoteEntry()" style="background:var(--ss-green);color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">Add Note</button>
         </div>
       </div>
     </details>
@@ -5015,6 +5206,7 @@ async function pqOpenDetail(quoteId) {
     type:'quote',clientName:q.client,suburb:client?.suburb || client?.address || '',services:serviceNames,total:q.total,
     notes:q.notes || '',inclusions:pendingInclusions,disclaimers:pendingDisclaimers,fallback:closingScript
   });
+  pqLoadNoteEntries(false);
 }
 
 function pqBackToList() {
@@ -5054,29 +5246,48 @@ async function pqUpdateSelectedQuote(changes) {
   return updatedQuote;
 }
 
-async function pqSaveNotes() {
-  const textarea = document.getElementById('pq-notes-input');
-  const saveButton = document.getElementById('pq-save-notes-btn');
+async function pqLoadNoteEntries(syncProjection = false) {
+  const quote = _pqSelectedQuote;
+  const timeline = document.getElementById('pq-note-timeline');
+  if (!quote || !timeline) return;
   const status = document.getElementById('pq-notes-status');
-  if (!_pqSelectedQuote || !textarea || !saveButton) return;
-
-  saveButton.disabled = true;
-  saveButton.textContent = 'Saving…';
-  if (status) status.textContent = 'Saving to CRM…';
-
+  let notes;
   try {
-    const notes = textarea.value.trim();
-    const updatedQuote = await pqUpdateSelectedQuote({ notes: notes || null });
-    textarea.value = updatedQuote.notes || '';
-    if (status) status.textContent = `Saved to quote ${updatedQuote.id}`;
-    showToast('Quote notes saved to CRM ✓');
+    notes = await fetchRecordNotes('quote', quote.id);
   } catch (error) {
-    console.error('Pending quote notes save failed:', error);
+    timeline.innerHTML = `<div class="alert alert-danger">${_escHtml(error.message)}</div>`;
+    return;
+  }
+
+  const legacy = recordNotesWithoutProjection(quote.notes);
+  timeline.innerHTML = recordNotesTimelineHtml(notes, legacy ? [{ label:'Existing quote note', text:legacy }] : []);
+  _activeRecordNoteContext = { recordType:'quote', recordId:String(quote.id), reloadAndSync:() => pqLoadNoteEntries(true) };
+
+  if (!syncProjection) return;
+  const updatedQuote = await pqUpdateSelectedQuote({ notes: recordNotesProjection(quote.notes, notes) });
+  if (status) status.textContent = `History synchronised to quote ${updatedQuote.id}`;
+}
+
+async function pqAddNoteEntry() {
+  const quote = _pqSelectedQuote;
+  const input = document.getElementById('pq-new-note');
+  const button = document.getElementById('pq-add-note-btn');
+  const status = document.getElementById('pq-notes-status');
+  const body = input?.value.trim();
+  if (!quote || !body) { showToast('Enter a note first', 'error'); return; }
+  if (button) { button.disabled = true; button.textContent = 'Adding…'; }
+  if (status) status.textContent = 'Adding timestamped note…';
+  try {
+    await createRecordNote('quote', quote.id, body);
+    input.value = '';
+    await pqLoadNoteEntries(true);
+    showToast('Timestamped quote note added ✓');
+  } catch (error) {
+    console.error('Pending quote note entry failed:', error);
     if (status) status.textContent = 'Save failed — please try again';
-    showToast('Failed to save quote notes', 'error');
+    showToast(error.message || 'Failed to add quote note', 'error');
   } finally {
-    saveButton.disabled = false;
-    saveButton.textContent = 'Save Notes';
+    if (button) { button.disabled = false; button.textContent = 'Add Note'; }
   }
 }
 
@@ -5193,6 +5404,19 @@ async function _pqDoAccept(q, address, clientEmail, clientId, clientPhone) {
       })
     });
     if (!jobCreateRes.ok) throw new Error(`Job creation failed: ${await jobCreateRes.text()}`);
+
+    // Carry the timestamped quote history into the job while preserving the
+    // combined legacy notes field used by existing CRM screens and exports.
+    try {
+      const transferredNotes = await copyRecordNotes('quote', q.id, 'job', jobId);
+      if (transferredNotes.length) {
+        const baseJobNote = `Accepted from pending quote ${q.id}. Rep: ${currentRep ? currentRep.name : 'unknown'}.`;
+        await ujPatchJob(jobId, { notes: recordNotesProjection(baseJobNote, transferredNotes) });
+      }
+    } catch (noteError) {
+      console.error('Quote note history transfer failed:', noteError);
+      showToast('Job created, but note history needs checking', 'error');
+    }
 
     // 3. Booking record (same as new quote flow)
     const clientSource = q.notes && (q.notes.includes('meta-ad') || q.notes.includes('Meta')) ? 'meta-ad'
