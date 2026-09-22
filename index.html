@@ -3785,6 +3785,7 @@ let _priorityCandidatesById = {};
 let _priorityRequestId = 0;
 let _priorityCachedCandidates = null;
 let _priorityCachedAnalysis = null;
+let _prioritySelectedId = null;
 
 function priorityNavItem(label) {
   return [...document.querySelectorAll('.nav-item')].find(item => item.textContent.includes(label)) || null;
@@ -3795,6 +3796,7 @@ function priorityRecordLabel(candidate) {
 }
 
 function closePriorityDetail() {
+  _prioritySelectedId = null;
   document.getElementById('priority-detail-modal')?.classList.remove('open');
 }
 
@@ -3808,12 +3810,7 @@ function openPriorityItem(candidateId) {
   const openButton = document.getElementById('priority-detail-open-btn');
   const modal = document.getElementById('priority-detail-modal');
   if (!title || !service || !body || !openButton || !modal) return;
-  const entries = Array.isArray(candidate.noteEntries) ? candidate.noteEntries : [];
-  const legacy = String(candidate.legacyNotes || '').trim();
-  const noteHistory = [
-    ...entries.map(note => `<div class="priority-note-entry"><div class="priority-note-date">${_escHtml(priorityCandidateDate(note.at) || 'Date unavailable')}${note.author ? ` · ${_escHtml(note.author)}` : ''}</div><div>${_escHtml(note.body || '')}</div></div>`),
-    ...(legacy ? [`<div class="priority-note-entry"><div class="priority-note-date">Existing record note</div><div>${_escHtml(legacy)}</div></div>`] : [])
-  ];
+  _prioritySelectedId = candidateId;
   title.textContent = candidate.clientName || 'Follow-up details';
   service.textContent = (candidate.services || []).join(' + ') || priorityRecordLabel(candidate);
   body.innerHTML = `
@@ -3824,10 +3821,16 @@ function openPriorityItem(candidateId) {
     </div>
     <section class="priority-detail-section"><h4>AI perception</h4><p>${_escHtml(analysis.reason || 'No AI assessment is available yet.')}</p></section>
     <section class="priority-detail-section priority-detail-recommendation"><h4>Recommended next step</h4><p>${_escHtml(analysis.recommendedAction || 'Review the record and contact the customer.')}</p></section>
-    <section class="priority-detail-section"><h4>Note history</h4>${noteHistory.length ? `<div class="priority-note-history">${noteHistory.join('')}</div>` : '<p class="priority-no-notes">No notes have been recorded for this item.</p>'}</section>`;
+    <section class="priority-detail-section"><h4>Note history</h4>
+      <div id="priority-note-timeline"><div class="priority-no-notes">Loading note history…</div></div>
+      <label class="form-label" for="priority-new-note">New note entry</label>
+      <textarea id="priority-new-note" class="form-input" rows="3" placeholder="Add the latest call outcome or next step…" style="width:100%;box-sizing:border-box;resize:vertical;line-height:1.5;"></textarea>
+      <div class="priority-note-actions"><span id="priority-note-status">Automatically timestamped and shared with this ${_escHtml(priorityRecordLabel(candidate))}.</span><button id="priority-add-note-btn" class="btn-primary" onclick="priorityAddNoteEntry()" style="width:auto;white-space:nowrap;">Add Note</button></div>
+    </section>`;
   openButton.textContent = `Open ${priorityRecordLabel(candidate)}`;
   openButton.onclick = () => openPriorityRecord(candidateId);
   modal.classList.add('open');
+  priorityLoadNoteEntries(false);
 }
 
 async function openPriorityRecord(candidateId) {
@@ -3852,6 +3855,91 @@ async function openPriorityRecord(candidateId) {
   }
 }
 
+function priorityNoteTarget(candidate = _priorityCandidatesById[_prioritySelectedId]) {
+  if (!candidate) return null;
+  return { recordType:candidate.sourceRecordType || (candidate.kind === 'pending_quote' ? 'quote' : 'job'), recordId:String(candidate.recordId) };
+}
+
+async function priorityPatchRecord(table, recordId, changes) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${encodeURIComponent(recordId)}`, {
+    method:'PATCH',
+    headers:{ 'apikey':SUPABASE_KEY, 'Authorization':`Bearer ${SUPABASE_KEY}`, 'Content-Type':'application/json', 'Prefer':'return=representation' },
+    body:JSON.stringify(changes)
+  });
+  const rows = await response.json().catch(() => []);
+  if (!response.ok || !rows[0]) throw new Error(`${table === 'quotes' ? 'Quote' : 'CRM job'} note synchronisation failed (${response.status}).`);
+  return rows[0];
+}
+
+async function prioritySyncNoteProjection(candidate, notes) {
+  const failures = [];
+  if (candidate.kind === 'pending_quote') {
+    try { await priorityPatchRecord('quotes', candidate.recordId, { notes:recordNotesProjection(candidate.recordLegacyNotes, notes) }); }
+    catch { failures.push('quote'); }
+  } else if (candidate.sourceRecordType === 'calendar_event') {
+    try { await ujPatchEvent(candidate.recordId, { description:recordNotesProjection(candidate.recordLegacyNotes, notes) || '' }); }
+    catch { failures.push('Google Calendar'); }
+  } else {
+    try { await priorityPatchRecord('jobs', candidate.recordId, { notes:recordNotesProjection(candidate.recordLegacyNotes, notes) }); }
+    catch { failures.push('CRM job'); }
+    if (candidate.googleCalendarEventId) {
+      try { await ujPatchEvent(candidate.googleCalendarEventId, { description:recordNotesProjection(candidate.calendarLegacyNotes, notes) || '' }); }
+      catch { failures.push('Google Calendar'); }
+    }
+  }
+  if (failures.length) throw new Error(`The note history was saved, but ${failures.join(' and ')} could not be synchronised.`);
+}
+
+async function priorityLoadNoteEntries(syncProjection = false) {
+  const selectedId = _prioritySelectedId;
+  const candidate = _priorityCandidatesById[selectedId];
+  const target = priorityNoteTarget(candidate);
+  const timeline = document.getElementById('priority-note-timeline');
+  const status = document.getElementById('priority-note-status');
+  if (!candidate || !target || !timeline) return;
+  let notes;
+  try { notes = await fetchRecordNotes(target.recordType, target.recordId); }
+  catch (error) {
+    timeline.innerHTML = `<div class="alert alert-danger">${_escHtml(error.message || 'Could not load note history.')}</div>`;
+    return;
+  }
+  if (_prioritySelectedId !== selectedId || !document.getElementById('priority-note-timeline')) return;
+  const legacySections = [];
+  if (candidate.recordLegacyNotes) legacySections.push({ label:candidate.kind === 'pending_quote' ? 'Existing quote note' : candidate.sourceRecordType === 'calendar_event' ? 'Existing Google Calendar note' : 'Existing CRM note', text:candidate.recordLegacyNotes });
+  if (candidate.calendarLegacyNotes && candidate.calendarLegacyNotes !== candidate.recordLegacyNotes) legacySections.push({ label:'Existing Google Calendar note', text:candidate.calendarLegacyNotes });
+  timeline.innerHTML = recordNotesTimelineHtml(notes, legacySections);
+  candidate.noteEntries = notes.map(note => ({ at:note.created_at, body:note.body, author:note.author_name }));
+  candidate.latestActivityAt = notes[0]?.created_at || candidate.latestActivityAt;
+  _activeRecordNoteContext = { recordType:target.recordType, recordId:target.recordId, reloadAndSync:() => priorityLoadNoteEntries(true) };
+  if (syncProjection) {
+    await prioritySyncNoteProjection(candidate, notes);
+    if (status) status.textContent = 'Note history saved and synchronised. Reanalyse to refresh the AI assessment.';
+  }
+}
+
+async function priorityAddNoteEntry() {
+  const candidate = _priorityCandidatesById[_prioritySelectedId];
+  const target = priorityNoteTarget(candidate);
+  const input = document.getElementById('priority-new-note');
+  const button = document.getElementById('priority-add-note-btn');
+  const status = document.getElementById('priority-note-status');
+  const body = input?.value.trim();
+  if (!target || !body) { showToast('Enter a note first', 'error'); return; }
+  if (button) { button.disabled = true; button.textContent = 'Adding…'; }
+  if (status) status.textContent = 'Adding timestamped note…';
+  try {
+    await createRecordNote(target.recordType, target.recordId, body);
+    input.value = '';
+    await priorityLoadNoteEntries(true);
+    showToast('Timestamped note added and synchronised ✓');
+  } catch (error) {
+    if (status) status.textContent = 'Save failed — please try again';
+    showToast(error.message || 'Could not add note', 'error');
+  } finally {
+    if (button) { button.disabled = false; button.textContent = 'Add Note'; }
+  }
+}
+
 function priorityCandidateDate(value) {
   if (!value) return '';
   const date = new Date(String(value).length === 10 ? `${value}T00:00:00` : value);
@@ -3869,6 +3957,7 @@ async function fetchFollowUpPriorityCandidates() {
   const [quotes, jobs, notes] = await Promise.all([quoteResponse.json(), jobResponse.json(), noteResponse.json()]);
   let calendarEvents = [];
   try { calendarEvents = (await ujFetchCalendarEvents()).events || []; } catch (error) { console.warn('Standalone unscheduled calendar events were not included:', error); }
+  const calendarEventsById = new Map(calendarEvents.map(event => [String(event.id), event]));
   const notesByRecord = {};
   notes.forEach(note => {
     const key = `${note.record_type}:${note.record_id}`;
@@ -3883,18 +3972,22 @@ async function fetchFollowUpPriorityCandidates() {
       id:`quote:${quote.id}`, kind:'pending_quote', recordId:String(quote.id), clientName:quote.client || 'Unknown client',
       services:(quote.items || []).map(item => item.description || item.name).filter(name => name && name !== 'TOTAL'),
       total:Number(quote.total) || 0, createdAt:quote.created_at, recordDate:quote.date,
-      latestActivityAt:entries[0]?.at || quote.created_at || quote.date, legacyNotes:recordNotesWithoutProjection(quote.notes), noteEntries:entries
+      latestActivityAt:entries[0]?.at || quote.created_at || quote.date, legacyNotes:recordNotesWithoutProjection(quote.notes),
+      recordLegacyNotes:recordNotesWithoutProjection(quote.notes), noteEntries:entries
     };
   });
   const unscheduledJobs = jobs.filter(job => ujIsBlankDate(job.completion_date));
   const jobCandidates = unscheduledJobs.map(job => {
     const entries = entryPayload('job', job.id);
     const services = (job.items || []).map(item => item.description || item.name).filter(Boolean);
+    const linkedEvent = job.google_calendar_event_id ? calendarEventsById.get(String(job.google_calendar_event_id)) : null;
     return {
       id:`job:${job.id}`, kind:'unscheduled_job', sourceRecordType:'job', recordId:String(job.id), clientName:job.client || 'Unknown client',
       services:services.length ? services : [job.service || 'Unscheduled service'], total:Number(job.revenue) || 0,
       createdAt:job.created_at, latestActivityAt:entries[0]?.at || job.created_at,
-      legacyNotes:[recordNotesWithoutProjection(job.notes), job.description].filter(Boolean).join(' | '), noteEntries:entries
+      legacyNotes:[recordNotesWithoutProjection(job.notes), job.description, recordNotesWithoutProjection(linkedEvent?.description)].filter(Boolean).join(' | '),
+      recordLegacyNotes:recordNotesWithoutProjection(job.notes), calendarLegacyNotes:recordNotesWithoutProjection(linkedEvent?.description),
+      googleCalendarEventId:job.google_calendar_event_id || '', noteEntries:entries
     };
   });
   const linkedEventIds = new Set(unscheduledJobs.map(job => job.google_calendar_event_id).filter(Boolean).map(String));
@@ -3905,7 +3998,7 @@ async function fetchFollowUpPriorityCandidates() {
       id:`calendar:${event.id}`, kind:'unscheduled_job', sourceRecordType:'calendar_event', recordId:String(event.id),
       clientName:event.summary || 'Unscheduled calendar event', services:[event.summary || 'Calendar event'], total:0,
       createdAt:event.created || event.updated, latestActivityAt:entries[0]?.at || event.updated || event.created,
-      legacyNotes:recordNotesWithoutProjection(event.description), noteEntries:entries
+      legacyNotes:recordNotesWithoutProjection(event.description), recordLegacyNotes:recordNotesWithoutProjection(event.description), noteEntries:entries
     };
   });
   return [...quoteCandidates, ...jobCandidates, ...calendarCandidates];

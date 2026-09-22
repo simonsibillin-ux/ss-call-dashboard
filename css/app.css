@@ -674,6 +674,8 @@
   .priority-note-entry { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text2); font-size: 12px; line-height: 1.5; padding: 10px 12px; white-space: pre-wrap; }
   .priority-note-date { color: var(--text3); font-size: 10px; font-weight: 700; margin-bottom: 4px; }
   .priority-no-notes { color: var(--text3) !important; font-style: italic; }
+  .priority-note-actions { align-items: center; display: flex; gap: 12px; justify-content: space-between; margin-top: 9px; }
+  .priority-note-actions span { color: var(--text3); font-size: 11px; line-height: 1.4; }
   .priority-detail-footer { border-top: 1px solid var(--border); display: flex; gap: 9px; justify-content: flex-end; padding-top: 14px; }
 
   .badge {
@@ -1617,6 +1619,8 @@
     .modal-actions > button { width: 100%; }
     .stats-row { gap: 8px; }
     .priority-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .priority-note-actions { align-items: stretch; flex-direction: column; }
+    .priority-note-actions button { width: 100% !important; }
     .stat-card { padding: 12px; min-width: 0; }
     .stat-value { font-size: 19px; }
     .chat-workspace, .calendar-layout { gap: 12px; }
