@@ -3820,6 +3820,7 @@ function openPriorityItem(candidateId) {
       <div><span>Last activity</span><strong>${_escHtml(priorityCandidateDate(analysis.effectiveActivityAt || candidate.latestActivityAt) || 'Unknown')}</strong></div>
     </div>
     <section class="priority-detail-section"><h4>AI perception</h4><p>${_escHtml(analysis.reason || 'No AI assessment is available yet.')}</p></section>
+    ${analysis.priorityConflict ? `<div class="alert alert-danger" style="margin:0 0 14px;"><strong>Priority check needed:</strong> ${_escHtml(analysis.priorityConflictMessage || 'The AI timing assessment does not match the assigned priority. Review the latest note before contacting the customer.')}</div>` : ''}
     <section class="priority-detail-section priority-detail-recommendation"><h4>Recommended next step</h4><p>${_escHtml(analysis.recommendedAction || 'Review the record and contact the customer.')}</p></section>
     <section class="priority-detail-section"><h4>Note history</h4>
       <div id="priority-note-timeline"><div class="priority-no-notes">Loading note history…</div></div>
