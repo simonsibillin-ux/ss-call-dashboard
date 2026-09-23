@@ -94,7 +94,7 @@ function naturalActionDates(text, now) {
     if (actionCueBefore(lower, match.index) || /will\s+call|due|follow\s*up|recontact/.test(before)) pushMonth(match[2], Number(match[1]), match.index, match[0], 'exact');
   }
 
-  const qualified = new RegExp(`\\b(start|beginning|mid|middle|end)(?:\\s+of)?\\s+(${MONTH_PATTERN})\\b`, 'g');
+  const qualified = new RegExp(`\\b(start|beginning|mid|middle|late|end)(?:\\s+of)?\\s+(${MONTH_PATTERN})\\b`, 'g');
   for (const match of lower.matchAll(qualified)) {
     const before = lower.slice(Math.max(0, match.index - 70), match.index);
     if (!/(?:follow\s*up|recontact|contact|call|due|wait)/.test(before)) continue;
@@ -147,12 +147,13 @@ function noteSignals(item, now) {
   const explicitDatePrecision = selectedActionDate?.precision || 'exact';
   const doNotFollow = /\b(?:do not|don't)\s+(?:follow\s*up|contact|call)|\bno\s+(?:further\s+)?follow\s*up\b/.test(lower);
   const customerWillInitiate = /\bwill\s+(?:reach out|get back|call (?:us )?back)\b/.test(lower);
-  const waiting = /\b(wait(?:ing)?|hold off|put off|not yet|after (?:the|their)|when (?:the|they)|will (?:call (?:us )?|get )back|will reach out|needs? to (?:speak|check|ask|think|discuss)|will (?:talk|speak) to|trees? (?:are|have been)|not ready)\b/.test(lower);
+  const decisionPending = /\b(?:needs? to (?:speak|check|ask|think|discuss)|will (?:talk|speak) to)\b/.test(lower);
+  const waiting = /\b(wait(?:ing)?|hold off|put off|not yet|after (?:the|their)|when (?:the|they)|will (?:call (?:us )?|get )back|will reach out|trees? (?:are|have been)|not ready)\b/.test(lower);
   const interested = /\b(ready|keen|interested|go ahead|proceed|book(?:ing)?)\b/.test(lower);
   const attempted = /\b(voicemail|no answer|left (?:a )?message|text(?:ed| sent)|email(?:ed| sent)|called)\b/.test(lower);
   const declined = /\b(declin(?:e|ed|ing)|not interested|does not want|doesn't want|cancel(?:led)?|do not contact)\b/.test(lower);
   const excerpt = clean(text.replace(/---[^-]+---/g, ''), 180);
-  return { explicitDate, explicitDatePrecision, doNotFollow, customerWillInitiate, waiting, interested, attempted, declined, excerpt, latestEntryAt:validDate(latestEntry?.at), today };
+  return { explicitDate, explicitDatePrecision, doNotFollow, customerWillInitiate, decisionPending, waiting, interested, attempted, declined, excerpt, latestEntryAt:validDate(latestEntry?.at), today };
 }
 
 function daysSince(value, now) {
@@ -194,6 +195,10 @@ function baseline(item, now) {
     priority = 'low'; reasonCode = 'customer_declined'; recommendedDate = '';
   } else if (signals.customerWillInitiate) {
     priority = 'low'; reasonCode = 'customer_will_initiate'; recommendedDate = '';
+  } else if (signals.decisionPending) {
+    priority = inactiveDays >= 14 ? 'high' : inactiveDays >= 7 ? 'medium' : 'low';
+    reasonCode = inactiveDays >= 7 ? 'decision_follow_up_due' : 'decision_pending';
+    recommendedDate = inactiveDays >= 14 ? signals.today : addBusinessDays(signals.today, inactiveDays >= 7 ? 1 : 3);
   } else if (signals.waiting) {
     priority = 'low'; reasonCode = 'waiting_on_customer'; recommendedDate = '';
   } else if (signals.interested) {
@@ -214,6 +219,7 @@ function baseline(item, now) {
   else if (signals.doNotFollow) action = 'Do not contact the customer; keep the record suppressed unless a newer note changes this instruction.';
   else if (signals.declined) action = 'Review whether this record should remain active before making further contact.';
   else if (signals.customerWillInitiate) action = 'Wait for the customer to initiate contact and review this record only if a new instruction is added.';
+  else if (signals.decisionPending) action = inactiveDays >= 7 ? 'Follow up on the customer’s pending decision and record the outcome.' : 'Allow the customer time to make the decision, then follow up on the recommended date.';
   else if (signals.waiting) action = 'Review the waiting condition in the notes before contacting the customer again.';
   else if (signals.interested) action = 'Contact the customer promptly—the latest note indicates buying or booking intent.';
   else if (signals.attempted) action = 'Make the next contact attempt and record the outcome as a new timestamped note.';
@@ -254,7 +260,7 @@ function timingConflict(priority, timing) {
   if (!timing) return false;
   if (priority === 'urgent') return timing === 'wait' || timing === 'no_contact';
   if (priority === 'high' || priority === 'medium') return timing === 'wait' || timing === 'no_contact';
-  if (priority === 'upcoming') return timing === 'now' || timing === 'soon' || timing === 'no_contact';
+  if (priority === 'upcoming') return timing === 'now' || timing === 'no_contact';
   if (priority === 'low') return timing === 'now' || timing === 'soon';
   return false;
 }
