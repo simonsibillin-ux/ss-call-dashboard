@@ -147,7 +147,7 @@ function noteSignals(item, now) {
   const explicitDatePrecision = selectedActionDate?.precision || 'exact';
   const doNotFollow = /\b(?:do not|don't)\s+(?:follow\s*up|contact|call)|\bno\s+(?:further\s+)?follow\s*up\b/.test(lower);
   const customerWillInitiate = /\bwill\s+(?:reach out|get back|call (?:us )?back)\b/.test(lower);
-  const decisionPending = /\b(?:needs? to (?:speak|check|ask|think|discuss)|will (?:talk|speak) to)\b/.test(lower);
+  const decisionPending = /\b(?:needs? to (?:speak|check|ask|think|discuss)|will (?:talk|speak) to|follow\s*up\s+(?:to|and)\s+(?:confirm|check|see)|follow\s*up\s+(?:needed|required))\b/.test(lower);
   const waiting = /\b(wait(?:ing)?|hold off|put off|not yet|after (?:the|their)|when (?:the|they)|will (?:call (?:us )?|get )back|will reach out|trees? (?:are|have been)|not ready)\b/.test(lower);
   const interested = /\b(ready|keen|interested|go ahead|proceed|book(?:ing)?)\b/.test(lower);
   const attempted = /\b(voicemail|no answer|left (?:a )?message|text(?:ed| sent)|email(?:ed| sent)|called)\b/.test(lower);
