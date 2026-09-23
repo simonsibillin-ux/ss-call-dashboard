@@ -4017,7 +4017,7 @@ function renderAiFollowUpPriorities(candidates, analysis) {
   ];
   const counts = Object.fromEntries(groups.map(([key]) => [key, rows.filter(row => row.priority === key).length]));
   overview.innerHTML = groups.slice(0, 4).map(([key, label]) => `<div class="priority-stat"><div class="priority-stat-value">${counts[key]}</div><div class="priority-stat-label">${label.replace(/^.. /, '')}</div></div>`).join('');
-  const sourceLabel = analysis.source === 'ai' ? 'AI note analysis' : analysis.source === 'hybrid' ? 'AI + note-aware fallback' : 'Note-aware fallback';
+  const sourceLabel = analysis.source === 'ai' ? 'Stable priority rules + AI insight' : analysis.source === 'hybrid' ? 'Stable priority rules + partial AI insight' : 'Stable priority rules';
   status.textContent = `${sourceLabel} · ${rows.length} active item${rows.length === 1 ? '' : 's'} · Updated ${new Date(analysis.generatedAt || Date.now()).toLocaleString('en-AU')}${analysis.warning ? ` · ${analysis.warning}` : ''}`;
   if (!rows.length) {
     container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✓</div><div class="empty-state-title">Nothing needs following up</div><div class="empty-state-desc">No pending quotes or unscheduled jobs were found.</div></div>';

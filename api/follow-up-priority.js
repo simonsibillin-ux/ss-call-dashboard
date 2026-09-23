@@ -1,7 +1,6 @@
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
 const TIMEOUT_MS = 24000;
 const BATCH_SIZE = 12;
-const PRIORITIES = new Set(['urgent', 'high', 'medium', 'low', 'upcoming']);
 const rateLimit = new Map();
 
 function clean(value, max = 1200) {
@@ -14,7 +13,32 @@ function validDate(value) {
 }
 
 function localIso(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone:'Australia/Melbourne', year:'numeric', month:'2-digit', day:'2-digit'
+  }).formatToParts(date).reduce((result, part) => ({ ...result, [part.type]:part.value }), {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function dateFromIsoDay(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
+}
+
+function compareIsoDays(left, right) {
+  return String(left || '').localeCompare(String(right || ''));
+}
+
+function addBusinessDays(isoDay, amount) {
+  const date = dateFromIsoDay(isoDay);
+  if (!date) return isoDay;
+  let remaining = amount;
+  while (remaining > 0) {
+    date.setUTCDate(date.getUTCDate() + 1);
+    const day = date.getUTCDay();
+    if (day !== 0 && day !== 6) remaining--;
+  }
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
 }
 
 function parseAustralianDates(text, now) {
@@ -23,46 +47,54 @@ function parseAustralianDates(text, now) {
   for (const match of source.matchAll(/\b(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?\b/g)) {
     const day = Number(match[1]);
     const month = Number(match[2]);
-    let year = match[3] ? Number(match[3]) : now.getFullYear();
+    let year = match[3] ? Number(match[3]) : Number(localIso(now).slice(0, 4));
     if (year < 100) year += 2000;
-    const date = new Date(year, month - 1, day, 12);
-    if (date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day) dates.push({ date, raw:match[0], index:match.index });
+    const date = new Date(Date.UTC(year, month - 1, day, 12));
+    if (date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day) dates.push({ date, iso:`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`, raw:match[0], index:match.index });
   }
   for (const match of source.matchAll(/\b(20\d{2})-(\d{2})-(\d{2})\b/g)) {
-    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
-    if (!Number.isNaN(date.getTime())) dates.push({ date, raw:match[0], index:match.index });
+    const iso = `${match[1]}-${match[2]}-${match[3]}`;
+    const date = dateFromIsoDay(iso);
+    if (date) dates.push({ date, iso, raw:match[0], index:match.index });
   }
   return dates;
 }
 
 function noteSignals(item, now) {
-  const text = [item.legacyNotes, ...(item.noteEntries || []).map(note => `${note.at || ''} ${note.body || ''}`)].filter(Boolean).join(' | ');
+  const entries = [...(item.noteEntries || [])].filter(note => clean(note.body)).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+  const latestEntry = entries[0] || null;
+  const text = clean(latestEntry?.body || item.legacyNotes, 2400);
   const lower = text.toLowerCase();
   const dates = parseAustralianDates(text, now);
-  const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-  const latestPast = dates.filter(entry => entry.date <= endToday).sort((a, b) => b.date - a.date)[0]?.date || null;
-  const futureEntries = dates.filter(entry => entry.date > endToday).filter(entry => {
+  const today = localIso(now);
+  const actionDates = dates.filter(entry => {
     const nearby = lower.slice(Math.max(0, entry.index - 55), entry.index + entry.raw.length + 55);
     return /follow|call|contact|after|until|wait|check|book|available|back/.test(nearby);
-  }).sort((a, b) => a.date - b.date);
-  const nextDate = futureEntries[0]?.date || null;
+  });
+  const futureAction = actionDates.filter(entry => compareIsoDays(entry.iso, today) > 0).sort((a, b) => a.iso.localeCompare(b.iso))[0];
+  const dueAction = actionDates.filter(entry => compareIsoDays(entry.iso, today) <= 0).sort((a, b) => b.iso.localeCompare(a.iso))[0];
+  const explicitDate = (futureAction || dueAction)?.iso || '';
   const waiting = /\b(wait(?:ing)?|hold off|not yet|after (?:the|their)|when (?:the|they)|will (?:call|get) back|trees? (?:are|have been)|not ready)\b/.test(lower);
   const interested = /\b(ready|keen|interested|go ahead|proceed|book(?:ing)?|accept(?:ed)?|approved)\b/.test(lower);
   const attempted = /\b(voicemail|no answer|left (?:a )?message|text(?:ed| sent)|email(?:ed| sent)|called)\b/.test(lower);
+  const declined = /\b(declin(?:e|ed|ing)|not interested|does not want|doesn't want|cancel(?:led)?|do not contact)\b/.test(lower);
   const excerpt = clean(text.replace(/---[^-]+---/g, ''), 180);
-  return { latestPast, nextDate, waiting, interested, attempted, excerpt };
+  return { explicitDate, waiting, interested, attempted, declined, excerpt, latestEntryAt:validDate(latestEntry?.at), today };
 }
 
 function daysSince(value, now) {
   const date = value instanceof Date ? value : validDate(value);
-  return date ? Math.max(0, Math.floor((now - date) / 86400000)) : 0;
+  if (!date) return 0;
+  const currentDay = dateFromIsoDay(localIso(now));
+  const valueDay = dateFromIsoDay(localIso(date));
+  return Math.max(0, Math.round((currentDay - valueDay) / 86400000));
 }
 
 function baseline(item, now) {
   const signals = noteSignals(item, now);
   const created = validDate(item.createdAt || item.recordDate);
   const structuredActivity = validDate(item.latestActivityAt);
-  const effectiveActivity = [structuredActivity, signals.latestPast].filter(Boolean).sort((a, b) => b - a)[0] || created;
+  const effectiveActivity = [structuredActivity, signals.latestEntryAt].filter(Boolean).sort((a, b) => b - a)[0] || created;
   const ageDays = daysSince(created, now);
   const inactiveDays = daysSince(effectiveActivity, now);
   const total = Math.max(0, Number(item.total) || 0);
@@ -72,20 +104,38 @@ function baseline(item, now) {
   if (total >= 2000) score += 18; else if (total >= 1000) score += 12; else if (total >= 500) score += 6;
   if (signals.interested) score += 18;
   if (signals.attempted && inactiveDays >= 2) score += 7;
-  if (signals.waiting && !signals.nextDate) score -= 12;
+  if (signals.waiting && !signals.explicitDate) score -= 12;
 
   let priority = score >= 80 ? 'urgent' : score >= 60 ? 'high' : score >= 40 ? 'medium' : 'low';
-  let recommendedDate = localIso(now);
-  if (signals.nextDate) { priority = 'upcoming'; recommendedDate = localIso(signals.nextDate); }
+  let reasonCode = 'score_based';
+  let recommendedDate = signals.today;
+  if (signals.explicitDate && compareIsoDays(signals.explicitDate, signals.today) > 0) {
+    priority = 'upcoming'; reasonCode = 'explicit_future_date'; recommendedDate = signals.explicitDate;
+  } else if (signals.explicitDate) {
+    priority = 'urgent'; reasonCode = 'follow_up_due'; recommendedDate = signals.today;
+  } else if (signals.declined) {
+    priority = 'low'; reasonCode = 'customer_declined'; recommendedDate = '';
+  } else if (signals.waiting) {
+    priority = 'low'; reasonCode = 'waiting_on_customer'; recommendedDate = '';
+  } else if (signals.interested) {
+    priority = 'urgent'; reasonCode = 'ready_to_book'; recommendedDate = signals.today;
+  } else if (signals.attempted) {
+    priority = inactiveDays >= 2 ? 'high' : 'medium'; reasonCode = 'contact_attempted'; recommendedDate = addBusinessDays(signals.today, inactiveDays >= 2 ? 1 : 2);
+  } else if (priority === 'urgent') reasonCode = 'aged_high_value';
+  else if (priority === 'high') reasonCode = 'follow_up_due_soon';
+  else if (priority === 'medium') reasonCode = 'follow_up_this_week';
+  else reasonCode = 'no_immediate_signal';
   const kindLabel = item.kind === 'pending_quote' ? 'pending quote' : 'unscheduled job';
   const noteReason = signals.excerpt ? ` Notes reviewed: “${signals.excerpt}”.` : ' No existing note was found.';
   const reason = `${ageDays}-day-old ${kindLabel}${total ? ` worth $${total.toFixed(0)}` : ''}; latest note/activity is ${inactiveDays} day${inactiveDays === 1 ? '' : 's'} old.${noteReason}`;
   let action = item.kind === 'pending_quote' ? 'Call to confirm the quoted scope and ask to book a date.' : 'Contact the customer and offer suitable booking dates.';
-  if (signals.nextDate) action = `Wait until ${signals.nextDate.toLocaleDateString('en-AU')} and follow up as requested in the notes.`;
-  else if (signals.interested) action = 'Contact the customer promptly—the notes indicate buying or booking intent.';
-  else if (signals.attempted) action = 'Make the next contact attempt and record the outcome as a new timestamped note.';
+  if (reasonCode === 'explicit_future_date') action = `Wait until ${dateFromIsoDay(signals.explicitDate).toLocaleDateString('en-AU', { timeZone:'Australia/Melbourne' })} and follow up as requested in the latest note.`;
+  else if (reasonCode === 'follow_up_due') action = 'Follow up today because the date requested in the latest note is due or overdue.';
+  else if (signals.declined) action = 'Review whether this record should remain active before making further contact.';
   else if (signals.waiting) action = 'Review the waiting condition in the notes before contacting the customer again.';
-  return { priority, score, reason, recommendedAction:action, recommendedDate, noteExcerpt:signals.excerpt, effectiveActivityAt:effectiveActivity?.toISOString() || '' };
+  else if (signals.interested) action = 'Contact the customer promptly—the latest note indicates buying or booking intent.';
+  else if (signals.attempted) action = 'Make the next contact attempt and record the outcome as a new timestamped note.';
+  return { priority, score, reasonCode, reason, recommendedAction:action, recommendedDate, noteExcerpt:signals.excerpt, effectiveActivityAt:effectiveActivity?.toISOString() || '' };
 }
 
 function parseJson(text) {
@@ -95,20 +145,20 @@ function parseJson(text) {
   return match ? JSON.parse(match[0]) : null;
 }
 
-const SYSTEM = `You prioritise sales and booking follow-ups for SS Exterior Services in Victoria, Australia.
+const SYSTEM = `You explain sales and booking follow-ups for SS Exterior Services in Victoria, Australia.
 
-The notes are the most important context. Read every legacy note and timestamped note entry before ranking. Treat dates in free text as Australian day/month/year. Respect instructions such as "call after", "waiting until", "will call us back", or a future follow-up date. A recent voicemail still needs another attempt; an interested or ready customer should rise in priority. Use age and value only after note meaning.
+The application's fixed business rules have already assigned each priority. Do not classify, rank, or change priority. Read the newest timestamped note first; it supersedes conflicting older notes. Use the supplied baseline reason code, note excerpt, dates, age, and value to explain the situation and recommend the next concrete action. Treat dates as Australian day/month/year and operate in the Australia/Melbourne timezone.
 
-Return strict JSON only: {"priorities":[{"id":"exact supplied id","priority":"urgent|high|medium|low|upcoming","reason":"one concise sentence explicitly referencing the relevant note when one exists","recommendedAction":"one specific next action","recommendedDate":"YYYY-MM-DD or empty string"}]}.
+Return strict JSON only: {"priorities":[{"id":"exact supplied id","reason":"one concise sentence explicitly referencing the newest relevant note when one exists","recommendedAction":"one specific next action"}]}.
 
-Return exactly one result for every supplied item. Urgent means action today. High means 1-2 business days. Medium means this week. Low means no immediate signal. Upcoming means an explicit future contact date has not arrived. Never invent facts.`;
+Return exactly one result for every supplied item. Never invent facts or urgency labels.`;
 
 async function analyseBatch(batch, fallbacks, apiKey, now, signal) {
   const input = batch.map(item => ({ ...item, baseline:fallbacks[item.id] }));
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
     headers:{ 'Content-Type':'application/json', 'x-api-key':apiKey, 'anthropic-version':'2023-06-01' },
-    body:JSON.stringify({ model:MODEL, max_tokens:2200, system:SYSTEM, messages:[{ role:'user', content:JSON.stringify({ today:localIso(now), items:input }) }] }),
+    body:JSON.stringify({ model:MODEL, max_tokens:2200, temperature:0, system:SYSTEM, messages:[{ role:'user', content:JSON.stringify({ today:localIso(now), timezone:'Australia/Melbourne', items:input }) }] }),
     signal
   });
   if (!response.ok) throw new Error(`Anthropic ${response.status}`);
@@ -121,11 +171,12 @@ async function analyseBatch(batch, fallbacks, apiKey, now, signal) {
 function mergedResult(item, fallback, ai) {
   return {
     id:item.id,
-    priority:PRIORITIES.has(ai?.priority) ? ai.priority : fallback.priority,
+    priority:fallback.priority,
     score:fallback.score,
+    reasonCode:fallback.reasonCode,
     reason:clean(ai?.reason, 420) || fallback.reason,
     recommendedAction:clean(ai?.recommendedAction, 420) || fallback.recommendedAction,
-    recommendedDate:/^\d{4}-\d{2}-\d{2}$/.test(ai?.recommendedDate || '') ? ai.recommendedDate : fallback.recommendedDate,
+    recommendedDate:fallback.recommendedDate,
     noteExcerpt:fallback.noteExcerpt,
     effectiveActivityAt:fallback.effectiveActivityAt
   };
@@ -172,8 +223,11 @@ module.exports = async function handler(req, res) {
     const source = successfulBatches === batches.length ? 'ai' : successfulBatches ? 'hybrid' : 'note-aware rules';
     const failedCount = batches.length - successfulBatches;
     const warning = failedCount ? `${failedCount} AI batch${failedCount === 1 ? '' : 'es'} used note-aware fallback.` : undefined;
-    console.log(JSON.stringify({ level:'info', route:'/api/follow-up-priority', items:items.length, batches:batches.length, successfulBatches, source, ms:Date.now() - startedAt }));
-    return res.status(200).json({ generatedAt:now.toISOString(), source, warning, priorities:items.map(item => mergedResult(item, fallbacks[item.id], aiById.get(item.id))) });
+    const priorities = items.map(item => mergedResult(item, fallbacks[item.id], aiById.get(item.id)));
+    const priorityCounts = priorities.reduce((counts, row) => ({ ...counts, [row.priority]:(counts[row.priority] || 0) + 1 }), {});
+    const reasonCounts = priorities.reduce((counts, row) => ({ ...counts, [row.reasonCode]:(counts[row.reasonCode] || 0) + 1 }), {});
+    console.log(JSON.stringify({ level:'info', route:'/api/follow-up-priority', items:items.length, batches:batches.length, successfulBatches, source, priorityCounts, reasonCounts, ms:Date.now() - startedAt }));
+    return res.status(200).json({ generatedAt:now.toISOString(), source, warning, priorities });
   } catch (error) {
     console.error(JSON.stringify({ level:'error', route:'/api/follow-up-priority', error:error.message, items:items.length, ms:Date.now() - startedAt }));
     return res.status(200).json({ generatedAt:now.toISOString(), source:'note-aware rules', warning:'AI analysis was unavailable; note-aware priorities are shown.', priorities:items.map(item => mergedResult(item, fallbacks[item.id])) });
