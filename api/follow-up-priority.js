@@ -74,7 +74,7 @@ function noteSignals(item, now) {
   const futureAction = actionDates.filter(entry => compareIsoDays(entry.iso, today) > 0).sort((a, b) => a.iso.localeCompare(b.iso))[0];
   const dueAction = actionDates.filter(entry => compareIsoDays(entry.iso, today) <= 0).sort((a, b) => b.iso.localeCompare(a.iso))[0];
   const explicitDate = (futureAction || dueAction)?.iso || '';
-  const waiting = /\b(wait(?:ing)?|hold off|not yet|after (?:the|their)|when (?:the|they)|will (?:call|get) back|trees? (?:are|have been)|not ready)\b/.test(lower);
+  const waiting = /\b(wait(?:ing)?|hold off|not yet|after (?:the|their)|when (?:the|they)|will (?:call (?:us )?|get )back|needs? to (?:speak|check|ask|think|discuss)|trees? (?:are|have been)|not ready)\b/.test(lower);
   const interested = /\b(ready|keen|interested|go ahead|proceed|book(?:ing)?|accept(?:ed)?|approved)\b/.test(lower);
   const attempted = /\b(voicemail|no answer|left (?:a )?message|text(?:ed| sent)|email(?:ed| sent)|called)\b/.test(lower);
   const declined = /\b(declin(?:e|ed|ing)|not interested|does not want|doesn't want|cancel(?:led)?|do not contact)\b/.test(lower);
