@@ -2574,12 +2574,12 @@ async function getGoogleToken(forceRefresh = false) {
   // Keep using the short-lived access token only while it is safely valid.
   if (!forceRefresh && googleAccessToken && Date.now() < googleAccessTokenExpiresAt) return googleAccessToken;
   clearGoogleCalendarSession();
-  // Try stored refresh token via CRM endpoint (absolute URL — this dashboard has no /api/google-refresh)
+  // Refresh through our same-origin API route so browser CORS cannot block the request.
   const storedRefresh = googleRefreshToken || (() => { try { return localStorage.getItem('ss_google_refresh'); } catch(e) { return null; } })();
   if (storedRefresh) {
     googleRefreshToken = storedRefresh;
     try {
-      const r = await fetch('https://ss-exterior-crm.vercel.app/api/google-refresh', {
+      const r = await fetch('/api/google-refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: storedRefresh })
