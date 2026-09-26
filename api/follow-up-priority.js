@@ -6,7 +6,7 @@ const rateLimit = new Map();
 
 const CONTACT_ATTEMPT_OUTCOMES = new Set(['voicemail_left', 'sms_sent', 'email_sent', 'no_answer']);
 const OUTCOME_LABELS = {
-  voicemail_left:'voicemail was left', sms_sent:'an SMS was sent', email_sent:'an email was sent', no_answer:'there was no answer',
+  voicemail_left:'the voicemail', sms_sent:'the SMS', email_sent:'the email', no_answer:'the unanswered call',
   spoke_thinking:'the customer is still deciding', ready_to_book:'the customer is ready to book',
   call_on_date:'the customer requested a future follow-up', customer_will_contact:'the customer will initiate contact',
   owner_handling:'the owner is handling the next step', declined:'the customer declined', do_not_contact:'the customer must not be contacted'
@@ -311,7 +311,7 @@ function timingConflict(priority, timing) {
   if (priority === 'urgent') return timing === 'wait' || timing === 'no_contact';
   if (priority === 'high' || priority === 'medium') return timing === 'wait' || timing === 'no_contact';
   if (priority === 'upcoming') return timing === 'now' || timing === 'no_contact';
-  if (priority === 'owner') return timing !== 'wait';
+  if (priority === 'owner') return timing === 'now' || timing === 'soon';
   if (priority === 'low') return timing === 'now' || timing === 'soon';
   return false;
 }

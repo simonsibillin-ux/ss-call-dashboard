@@ -70,6 +70,7 @@ test('structured owner handling leaves the customer-service queue', () => {
   const [queued] = _test.assignDailyQueue([result]);
   assert.equal(queued.inDailyQueue, false);
   assert.equal(_test.deterministicTiming(result), 'wait');
+  assert.equal(_test.mergedResult(candidate(), result, { timingAssessment:'no_contact' }).priorityConflict, false);
 });
 
 test('legacy owner wording also enters the owner queue', () => {
