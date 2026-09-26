@@ -646,6 +646,7 @@
   .priority-card--medium { border-left-color: #d97706; }
   .priority-card--low { border-left-color: #2563eb; }
   .priority-card--upcoming { border-left-color: #64748b; }
+  .priority-card--owner { border-left-color: #7c3aed; }
 
   .priority-card-reason { color: var(--text2); font-size: 12px; line-height: 1.5; margin-top: 8px; }
   .priority-card-action { background: #f0fdf4; border-radius: 7px; color: #166534; font-size: 12px; font-weight: 700; line-height: 1.45; margin-top: 9px; padding: 8px 10px; }
@@ -662,6 +663,7 @@
   .priority-detail-level--medium { background: #fef3c7; color: #92400e; }
   .priority-detail-level--low { background: #dbeafe; color: #1e40af; }
   .priority-detail-level--upcoming { background: #e2e8f0; color: #475569; }
+  .priority-detail-level--owner { background: #ede9fe; color: #5b21b6; }
   .priority-detail-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 14px; }
   .priority-detail-grid > div { background: var(--surface2); border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; }
   .priority-detail-grid span { color: var(--text3); display: block; font-size: 10px; font-weight: 700; margin-bottom: 3px; text-transform: uppercase; }
@@ -676,7 +678,14 @@
   .priority-no-notes { color: var(--text3) !important; font-style: italic; }
   .priority-note-actions { align-items: center; display: flex; gap: 12px; justify-content: space-between; margin-top: 9px; }
   .priority-note-actions span { color: var(--text3); font-size: 11px; line-height: 1.4; }
+  .priority-outcome-grid { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) minmax(150px, .65fr); }
+  .priority-note-outcome { color: var(--ss-green); font-size: 10px; font-weight: 800; letter-spacing: .03em; margin-bottom: 6px; text-transform: uppercase; }
+  .priority-daily-queue { background: #f8faf8; border: 1px solid var(--green-dim); border-radius: 12px; padding: 14px; }
+  .priority-queue-help { color: var(--text3); font-size: 11px; line-height: 1.45; margin: -2px 0 11px; }
+  .priority-queue-number { align-items: center; background: var(--ss-green); border-radius: 999px; color: #fff; display: inline-flex; font-size: 10px; height: 21px; justify-content: center; margin-right: 8px; vertical-align: 1px; width: 21px; }
   .priority-detail-footer { border-top: 1px solid var(--border); display: flex; gap: 9px; justify-content: flex-end; padding-top: 14px; }
+
+  @media (max-width: 560px) { .priority-outcome-grid { grid-template-columns: 1fr; } }
 
   .badge {
     display: inline-flex;

@@ -3937,14 +3937,34 @@ function openPriorityItem(candidateId) {
     <div class="priority-detail-grid">
       <div><span>Created</span><strong>${_escHtml(priorityCandidateDate(candidate.createdAt || candidate.recordDate) || 'Unknown')}</strong></div>
       <div><span>Last activity</span><strong>${_escHtml(priorityCandidateDate(analysis.effectiveActivityAt || candidate.latestActivityAt) || 'Unknown')}</strong></div>
+      <div><span>Follow up by</span><strong>${_escHtml(priorityCandidateDate(analysis.recommendedDate) || 'No contact scheduled')}</strong></div>
+      <div><span>Opportunity rank</span><strong>${_escHtml(String(analysis.opportunityScore || 0))}/100</strong></div>
     </div>
     <section class="priority-detail-section"><h4>AI perception</h4><p>${_escHtml(analysis.reason || 'No AI assessment is available yet.')}</p></section>
     ${analysis.priorityConflict ? `<div class="alert alert-danger" style="margin:0 0 14px;"><strong>Priority check needed:</strong> ${_escHtml(analysis.priorityConflictMessage || 'The AI timing assessment does not match the assigned priority. Review the latest note before contacting the customer.')}</div>` : ''}
     <section class="priority-detail-section priority-detail-recommendation"><h4>Recommended next step</h4><p>${_escHtml(analysis.recommendedAction || 'Review the record and contact the customer.')}</p></section>
     <section class="priority-detail-section"><h4>Note history</h4>
       <div id="priority-note-timeline"><div class="priority-no-notes">Loading note history…</div></div>
-      <label class="form-label" for="priority-new-note">New note entry</label>
-      <textarea id="priority-new-note" class="form-input" rows="3" placeholder="Add the latest call outcome or next step…" style="width:100%;box-sizing:border-box;resize:vertical;line-height:1.5;"></textarea>
+      <label class="form-label" for="priority-outcome">Outcome</label>
+      <div class="priority-outcome-grid">
+        <select id="priority-outcome" class="form-input" onchange="priorityOutcomeChanged()">
+          <option value="">General note</option>
+          <option value="voicemail_left">Voicemail left</option>
+          <option value="sms_sent">SMS sent</option>
+          <option value="email_sent">Email sent</option>
+          <option value="no_answer">No answer</option>
+          <option value="spoke_thinking">Spoke — still thinking</option>
+          <option value="ready_to_book">Ready to book</option>
+          <option value="call_on_date">Call on selected date</option>
+          <option value="customer_will_contact">Customer will contact us</option>
+          <option value="owner_handling">Owner handling</option>
+          <option value="declined">Declined</option>
+          <option value="do_not_contact">Do not contact</option>
+        </select>
+        <input id="priority-next-contact-date" class="form-input" type="date" min="${localToday()}" aria-label="Next contact date" style="display:none;">
+      </div>
+      <label class="form-label" for="priority-new-note" style="margin-top:10px;">Note <span style="font-weight:400;color:var(--text3);">(optional with an outcome)</span></label>
+      <textarea id="priority-new-note" class="form-input" rows="3" placeholder="Add context for the next rep…" style="width:100%;box-sizing:border-box;resize:vertical;line-height:1.5;"></textarea>
       <div class="priority-note-actions"><span id="priority-note-status">Automatically timestamped and shared with this ${_escHtml(priorityRecordLabel(candidate))}.</span><button id="priority-add-note-btn" class="btn-primary" onclick="priorityAddNoteEntry()" style="width:auto;white-space:nowrap;">Add Note</button></div>
     </section>`;
   openButton.textContent = `Open ${priorityRecordLabel(candidate)}`;
@@ -4027,7 +4047,7 @@ async function priorityLoadNoteEntries(syncProjection = false) {
   if (candidate.recordLegacyNotes) legacySections.push({ label:candidate.kind === 'pending_quote' ? 'Existing quote note' : candidate.sourceRecordType === 'calendar_event' ? 'Existing Google Calendar note' : 'Existing CRM note', text:candidate.recordLegacyNotes });
   if (candidate.calendarLegacyNotes && candidate.calendarLegacyNotes !== candidate.recordLegacyNotes) legacySections.push({ label:'Existing Google Calendar note', text:candidate.calendarLegacyNotes });
   timeline.innerHTML = recordNotesTimelineHtml(notes, legacySections);
-  candidate.noteEntries = notes.map(note => ({ at:note.created_at, body:note.body, author:note.author_name }));
+  candidate.noteEntries = notes.map(note => ({ at:note.created_at, body:note.body, author:note.author_name, outcomeCode:note.outcome_code, nextContactDate:note.next_contact_date }));
   candidate.latestActivityAt = notes[0]?.created_at || candidate.latestActivityAt;
   _activeRecordNoteContext = { recordType:target.recordType, recordId:target.recordId, reloadAndSync:() => priorityLoadNoteEntries(true) };
   if (syncProjection) {
@@ -4042,21 +4062,35 @@ async function priorityAddNoteEntry() {
   const input = document.getElementById('priority-new-note');
   const button = document.getElementById('priority-add-note-btn');
   const status = document.getElementById('priority-note-status');
+  const outcomeCode = document.getElementById('priority-outcome')?.value || '';
+  const nextContactDate = document.getElementById('priority-next-contact-date')?.value || '';
   const body = input?.value.trim();
-  if (!target || !body) { showToast('Enter a note first', 'error'); return; }
+  if (!target || (!body && !outcomeCode)) { showToast('Choose an outcome or enter a note first', 'error'); return; }
+  if (outcomeCode === 'call_on_date' && !nextContactDate) { showToast('Choose the next contact date', 'error'); return; }
   if (button) { button.disabled = true; button.textContent = 'Adding…'; }
   if (status) status.textContent = 'Adding timestamped note…';
   try {
-    await createRecordNote(target.recordType, target.recordId, body);
+    const outcomeLabels = { voicemail_left:'Voicemail left', sms_sent:'SMS sent', email_sent:'Email sent', no_answer:'No answer', spoke_thinking:'Spoke — still thinking', ready_to_book:'Ready to book', call_on_date:'Follow up on selected date', customer_will_contact:'Customer will contact us', owner_handling:'Owner handling', declined:'Declined', do_not_contact:'Do not contact' };
+    await createRecordNote(target.recordType, target.recordId, body || outcomeLabels[outcomeCode], { outcomeCode, nextContactDate });
     input.value = '';
     await priorityLoadNoteEntries(true);
-    showToast('Timestamped internal communication added ✓');
+    await loadAiFollowUpPriorities(true);
+    if (_priorityCandidatesById[_prioritySelectedId]) openPriorityItem(_prioritySelectedId);
+    showToast('Outcome saved and priorities refreshed ✓');
   } catch (error) {
     if (status) status.textContent = 'Save failed — please try again';
     showToast(error.message || 'Could not add note', 'error');
   } finally {
     if (button) { button.disabled = false; button.textContent = 'Add Note'; }
   }
+}
+
+function priorityOutcomeChanged() {
+  const outcome = document.getElementById('priority-outcome')?.value || '';
+  const date = document.getElementById('priority-next-contact-date');
+  if (!date) return;
+  date.style.display = outcome === 'call_on_date' ? '' : 'none';
+  if (outcome !== 'call_on_date') date.value = '';
 }
 
 function priorityCandidateDate(value) {
@@ -4070,7 +4104,7 @@ async function fetchFollowUpPriorityCandidates() {
   const [quoteResponse, jobResponse, noteResponse] = await Promise.all([
     fetch(`${SUPABASE_URL}/rest/v1/quotes?status=eq.pending&select=id,client,date,total,items,notes,created_at&order=created_at.desc`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/jobs?status=eq.Active&select=id,client,service,revenue,items,notes,description,created_at,completion_date,google_calendar_event_id&order=created_at.asc`, { headers }),
-    fetch(`${SUPABASE_URL}/rest/v1/record_notes?deleted_at=is.null&record_type=in.(quote,job,calendar_event)&select=record_type,record_id,body,author_name,created_at&order=created_at.desc`, { headers })
+    fetch(`${SUPABASE_URL}/rest/v1/record_notes?deleted_at=is.null&record_type=in.(quote,job,calendar_event)&select=record_type,record_id,body,author_name,created_at,outcome_code,next_contact_date,action_result&order=created_at.desc`, { headers })
   ]);
   if (!quoteResponse.ok || !jobResponse.ok || !noteResponse.ok) throw new Error('Could not load the complete follow-up data set.');
   const [quotes, jobs, notes] = await Promise.all([quoteResponse.json(), jobResponse.json(), noteResponse.json()]);
@@ -4083,7 +4117,7 @@ async function fetchFollowUpPriorityCandidates() {
     if (!notesByRecord[key]) notesByRecord[key] = [];
     notesByRecord[key].push(note);
   });
-  const entryPayload = (type, id) => (notesByRecord[`${type}:${id}`] || []).map(note => ({ at:note.created_at, body:note.body, author:note.author_name }));
+  const entryPayload = (type, id) => (notesByRecord[`${type}:${id}`] || []).map(note => ({ at:note.created_at, body:note.body, author:note.author_name, outcomeCode:note.outcome_code, nextContactDate:note.next_contact_date }));
 
   const quoteCandidates = quotes.map(quote => {
     const entries = entryPayload('quote', quote.id);
@@ -4131,25 +4165,32 @@ function renderAiFollowUpPriorities(candidates, analysis) {
   const resultById = new Map((analysis.priorities || []).map(result => [result.id, result]));
   const rows = candidates.map(candidate => ({ ...candidate, ...(resultById.get(candidate.id) || {}) }));
   const groups = [
-    ['urgent', '🔴 Urgent — action today'], ['high', '🟠 High priority'], ['medium', '🟡 Medium priority'],
-    ['low', '🔵 Low priority'], ['upcoming', '⚪ Upcoming']
+    ['urgent', '🔴 Urgent — today'], ['high', '🟠 High — within 2 business days'], ['medium', '🟡 Medium — within 5 business days'],
+    ['low', '🔵 Low — review in 10–14 business days'], ['upcoming', '⚪ Upcoming — scheduled date'],
+    ['owner', '👤 Owner handling — Simon’s queue']
   ];
   const counts = Object.fromEntries(groups.map(([key]) => [key, rows.filter(row => row.priority === key).length]));
   overview.innerHTML = groups.slice(0, 4).map(([key, label]) => `<div class="priority-stat"><div class="priority-stat-value">${counts[key]}</div><div class="priority-stat-label">${label.replace(/^.. /, '')}</div></div>`).join('');
   const sourceLabel = analysis.source === 'ai' ? 'Stable priority rules + AI insight' : analysis.source === 'hybrid' ? 'Stable priority rules + partial AI insight' : 'Stable priority rules';
-  status.textContent = `${sourceLabel} · ${rows.length} active item${rows.length === 1 ? '' : 's'} · Updated ${new Date(analysis.generatedAt || Date.now()).toLocaleString('en-AU')}${analysis.warning ? ` · ${analysis.warning}` : ''}`;
+  const dailyCount = rows.filter(row => row.inDailyQueue).length;
+  const ownerCount = counts.owner || 0;
+  status.textContent = `${sourceLabel} · ${dailyCount} in today's queue (target ${analysis.dailyQueueLimit || 10}) · ${ownerCount} owner-handled · ${rows.length} active item${rows.length === 1 ? '' : 's'} · Updated ${new Date(analysis.generatedAt || Date.now()).toLocaleString('en-AU')}${analysis.warning ? ` · ${analysis.warning}` : ''}`;
   if (!rows.length) {
     container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✓</div><div class="empty-state-title">Nothing needs following up</div><div class="empty-state-desc">No pending quotes or unscheduled jobs were found.</div></div>';
     return;
   }
   const typeLabel = { pending_quote:'Pending quote', unscheduled_job:'Unscheduled job' };
-  container.innerHTML = groups.map(([key, label]) => {
+  const cardHtml = (row, key, queue = false) => `
+    <div class="priority-card priority-card--${key}" onclick="openPriorityItem('${_escHtml(row.id)}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPriorityItem('${_escHtml(row.id)}')}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;"><div><div style="font-size:15px;font-weight:800;color:var(--text1);">${queue ? `<span class="priority-queue-number">${row.queuePosition}</span>` : ''}${_escHtml(row.clientName)}</div><div style="font-size:12px;color:var(--ss-green);margin-top:3px;">${_escHtml(row.services.join(' + ') || typeLabel[row.kind])}</div></div><span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);white-space:nowrap;">${typeLabel[row.kind]}</span></div>
+      <div class="priority-card-meta"><span>Due ${_escHtml(priorityCandidateDate(row.recommendedDate) || 'when reviewed')}</span><span>${_escHtml(String(row.attemptCount || 0))} recent attempt${Number(row.attemptCount) === 1 ? '' : 's'}</span>${row.outcomeCode ? `<span>${_escHtml(row.outcomeCode.replaceAll('_', ' '))}</span>` : ''}</div>
+    </div>`;
+  const dailyRows = rows.filter(row => row.inDailyQueue).sort((a, b) => (a.queuePosition || 99) - (b.queuePosition || 99));
+  const dailyHtml = `<section class="priority-group priority-daily-queue"><div class="priority-group-header"><div class="priority-group-title">Today's action list</div><span class="priority-group-count">${dailyRows.length}/${analysis.dailyQueueLimit || 10}</span></div><div class="priority-queue-help">Work from the top. Genuine same-day commitments stay included even when the queue exceeds its normal capacity.</div>${dailyRows.map(row => cardHtml(row, row.priority, true)).join('') || '<div class="priority-no-notes">No calls are due in today’s capacity queue.</div>'}</section>`;
+  container.innerHTML = dailyHtml + groups.map(([key, label]) => {
     const groupRows = rows.filter(row => row.priority === key).sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
     if (!groupRows.length) return '';
-    return `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">${label}</div><span class="priority-group-count">${groupRows.length}</span></div>${groupRows.map(row => `
-      <div class="priority-card priority-card--${key}" onclick="openPriorityItem('${_escHtml(row.id)}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPriorityItem('${_escHtml(row.id)}')}">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;"><div><div style="font-size:15px;font-weight:800;color:var(--text1);">${_escHtml(row.clientName)}</div><div style="font-size:12px;color:var(--ss-green);margin-top:3px;">${_escHtml(row.services.join(' + ') || typeLabel[row.kind])}</div></div><span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);white-space:nowrap;">${typeLabel[row.kind]}</span></div>
-      </div>`).join('')}</section>`;
+    return `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">${label}</div><span class="priority-group-count">${groupRows.length}</span></div>${groupRows.map(row => cardHtml(row, key)).join('')}</section>`;
   }).join('');
 }
 
@@ -4823,7 +4864,12 @@ async function fetchRecordNotes(recordType, recordId) {
   return response.json();
 }
 
-async function createRecordNote(recordType, recordId, body) {
+async function createRecordNote(recordType, recordId, body, metadata = {}) {
+  const outcomeCode = String(metadata.outcomeCode || '').trim() || null;
+  const nextContactDate = String(metadata.nextContactDate || '').trim() || null;
+  const actionResult = ['declined', 'do_not_contact', 'customer_will_contact'].includes(outcomeCode) ? 'suppressed'
+    : ['spoke_thinking', 'call_on_date', 'owner_handling'].includes(outcomeCode) ? 'deferred'
+    : outcomeCode ? 'completed' : null;
   const response = await fetch(`${SUPABASE_URL}/rest/v1/record_notes`, {
     method: 'POST',
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
@@ -4833,7 +4879,10 @@ async function createRecordNote(recordType, recordId, body) {
       body: String(body || '').trim(),
       author_id: currentRep?.id || null,
       author_name: currentRep?.name || 'Unknown rep',
-      source: 'call_dashboard'
+      source: 'call_dashboard',
+      outcome_code: outcomeCode,
+      next_contact_date: nextContactDate,
+      action_result: actionResult
     })
   });
   const rows = await response.json().catch(() => []);
@@ -4872,9 +4921,12 @@ async function copyRecordNotes(fromType, fromId, toType, toId) {
     record_id: String(toId),
     body: note.body,
     author_id: note.author_id || null,
-    author_name: note.author_name || 'Unknown rep',
-    source: note.source || 'call_dashboard',
-    created_at: note.created_at,
+      author_name: note.author_name || 'Unknown rep',
+      source: note.source || 'call_dashboard',
+      outcome_code: note.outcome_code || null,
+      next_contact_date: note.next_contact_date || null,
+      action_result: note.action_result || null,
+      created_at: note.created_at,
     updated_at: note.updated_at || note.created_at
   }));
   const response = await fetch(`${SUPABASE_URL}/rest/v1/record_notes`, {
@@ -4902,6 +4954,7 @@ function recordNotesTimelineHtml(notes, legacySections = []) {
         <div style="font-size:11px;color:var(--text3);"><strong style="color:var(--text2);">${_escHtml(note.author_name || 'Unknown rep')}</strong> · ${_escHtml(recordNoteDate(note.created_at))}${note.updated_at && note.updated_at !== note.created_at ? ' · edited' : ''}</div>
         <div style="display:flex;gap:9px;"><button onclick="editCurrentRecordNote('${_escHtml(note.id)}')" aria-label="Edit note" style="border:none;background:none;color:var(--ss-green);font-size:11px;font-weight:700;cursor:pointer;padding:0;">Edit</button><button onclick="deleteCurrentRecordNote('${_escHtml(note.id)}')" aria-label="Delete note" style="border:none;background:none;color:#b91c1c;font-size:11px;font-weight:700;cursor:pointer;padding:0;">Delete</button></div>
       </div>
+      ${note.outcome_code ? `<div class="priority-note-outcome">${_escHtml(note.outcome_code.replaceAll('_', ' '))}${note.next_contact_date ? ` · next contact ${_escHtml(priorityCandidateDate(note.next_contact_date))}` : ''}</div>` : ''}
       <div style="font-size:13px;line-height:1.55;color:var(--text1);white-space:pre-wrap;">${_escHtml(note.body)}</div>
     </div>`).join('');
   return legacy + entries || '<div style="font-size:12px;color:var(--text3);padding:4px 0 10px;">No notes have been added yet.</div>';
