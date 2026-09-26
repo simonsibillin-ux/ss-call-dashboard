@@ -940,6 +940,7 @@
 <script>
 let googleAccessToken = null;
 let googleRefreshToken = localStorage.getItem('ss_google_refresh') || null;
+let googleAccessTokenExpiresAt = 0;
 
 
 // ============================================================
@@ -999,11 +1000,18 @@ function initRep() {
   if (saved) {
     try {
       const data = JSON.parse(saved);
-      currentRep = data;
-      updateRepDisplay();
-      loadFollowUps();
-      return;
+      if (data && data.id && data.name) {
+        currentRep = { id: data.id, name: data.name, ...(data.pin ? { pin: data.pin } : {}) };
+        isOwner = data.id === 'OWNER' || data.isOwner === true;
+        updateRepDisplay();
+        loadFollowUps();
+        document.getElementById('nav-performance').style.display = isOwner ? 'flex' : 'none';
+        renderPricingPage();
+        renderScriptsPage();
+        return;
+      }
     } catch(e) {}
+    localStorage.removeItem('ss_rep_session');
   }
   showRepModal();
 }
@@ -1115,6 +1123,8 @@ function loginAsOwner() {
   if (pin === OWNER_PIN) {
     currentRep = { id: 'OWNER', name: 'Simon (Owner)', pin: OWNER_PIN };
     isOwner = true;
+    // Persist the owner identity without retaining the owner PIN in browser storage.
+    localStorage.setItem('ss_rep_session', JSON.stringify({ id: 'OWNER', name: 'Simon (Owner)', isOwner: true }));
     document.getElementById('rep-modal').classList.remove('open');
     updateRepDisplay();
     loadFollowUps();
@@ -1898,6 +1908,7 @@ function buildCrmLineItems(items, travelCost = 0) {
     const total = Number(item.total) || 0;
     return {
       description: item.name || item.description || 'Service',
+      serviceKey: item.serviceKey || item.service_key || detectQuoteEmailService(item),
       qty: Number(item.qty) || 1,
       unit: item.unit || '',
       rate: Number(item.rate) || total,
@@ -1984,11 +1995,8 @@ async function saveQuoteToCRMWithOverride(total, serviceName, quoteItems, custom
     const quoteId = 'Q-' + Date.now();
     const clientId = await ensureClientProfile();
 
-    const noteExtras = [
-      ...(window._chatQueuedNotes || []),
-      ...(window._chatPdfCustomizations || [])
-    ].filter(Boolean);
-    const notes = customNotes || `Phone quote via Call Dashboard. Service: ${serviceName}. Address: ${clientInfo.address || clientInfo.suburb}. Travel: $${(clientInfo.travelCost || 0).toFixed(2)}. Source: ${clientInfo.source || 'phone-call'}. RepID:${currentRep ? currentRep.id : 'unknown'} Rep:${currentRep ? currentRep.name : 'unknown'}.${noteExtras.length ? ' Notes: ' + noteExtras.join(' | ') : ''}`;
+    const operationalNote = `Phone quote via Call Dashboard. Service: ${serviceName}. Address: ${clientInfo.address || clientInfo.suburb}. Travel: $${(clientInfo.travelCost || 0).toFixed(2)}. Source: ${clientInfo.source || 'phone-call'}. RepID:${currentRep ? currentRep.id : 'unknown'} Rep:${currentRep ? currentRep.name : 'unknown'}.${(window._chatQueuedNotes || []).length ? ' Notes: ' + window._chatQueuedNotes.join(' | ') : ''}`;
+    const notes = customNotes || (window._chatPdfCustomizations || []).filter(Boolean).join(' | ');
 
     const quoteRes = await fetch(`${SUPABASE_URL}/rest/v1/quotes`, {
       method: 'POST',
@@ -2012,6 +2020,7 @@ async function saveQuoteToCRMWithOverride(total, serviceName, quoteItems, custom
     });
 
     if (!quoteRes.ok) throw new Error(await quoteRes.text());
+    await createRecordNote('quote', quoteId, operationalNote);
     showToast('Quote saved to CRM ✓');
     showMarketingHubPrompt(clientInfo.name, 'pending');
     showQuoteSuccessScreen('saved');
@@ -2520,7 +2529,7 @@ async function saveQuoteToCRM(total) {
       total: total,
       status: 'pending',
       items: quoteItems,
-      notes: `Phone quote via Call Dashboard. Service: ${svc.name}. Address: ${clientInfo.address || clientInfo.suburb}. Travel: $${clientInfo.travelCost.toFixed(2)}. Source: ${clientInfo.source || 'phone-call'}. RepID:${currentRep ? currentRep.id : 'unknown'} Rep:${currentRep ? currentRep.name : 'unknown'}.`,
+      notes: '',
       created_at: new Date().toISOString()
     });
 
@@ -2541,6 +2550,8 @@ async function saveQuoteToCRM(total) {
       throw new Error(errText);
     }
 
+    await createRecordNote('quote', quoteId, `Phone quote via Call Dashboard. Service: ${svc.name}. Address: ${clientInfo.address || clientInfo.suburb}. Travel: $${clientInfo.travelCost.toFixed(2)}. Source: ${clientInfo.source || 'phone-call'}. RepID:${currentRep ? currentRep.id : 'unknown'} Rep:${currentRep ? currentRep.name : 'unknown'}.`);
+
     showToast('Quote saved to CRM ✓');
     showMarketingHubPrompt(clientInfo.name, 'pending');
     showQuoteSuccessScreen('saved');
@@ -2554,9 +2565,15 @@ async function saveQuoteToCRM(total) {
 // QUOTE ACCEPTED — BOOK JOB + GOOGLE CALENDAR
 // ============================================================
 
-async function getGoogleToken() {
-  // Try in-memory access token first (still valid)
-  if (googleAccessToken) return googleAccessToken;
+function clearGoogleCalendarSession() {
+  googleAccessToken = null;
+  googleAccessTokenExpiresAt = 0;
+}
+
+async function getGoogleToken(forceRefresh = false) {
+  // Keep using the short-lived access token only while it is safely valid.
+  if (!forceRefresh && googleAccessToken && Date.now() < googleAccessTokenExpiresAt) return googleAccessToken;
+  clearGoogleCalendarSession();
   // Try stored refresh token via CRM endpoint (absolute URL — this dashboard has no /api/google-refresh)
   const storedRefresh = googleRefreshToken || (() => { try { return localStorage.getItem('ss_google_refresh'); } catch(e) { return null; } })();
   if (storedRefresh) {
@@ -2568,10 +2585,36 @@ async function getGoogleToken() {
         body: JSON.stringify({ refresh_token: storedRefresh })
       });
       const d = await r.json();
-      if (d.access_token) { googleAccessToken = d.access_token; return googleAccessToken; }
+      if (d.access_token) {
+        googleAccessToken = d.access_token;
+        googleAccessTokenExpiresAt = Date.now() + Math.max(60, Number(d.expires_in || 3600) - 60) * 1000;
+        return googleAccessToken;
+      }
+      // An explicitly revoked/expired refresh token requires one deliberate reconnect.
+      const refreshError = typeof d.error === 'string' ? d.error : d.error?.error;
+      if (refreshError === 'invalid_grant') {
+        googleRefreshToken = null;
+        try { localStorage.removeItem('ss_google_refresh'); } catch(e2) {}
+      }
     } catch(e) {}
   }
   return null;
+}
+
+async function googleCalendarFetch(input, init = {}) {
+  let token = await getGoogleToken();
+  if (!token) throw new Error('Google Calendar is not connected.');
+  const request = accessToken => fetch(input, {
+    ...init,
+    headers: { ...(init.headers || {}), Authorization: 'Bearer ' + accessToken }
+  });
+  let response = await request(token);
+  if (response.status === 401) {
+    token = await getGoogleToken(true);
+    if (!token) return response;
+    response = await request(token);
+  }
+  return response;
 }
 
 function signInGoogleCalendar() {
@@ -2595,8 +2638,10 @@ function signInGoogleCalendar() {
     }
     // postMessage handler — works if CRM callback sends it
     const handler = (e) => {
+      if (e.origin !== 'https://ss-exterior-crm.vercel.app') return;
       if (e.data && e.data.type === 'google_tokens') {
         googleAccessToken = e.data.access_token;
+        googleAccessTokenExpiresAt = Date.now() + Math.max(60, Number(e.data.expires_in || 3600) - 60) * 1000;
         if (e.data.refresh_token) {
           googleRefreshToken = e.data.refresh_token;
           try { localStorage.setItem('ss_google_refresh', googleRefreshToken); } catch(e2) {}
@@ -2629,7 +2674,7 @@ async function loadCalendarFreeBusy(token, dateStr) {
     const start = dateStr + 'T00:00:00+10:00';
     const end = dateStr + 'T23:59:59+10:00';
     const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(start)}&timeMax=${encodeURIComponent(end)}&singleEvents=true&orderBy=startTime`;
-    const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    const r = await googleCalendarFetch(url);
     const d = await r.json();
     return (d.items || []).map(ev => ev.summary || 'Busy');
   } catch(e) { return []; }
@@ -2650,9 +2695,9 @@ async function bookJobOnCalendar(token, dateStr, clientName, service, suburb, to
     extendedProperties: { private: { job_id: jobId, source: 'call-dashboard' } },
     colorId: '2' // Sage green
   };
-  const r = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+  const r = await googleCalendarFetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
     method: 'POST',
-    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
   const data = await r.json();
@@ -2723,7 +2768,7 @@ async function _doAcceptQuote(total) {
     const acceptedQuoteRes = await fetch(`${SUPABASE_URL}/rest/v1/quotes`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ id: quoteId, client: clientInfo.name, client_id: clientId, date: localToday(), total, status: 'approved', items: lineItems, notes: `Accepted on call. Service: ${combinedLabel}. Address: ${clientInfo.address || clientInfo.suburb}. Source: ${clientInfo.source || 'phone-call'}. Travel: $${clientInfo.travelCost.toFixed(2)}.`, created_at: new Date().toISOString() })
+      body: JSON.stringify({ id: quoteId, client: clientInfo.name, client_id: clientId, date: localToday(), total, status: 'approved', items: lineItems, notes: (window._chatPdfCustomizations || []).filter(Boolean).join(' | '), created_at: new Date().toISOString() })
     });
     if (!acceptedQuoteRes.ok) throw new Error(`Accepted quote save failed: ${await acceptedQuoteRes.text()}`);
 
@@ -2731,9 +2776,12 @@ async function _doAcceptQuote(total) {
     const jobRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ id: jobId, client: clientInfo.name, client_id: clientId, service: combinedLabel, description: `Phone-quoted job. Address: ${clientInfo.address || clientInfo.suburb}.`, status: 'Active', revenue: total, items: lineItems, hours: 0, completion_date: null, notes: `Booked via Call Dashboard. Rep: ${currentRep ? currentRep.name : 'unknown'}. Quote: ${quoteId}.`, created_at: new Date().toISOString() })
+      body: JSON.stringify({ id: jobId, client: clientInfo.name, client_id: clientId, service: combinedLabel, description: `Phone-quoted job. Address: ${clientInfo.address || clientInfo.suburb}.`, status: 'Active', revenue: total, items: lineItems, hours: 0, completion_date: null, notes: (window._chatPdfCustomizations || []).filter(Boolean).join(' | '), created_at: new Date().toISOString() })
     });
     if (!jobRes.ok) throw new Error(`Job creation failed: ${await jobRes.text()}`);
+    await createRecordNote('quote', quoteId, `Accepted on call via Call Dashboard. Service: ${combinedLabel}. Address: ${clientInfo.address || clientInfo.suburb}. Source: ${clientInfo.source || 'phone-call'}. Travel: $${clientInfo.travelCost.toFixed(2)}. Rep: ${currentRep ? currentRep.name : 'unknown'}.`);
+    await copyRecordNotes('quote', quoteId, 'job', jobId);
+    await createRecordNote('job', jobId, `Booked via Call Dashboard. Rep: ${currentRep ? currentRep.name : 'unknown'}. Quote: ${quoteId}.`);
 
     showToast('Quote accepted ✓ — Job created in CRM');
   } catch(e) {
@@ -2831,7 +2879,7 @@ async function loadCalBooking(total, jobId) {
     const start = days[0] + 'T00:00:00+10:00';
     const end = days[days.length - 1] + 'T23:59:59+10:00';
     const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(start)}&timeMax=${encodeURIComponent(end)}&singleEvents=true&orderBy=startTime`;
-    const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    const r = await googleCalendarFetch(url);
     const d = await r.json();
     (d.items || []).forEach(ev => {
       const date = ev.start?.date || (ev.start?.dateTime || '').split('T')[0];
@@ -2994,9 +3042,9 @@ async function confirmCalBooking(dateStr, label, total, jobId) {
       const endDate = new Date(dateStr + 'T12:00:00');
       endDate.setDate(endDate.getDate() + 1);
       const endDateStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
-      const eventUpdateRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(context.existingCalendarEventId)}`, {
+      const eventUpdateRes = await googleCalendarFetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(context.existingCalendarEventId)}`, {
         method: 'PATCH',
-        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ start: { date: dateStr }, end: { date: endDateStr } })
       });
       const eventUpdate = await eventUpdateRes.json().catch(() => ({}));
@@ -3045,6 +3093,93 @@ async function confirmCalBooking(dateStr, label, total, jobId) {
 // ============================================================
 // EMAIL QUOTE
 // ============================================================
+const QUOTE_EMAIL_FACEBOOK_URL = 'https://www.facebook.com/profile.php?id=61577733671482';
+const QUOTE_EMAIL_SERVICE_CONTENT = {
+  'bird-proofing': { title:'Solar Bird Proofing', inclusions:['Removal of accessible nesting material and debris from beneath the solar panels','Cleaning of the accessible area beneath the panels','Gutter cleaning, including debris removal and downpipe flushing','Non-abrasive solar-panel cleaning using purified deionised water','Installation of purpose-suitable bird-proofing mesh around the quoted panel perimeter'] },
+  'gutter-softwash': { title:'Gutter Exterior Softwash', inclusions:['Soft washing of the quoted exterior gutter surfaces','Treatment of general dirt, grime and organic buildup','Cleaning methods selected to suit the gutter finish','This service covers exterior gutter surfaces only; internal gutter cleaning is included only when separately listed'] },
+  'roof-biocide': { title:'Roof Biocide Treatment', inclusions:['Application of biocide treatment across the quoted roof areas','Treatment designed to kill existing lichen, moss and algae at the source','A gradual cleaning process as treated organic growth dies and naturally weathers away','Treatment methods selected for the identified roof material','Helps inhibit organic regrowth for longer-lasting protection'] },
+  'roof-cleaning': { title:'Roof Cleaning', inclusions:['Cleaning of the quoted roof areas to address lichen, moss, algae and organic growth','A controlled softwash process selected to suit the roof material and condition','Cleaning methods applied in accordance with the requirements of the roof surface'] },
+  'house-washing': { title:'House Washing', inclusions:['Soft washing of the quoted exterior walls and facades','Cleaning of the quoted fascia, eaves and exterior gutter surfaces','Treatment of general dirt, grime and organic growth','Roof cleaning is included only when separately listed in the quote'] },
+  'solar-cleaning': { title:'Solar-Panel Cleaning', inclusions:['Removal of dirt, debris and organic buildup from the panel surfaces and frames','Non-abrasive cleaning with suitable nylon brushes','Purified deionised water used for the cleaning process'] },
+  'gutter-cleaning': { title:'Gutter Cleaning', inclusions:['Removal of wet or dry debris from the quoted gutters','Downpipes checked and flushed','Debris placed in the client\'s bin or another agreed location on the property'] },
+  'window-cleaning': { title:'Window Cleaning', inclusions:['Cleaning of the quoted glass and applicable frames and sills','Bucket-and-squeegee or purified-water cleaning methods, depending on access and suitability','Interior, exterior or combined cleaning as specified in the attached quote','Standard cleaning excludes hard-water staining, paint, silicone and construction residue unless specifically included'] },
+  'pressure-washing': { title:'Pressure Washing', inclusions:['Pressure cleaning of the quoted hard-surface areas','Removal of general dirt, grime, debris and organic buildup','Cleaning pressure adjusted to suit the surface condition','Rust, oil, paint and other non-organic staining are excluded unless specifically listed'] }
+};
+
+function detectQuoteEmailService(item) {
+  const aliases = {'solar-bird-proofing':'bird-proofing','solar-panel-bird-proofing':'bird-proofing','gutter-exterior-softwash':'gutter-softwash','roof-softwash':'roof-cleaning','solar-panel-cleaning':'solar-cleaning','pressure-cleaning':'pressure-washing'};
+  const rawKey = String(item?.serviceKey || item?.service_key || '').toLowerCase().trim();
+  const key = aliases[rawKey] || rawKey;
+  if (QUOTE_EMAIL_SERVICE_CONTENT[key]) return key;
+  const value = String(item?.name || item?.description || '').toLowerCase().replaceAll('–','-');
+  if (/solar.*(bird|proof|mesh)|(?:bird|pigeon).*(solar|panel)/.test(value)) return 'bird-proofing';
+  if (/gutter.*(?:soft\s*wash|softwash|exterior wash)|(?:soft\s*wash|softwash).*gutter/.test(value)) return 'gutter-softwash';
+  if (/roof.*(?:biocide|treatment)|(?:biocide|lichen treatment|moss treatment).*roof/.test(value)) return 'roof-biocide';
+  if (/roof/.test(value) && /(?:clean|wash|soft\s*wash|softwash|moss|lichen|algae)/.test(value)) return 'roof-cleaning';
+  if (/(?:house|home|building).*(?:wash|soft\s*wash|softwash)|(?:exterior wall|facade).*(?:clean|wash)/.test(value)) return 'house-washing';
+  if (/solar|solar panel|panel clean/.test(value)) return 'solar-cleaning';
+  if (/gutter/.test(value) && /clean|debris|downpipe/.test(value)) return 'gutter-cleaning';
+  if (/window|glass clean/.test(value)) return 'window-cleaning';
+  if (/pressure|driveway|concrete|paver|hard.?surface|path cleaning|patio cleaning/.test(value)) return 'pressure-washing';
+  return '';
+}
+
+function quoteEmailInclusions(item, key) {
+  const inclusions = [...(QUOTE_EMAIL_SERVICE_CONTENT[key]?.inclusions || [])];
+  const source = `${item?.name || item?.description || ''} ${(item?.inclusions || []).join(' ')}`.toLowerCase();
+  if (key === 'pressure-washing' && /biocide/.test(source)) inclusions.push('Post-clean biocide treatment to help inhibit moss, algae and lichen regrowth');
+  if (key === 'window-cleaning' && /flyscreen/.test(source)) inclusions.push('Cleaning of the quoted flyscreens');
+  if (key === 'window-cleaning' && /track/.test(source)) inclusions.push('Deep cleaning of the quoted window tracks');
+  if (key === 'gutter-cleaning' && /shed|bungalow|granny|additional structure/.test(source)) inclusions.push('Cleaning of the additional structures listed in the quote');
+  return inclusions;
+}
+
+function buildConsistentQuoteEmail({ name, address, serviceLabel, items, total, availability }) {
+  const firstName = (name || 'there').split(' ')[0];
+  const detected = (items || []).map(item => ({item,key:detectQuoteEmailService(item)})).filter(entry => entry.key);
+  const seen = new Set();
+  const sections = detected.filter(entry => !seen.has(entry.key) && seen.add(entry.key)).map(({item,key}) => `\n${QUOTE_EMAIL_SERVICE_CONTENT[key].title}\n${quoteEmailInclusions(item,key).map(line => `  • ${line}`).join('\n')}`).join('\n');
+  const unknown = (items || []).filter(item => !detectQuoteEmailService(item)).map(item => item.name || item.description).filter(Boolean);
+  const keys = new Set(detected.map(entry => entry.key));
+  const customisation = keys.has('roof-cleaning') || keys.has('roof-biocide')
+    ? 'If you would prefer a more customised option, such as treating only the worst-affected sections rather than the entire quoted roof area, please let me know. We can adjust the scope of works and prepare a revised quote to suit.'
+    : keys.has('pressure-washing')
+      ? 'If you would prefer to proceed with only selected areas, please let me know. We can adjust the scope of works and prepare a revised quote based on the surfaces you would like prioritised.'
+      : (items || []).length > 1
+        ? 'If you would prefer to proceed with only some of the quoted services, please let me know. We can adjust the scope of works and prepare a revised quote to suit.'
+        : 'If you would prefer a more customised scope, please let me know and we can prepare a revised quote to suit.';
+  return `Hi ${firstName},
+
+Thank you for contacting SS Exterior Services.
+
+Please find attached your quote for the proposed works${address ? ` at ${address}` : ''}, along with the applicable SS Exterior Services Terms & Conditions.
+
+Please review both documents before accepting the quote. The Terms & Conditions form part of the agreement for the quoted services. By accepting the quote, you acknowledge that you have been provided with the Terms & Conditions and agree to be bound by them. Please refer to the detailed Terms & Conditions for further information about the services, exclusions and responsibilities that apply.
+
+The attached quote is for the complete job and includes:
+${`${sections}${unknown.length ? `\n${unknown.map(value => `  • ${value}`).join('\n')}` : ''}` || '\n  • The services detailed in the attached quote'}
+
+Before-and-after photos will be provided for the completed works where practical.
+
+The total quoted price is $${Number(total || 0).toFixed(2)}.
+
+${customisation}
+
+At this stage, we have availability ${availability || 'within approximately 2–3 weeks'} to complete the works. If you decide to proceed, please reply to this email and we can discuss a suitable date.
+
+You’re also welcome to visit the SS Exterior Services Facebook page, where you can see before-and-after photos from previous jobs and examples of our work:
+${QUOTE_EMAIL_FACEBOOK_URL}
+
+If you have any questions regarding the quote, the Terms & Conditions or any of the proposed works, please don’t hesitate to get in touch.
+
+Kind regards,
+Simon Sibillin
+SS Exterior Services
+📞 0447 130 743
+📧 ssexteriorservices@outlook.com
+🌐 ssexteriorservices.com.au`;
+}
+
 function emailQuote(total) {
   const allItems = getMultiItems();
   const quoteTotals = allItems.length > 0
@@ -3058,6 +3193,7 @@ function emailQuote(total) {
       const inclusionSource = item.inclusions || (SERVICES[item.serviceKey] && SERVICES[item.serviceKey].inclusions) || [];
       return {
         name: item.name,
+        serviceKey: item.serviceKey,
         total: serviceAmount(item) + (idx === 0 ? (clientInfo.travelCost || 0) : 0),
         inclusions: inclusionSource
       };
@@ -3068,6 +3204,7 @@ function emailQuote(total) {
       const result = svc.calcQuote(answers);
       emailItems = [{
         name: svc.name,
+        serviceKey: currentService,
         total: serviceAmount(result) + (clientInfo.travelCost || 0),
         inclusions: result.inclusions || svc.inclusions || []
       }];
@@ -3080,7 +3217,7 @@ function emailQuote(total) {
   sendQuoteEmail({
     email: clientInfo.email,
     name: clientInfo.name,
-    address: clientInfo.suburb,
+    address: [clientInfo.address, clientInfo.suburb].filter(Boolean).join(', '),
     serviceLabel,
     items: emailItems,
     total: grandTotal,
@@ -3089,48 +3226,12 @@ function emailQuote(total) {
 }
 
 function sendQuoteEmail({ email, name, address, serviceLabel, items, total, printPdf }) {
-  const firstName = (name || 'there').split(' ')[0];
   const subject = `Your Quote from SS Exterior Services — ${serviceLabel || 'Service'}`;
-  const servicesSections = (items || []).map(item => {
-    const inclusions = (item.inclusions || []).map(i => `  • ${i}`).join('\n');
-    return `\n─────────────────────────────────────────
-SERVICE: ${item.name}
-  Subtotal: $${Number(item.total || 0).toFixed(2)}
-${inclusions ? `\nWHAT'S INCLUDED:\n${inclusions}\n` : ''}`;
-  }).join('');
+  const availability = localStorage.getItem('ss_quote_availability') || 'within approximately 2–3 weeks';
+  const context = {name,address,serviceLabel,items,total,availability};
+  const body = buildConsistentQuoteEmail(context);
 
-  const body =
-`Hi ${firstName},
-
-Thank you for calling SS Exterior Services! Here is your quote as discussed:
-
-ADDRESS: ${address || 'As discussed'}
-${servicesSections}
-═════════════════════════════════════════
-TOTAL (inc. GST): $${Number(total || 0).toFixed(2)}
-═════════════════════════════════════════
-
-IMPORTANT NOTES:
-  • Please ensure clear access to all areas to be serviced on the day
-  • A responsible adult must be present or access arrangements confirmed in advance
-  • Prices may vary if site conditions differ materially from what was described
-  • This quote is valid for 30 days from today's date
-  • All prices are inclusive of GST
-
-To accept this quote, simply reply to this email or call/text Simon directly. We'll then lock in a suitable date and time.
-
-If you have any questions at all, don't hesitate to get in touch — we're happy to help!
-
-Kind regards,
-Simon Sibillin
-SS Exterior Services
-📞 0447 130 743
-📧 ssexteriorservices@outlook.com
-🌐 ssexteriorservices.com.au
-
----
-Google Review: g.page/r/ssexteriorservices | Facebook | Instagram | TikTok`;
-
+  window._quoteEmailContext = context;
   window._lastQuoteEmailBody = body;
   if (printPdf) setTimeout(printPdf, 400);
 
@@ -3171,6 +3272,10 @@ function showEmailModal(email, subject, bodyCopied) {
     </div>
     <div style="font-size:12px;color:#555;margin-bottom:14px;">${email ? '<strong>To:</strong> ' + email : '⚠️ No email on file — add recipient in Outlook'}</div>
 
+    <label style="display:block;font-size:11px;font-weight:700;color:#555;text-transform:uppercase;margin-bottom:4px;">Availability wording</label>
+    <input id="email-availability-input" value="${_escHtml(window._quoteEmailContext?.availability || 'within approximately 2–3 weeks')}" style="width:100%;box-sizing:border-box;border:1px solid #ddd;border-radius:8px;padding:9px 10px;font-size:13px;margin-bottom:5px;">
+    <div style="font-size:11px;color:#888;margin-bottom:12px;">Example: within approximately 2–3 weeks, or around mid-October</div>
+
     <div id="email-modal-status" style="background:${bodyCopied ? '#f0fdf4' : '#fff7ed'};border:1px solid ${bodyCopied ? '#86efac' : '#fed7aa'};border-radius:8px;padding:10px 12px;font-size:12px;color:${bodyCopied ? '#14532d' : '#9a3412'};font-weight:600;margin-bottom:12px;">
       ${bodyCopied ? '✅ Quote body copied to clipboard — open Outlook and paste into the email body (Ctrl+V)' : '⚠️ Clipboard blocked — click "Copy Quote Body" below first'}
     </div>
@@ -3195,6 +3300,7 @@ function showEmailModal(email, subject, bodyCopied) {
       <a href="${shortMailto}" style="display:block;background:#f3f4f6;color:#333;border-radius:10px;padding:11px;font-size:13px;font-weight:600;cursor:pointer;text-align:center;text-decoration:none;">Open Default Mail App</a>
     </div>
     <div style="font-size:11px;color:#aaa;margin-top:10px;text-align:center;">PDF also downloading separately</div>
+    <div style="font-size:11px;color:#92400e;margin-top:5px;text-align:center;">Attach the quote PDF and applicable Terms &amp; Conditions before sending</div>
   </div>`;
   document.body.appendChild(div);
   div.addEventListener('click', e => { if (e.target === div) div.remove(); });
@@ -3202,6 +3308,19 @@ function showEmailModal(email, subject, bodyCopied) {
   // Populate hidden textarea with body for manual copy fallback
   const ta = div.querySelector('#email-modal-textarea');
   if (ta && window._lastQuoteEmailBody) ta.value = window._lastQuoteEmailBody;
+  const availabilityInput = div.querySelector('#email-availability-input');
+  if (availabilityInput) availabilityInput.addEventListener('input', () => {
+    if (!window._quoteEmailContext) return;
+    window._quoteEmailContext.availability = availabilityInput.value.trim();
+    window._lastQuoteEmailBody = buildConsistentQuoteEmail(window._quoteEmailContext);
+    if (ta) ta.value = window._lastQuoteEmailBody;
+    localStorage.setItem('ss_quote_availability', availabilityInput.value.trim());
+    const status = div.querySelector('#email-modal-status');
+    if (status) {
+      status.style.background = '#fff7ed'; status.style.borderColor = '#fed7aa'; status.style.color = '#9a3412';
+      status.textContent = 'Availability updated — copy the quote body again before opening Outlook';
+    }
+  });
 }
 
 function printQuote(grandTotal) {
@@ -3875,14 +3994,13 @@ async function priorityPatchRecord(table, recordId, changes) {
 async function prioritySyncNoteProjection(candidate, notes) {
   const failures = [];
   if (candidate.kind === 'pending_quote') {
-    try { await priorityPatchRecord('quotes', candidate.recordId, { notes:recordNotesProjection(candidate.recordLegacyNotes, notes) }); }
-    catch { failures.push('quote'); }
+    // Internal quote history now lives only in record_notes. Keeping it out of
+    // quotes.notes prevents staff communications appearing on customer PDFs.
   } else if (candidate.sourceRecordType === 'calendar_event') {
     try { await ujPatchEvent(candidate.recordId, { description:recordNotesProjection(candidate.recordLegacyNotes, notes) || '' }); }
     catch { failures.push('Google Calendar'); }
   } else {
-    try { await priorityPatchRecord('jobs', candidate.recordId, { notes:recordNotesProjection(candidate.recordLegacyNotes, notes) }); }
-    catch { failures.push('CRM job'); }
+    // Internal job history now lives only in record_notes.
     if (candidate.googleCalendarEventId) {
       try { await ujPatchEvent(candidate.googleCalendarEventId, { description:recordNotesProjection(candidate.calendarLegacyNotes, notes) || '' }); }
       catch { failures.push('Google Calendar'); }
@@ -3932,7 +4050,7 @@ async function priorityAddNoteEntry() {
     await createRecordNote(target.recordType, target.recordId, body);
     input.value = '';
     await priorityLoadNoteEntries(true);
-    showToast('Timestamped note added and synchronised ✓');
+    showToast('Timestamped internal communication added ✓');
   } catch (error) {
     if (status) status.textContent = 'Save failed — please try again';
     showToast(error.message || 'Could not add note', 'error');
@@ -4676,6 +4794,12 @@ function recordNotesWithoutProjection(value) {
   return [before, after].filter(Boolean).join('\n\n');
 }
 
+function customerDocumentNotes(value) {
+  const notes = recordNotesWithoutProjection(value).trim();
+  if (/^(Phone quote via Call Dashboard|Accepted on call\.|Booked via Call Dashboard|Accepted from pending quote)/i.test(notes)) return '';
+  return notes;
+}
+
 function recordNoteDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'Unknown date';
@@ -4880,9 +5004,7 @@ async function ujFetchCalendarEvents() {
   if (!token) return { events: [], connected: false };
   const start = encodeURIComponent('2099-01-01T00:00:00Z');
   const end = encodeURIComponent('2099-01-03T00:00:00Z');
-  const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${start}&timeMax=${end}&singleEvents=true&maxResults=2500`, {
-    headers: { Authorization: 'Bearer ' + token }
-  });
+  const response = await googleCalendarFetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${start}&timeMax=${end}&singleEvents=true&maxResults=2500`);
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data?.error?.message || 'Could not load Google Calendar events.');
   return { events: data.items || [], connected: true };
@@ -5047,13 +5169,13 @@ function ujOpenDetail(key) {
       </div>
     </details>
     <details class="detail-accordion">
-      <summary>🗒 Notes</summary>
+      <summary>🗒 Internal Communications</summary>
       <div class="detail-accordion-content">
         <div id="uj-note-timeline"><div style="font-size:12px;color:var(--text3);padding-bottom:10px;">Loading note history…</div></div>
         <label class="form-label" for="uj-new-note">New note entry</label>
         <textarea id="uj-new-note" class="form-input" rows="4" placeholder="Add the latest call outcome or next step…" style="resize:vertical;"></textarea>
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:8px;">
-          <span style="font-size:11px;color:var(--text3);">Automatically timestamped and synced to ${job && event ? 'CRM + Google Calendar' : job ? 'CRM' : 'Google Calendar'}.</span>
+          <span style="font-size:11px;color:var(--text3);">Private staff history. Automatically timestamped${event ? ' and synced to Google Calendar under the existing calendar workflow' : ''}.</span>
           <button id="uj-add-note" onclick="ujAddNoteEntry()" class="btn-primary" style="width:auto;white-space:nowrap;">Add Note</button>
         </div>
       </div>
@@ -5100,9 +5222,9 @@ async function ujPatchJob(jobId, changes) {
 async function ujPatchEvent(eventId, changes) {
   const token = await getGoogleToken() || await signInGoogleCalendar();
   if (!token) throw new Error('Google Calendar is not connected.');
-  const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`, {
+  const response = await googleCalendarFetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`, {
     method: 'PATCH',
-    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(changes)
   });
   const event = await response.json().catch(() => ({}));
@@ -5146,7 +5268,7 @@ async function ujLoadNoteEntries(syncProjection = false) {
   if (!syncProjection) return;
   const failures = [];
   if (item.job) {
-    try { item.job = await ujPatchJob(item.job.id, { notes: recordNotesProjection(item.job.notes, notes) }); } catch { failures.push('CRM job'); }
+    // Do not mirror internal history into the customer/document notes field.
   }
   if (item.event) {
     try { item.event = await ujPatchEvent(item.event.id, { description: recordNotesProjection(item.event.description, notes) || '' }); } catch { failures.push('Google Calendar'); }
@@ -5165,7 +5287,7 @@ async function ujAddNoteEntry() {
     await createRecordNote(target.recordType, target.recordId, body);
     input.value = '';
     await ujLoadNoteEntries(true);
-    showToast('Timestamped note added and synchronised ✓');
+    showToast('Timestamped internal communication added ✓');
   } catch (error) {
     showToast(error.message || 'Could not add note', 'error');
   } finally {
@@ -5261,7 +5383,7 @@ function ujDeclineSelected() {
       if (item.event) {
         const token = await getGoogleToken() || await signInGoogleCalendar();
         if (!token) throw new Error('Connect Google Calendar before deleting this event.');
-        const eventResponse = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(item.event.id)}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
+        const eventResponse = await googleCalendarFetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(item.event.id)}`, { method: 'DELETE' });
         if (!eventResponse.ok && eventResponse.status !== 410) throw new Error('The calendar event could not be deleted. Nothing else was removed.');
       }
       if (item.job) {
@@ -5476,13 +5598,13 @@ async function pqOpenDetail(quoteId) {
 
     <!-- Notes -->
     <details class="detail-accordion">
-      <summary>🗒 Notes</summary>
+      <summary>🗒 Internal Communications</summary>
       <div class="detail-accordion-content">
         <div id="pq-note-timeline"><div style="font-size:12px;color:var(--text3);padding-bottom:10px;">Loading note history…</div></div>
         <label class="form-label" for="pq-new-note">New note entry</label>
         <textarea id="pq-new-note" class="form-input" rows="4" placeholder="Add the latest call outcome or next step…" style="width:100%;box-sizing:border-box;resize:vertical;line-height:1.5;"></textarea>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;">
-          <span id="pq-notes-status" style="font-size:11px;color:var(--text3);">Automatically timestamped against quote ${_escHtml(q.id)}</span>
+          <span id="pq-notes-status" style="font-size:11px;color:var(--text3);">Private staff history · automatically timestamped against quote ${_escHtml(q.id)}</span>
           <button id="pq-add-note-btn" onclick="pqAddNoteEntry()" style="background:var(--ss-green);color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">Add Note</button>
         </div>
       </div>
@@ -5558,8 +5680,7 @@ async function pqLoadNoteEntries(syncProjection = false) {
   _activeRecordNoteContext = { recordType:'quote', recordId:String(quote.id), reloadAndSync:() => pqLoadNoteEntries(true) };
 
   if (!syncProjection) return;
-  const updatedQuote = await pqUpdateSelectedQuote({ notes: recordNotesProjection(quote.notes, notes) });
-  if (status) status.textContent = `History synchronised to quote ${updatedQuote.id}`;
+  if (status) status.textContent = `Internal history saved against quote ${quote.id}`;
 }
 
 async function pqAddNoteEntry() {
@@ -5575,7 +5696,7 @@ async function pqAddNoteEntry() {
     await createRecordNote('quote', quote.id, body);
     input.value = '';
     await pqLoadNoteEntries(true);
-    showToast('Timestamped quote note added ✓');
+    showToast('Timestamped internal communication added ✓');
   } catch (error) {
     console.error('Pending quote note entry failed:', error);
     if (status) status.textContent = 'Save failed — please try again';
@@ -5693,7 +5814,7 @@ async function _pqDoAccept(q, address, clientEmail, clientId, clientPhone) {
         client_id: clientId || q.client_id || null,
         hours: 0,
         completion_date: null,
-        notes: `Accepted from pending quote ${q.id}. Rep: ${currentRep ? currentRep.name : 'unknown'}.`,
+        notes: customerDocumentNotes(q.notes),
         created_at: new Date().toISOString()
       })
     });
@@ -5702,11 +5823,9 @@ async function _pqDoAccept(q, address, clientEmail, clientId, clientPhone) {
     // Carry the timestamped quote history into the job while preserving the
     // combined legacy notes field used by existing CRM screens and exports.
     try {
-      const transferredNotes = await copyRecordNotes('quote', q.id, 'job', jobId);
-      if (transferredNotes.length) {
-        const baseJobNote = `Accepted from pending quote ${q.id}. Rep: ${currentRep ? currentRep.name : 'unknown'}.`;
-        await ujPatchJob(jobId, { notes: recordNotesProjection(baseJobNote, transferredNotes) });
-      }
+      await copyRecordNotes('quote', q.id, 'job', jobId);
+      // The copied rows remain internal; do not mirror them into jobs.notes.
+      await createRecordNote('job', jobId, `Job created from accepted quote ${q.id}.`);
     } catch (noteError) {
       console.error('Quote note history transfer failed:', noteError);
       showToast('Job created, but note history needs checking', 'error');
@@ -5827,21 +5946,8 @@ async function pqShowCalendarModal(total, jobId) {
 }
 
 function findServiceForQuoteDescription(description) {
-  const descriptionLower = String(description || '').toLowerCase();
-  return Object.values(SERVICES).find(service => {
-    if (service.name === description) return true;
-    const nameLower = service.name.toLowerCase();
-    if (nameLower.includes('gutter') && nameLower.includes('softwash')) return descriptionLower.includes('softwash') || (descriptionLower.includes('gutter') && descriptionLower.includes('soft'));
-    if (nameLower.includes('gutter')) return descriptionLower.includes('gutter') && !descriptionLower.includes('softwash') && !descriptionLower.includes('soft');
-    if (nameLower.includes('solar') && nameLower.includes('bird')) return (descriptionLower.includes('bird') || descriptionLower.includes('proof')) && descriptionLower.includes('solar');
-    if (nameLower.includes('solar')) return descriptionLower.includes('solar') && !descriptionLower.includes('bird') && !descriptionLower.includes('proof');
-    if (nameLower.includes('window')) return descriptionLower.includes('window');
-    if (nameLower.includes('house')) return descriptionLower.includes('house') || descriptionLower.includes('wash');
-    if (nameLower.includes('roof') && nameLower.includes('biocide')) return descriptionLower.includes('biocide') || (descriptionLower.includes('roof') && descriptionLower.includes('treat'));
-    if (nameLower.includes('roof')) return descriptionLower.includes('roof') && !descriptionLower.includes('biocide');
-    if (nameLower.includes('pressure')) return descriptionLower.includes('pressure') || descriptionLower.includes('pres');
-    return false;
-  });
+  const key = detectQuoteEmailService({description});
+  return key ? SERVICES[key] : null;
 }
 
 async function pqEmailQuote() {
@@ -5866,9 +5972,11 @@ async function pqEmailQuote() {
     const data = await response.json();
     const client = data && data[0] ? data[0] : {};
     const emailItems = items.map(item => {
-      const service = findServiceForQuoteDescription(item.description);
+      const serviceKey = detectQuoteEmailService(item);
+      const service = serviceKey ? SERVICES[serviceKey] : findServiceForQuoteDescription(item.description);
       return {
         name: item.description,
+        serviceKey,
         total: Number(item.total || 0),
         inclusions: service ? (service.inclusions || []) : []
       };
@@ -5877,7 +5985,7 @@ async function pqEmailQuote() {
     sendQuoteEmail({
       email: client.email,
       name: q.client,
-      address: client.suburb || client.address,
+      address: [client.address, client.suburb].filter(Boolean).join(', '),
       serviceLabel,
       items: emailItems,
       total: q.total,
