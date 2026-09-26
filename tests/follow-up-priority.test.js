@@ -40,6 +40,14 @@ test('structured ready-to-book and explicit-date outcomes override value scoring
   assert.equal(future.recommendedDate, '2026-10-10');
 });
 
+test('thinking outcomes can be described as waiting without raising a false conflict', () => {
+  const fallback = _test.baseline(candidate({ noteEntries:[{ at:'2026-09-26T01:00:00Z', body:'Spoke — still thinking', outcomeCode:'spoke_thinking' }] }), now);
+  const merged = _test.mergedResult(candidate(), fallback, { timingAssessment:'wait', reason:'Give the customer time to decide.' });
+  assert.equal(fallback.reasonCode, 'decision_pending');
+  assert.equal(merged.priorityConflict, false);
+  assert.equal(merged.timingAssessment, 'soon');
+});
+
 test('value alone never creates urgency and suppression beats dates in free text', () => {
   const valuable = _test.baseline(candidate({ total:10000, noteEntries:[] }), now);
   assert.notEqual(valuable.priority, 'urgent');

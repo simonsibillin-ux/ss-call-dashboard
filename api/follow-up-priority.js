@@ -306,9 +306,10 @@ async function analyseBatch(batch, fallbacks, apiKey, now, signal) {
   return parsed.priorities;
 }
 
-function timingConflict(priority, timing) {
+function timingConflict(priority, timing, reasonCode = '') {
   if (!timing) return false;
   if (priority === 'urgent') return timing === 'wait' || timing === 'no_contact';
+  if (priority === 'medium' && reasonCode === 'decision_pending') return timing === 'no_contact';
   if (priority === 'high' || priority === 'medium') return timing === 'wait' || timing === 'no_contact';
   if (priority === 'upcoming') return timing === 'now' || timing === 'no_contact';
   if (priority === 'owner') return timing === 'now' || timing === 'soon';
@@ -329,7 +330,7 @@ function deterministicTiming(fallback) {
 function mergedResult(item, fallback, ai) {
   const aiTimingAssessment = ['now', 'soon', 'wait', 'no_contact'].includes(ai?.timingAssessment) ? ai.timingAssessment : '';
   const timingAssessment = deterministicTiming(fallback);
-  const priorityConflict = timingConflict(fallback.priority, aiTimingAssessment);
+  const priorityConflict = timingConflict(fallback.priority, aiTimingAssessment, fallback.reasonCode);
   return {
     id:item.id,
     priority:fallback.priority,
