@@ -211,6 +211,31 @@ function businessDaysUntil(fromIso, toIso) {
   return count;
 }
 
+function addBusinessDaysTimestamp(value, amount) {
+  const date = validDate(value);
+  if (!date) return '';
+  let remaining = amount;
+  while (remaining > 0) {
+    date.setUTCDate(date.getUTCDate() + 1);
+    const weekday = new Intl.DateTimeFormat('en-US', { timeZone:'Australia/Melbourne', weekday:'short' }).format(date);
+    if (weekday !== 'Sat' && weekday !== 'Sun') remaining--;
+  }
+  return date.toISOString();
+}
+
+function quoteTimingBand(today, target) {
+  if (!target) return 'not_scheduled';
+  const current = dateFromIsoDay(today);
+  const due = dateFromIsoDay(target);
+  const currentWeekday = current.getUTCDay() || 7;
+  const thisSunday = new Date(current);
+  thisSunday.setUTCDate(current.getUTCDate() + (7 - currentWeekday));
+  if (due <= thisSunday) return 'this_week';
+  const nextSunday = new Date(thisSunday);
+  nextSunday.setUTCDate(thisSunday.getUTCDate() + 7);
+  return due <= nextSunday ? 'next_week' : 'later';
+}
+
 function draftBaseline(item, now, signals) {
   const created = validDate(item.createdAt || item.recordDate);
   const ageDays = daysSince(created, now);
@@ -266,10 +291,11 @@ function pendingQuoteBaseline(item, now, signals) {
     if (latestResponse.responseType === 'more_time') {
       const scheduled = validDate(latestResponse.contactAgainAt || item.nextFollowUpAt);
       const scheduledDay = scheduled ? localIso(scheduled) : '';
-      const manualReviewDate = scheduledDay ? addBusinessDays(scheduledDay, 4) : '';
-      const remaining = manualReviewDate ? businessDaysUntil(today, manualReviewDate) : 99;
-      return { ...base, priority:remaining <= 5 ? 'urgent' : remaining <= 10 ? 'high' : 'upcoming', timingBand:remaining <= 5 ? 'this_week' : remaining <= 10 ? 'next_week' : 'later', reasonCode:'customer_requested_more_time', recommendedDate:manualReviewDate,
-        automationDate:scheduledDay, automationStatus:'scheduled', manualReviewDate,
+      const manualReviewAt = scheduled ? addBusinessDaysTimestamp(scheduled, 4) : '';
+      const manualReviewDate = manualReviewAt ? localIso(validDate(manualReviewAt)) : '';
+      const timingBand = quoteTimingBand(today, manualReviewDate);
+      return { ...base, priority:timingBand === 'this_week' ? 'urgent' : timingBand === 'next_week' ? 'high' : 'upcoming', timingBand, reasonCode:'customer_requested_more_time', recommendedDate:manualReviewDate,
+        automationDate:scheduledDay, automationStatus:'scheduled', manualReviewDate, manualReviewAt,
         reason:`The customer requested more time through the portal${latestResponse.reason ? `: ${clean(latestResponse.reason, 160)}` : ''}.`,
         recommendedAction:scheduled ? 'Let the CRM contact the customer on their selected date; create a personal task only after that message’s response window.' : 'Keep the quote paused until a contact date is confirmed.' };
     }
@@ -279,11 +305,11 @@ function pendingQuoteBaseline(item, now, signals) {
     const scheduled = validDate(item.nextFollowUpAt);
     const automationDate = scheduled ? localIso(scheduled) : '';
     if (scheduled && item.deliveryStatus === 'sent' && validDate(item.sentAt)) {
-      const manualReviewDate = addBusinessDays(automationDate, 4);
-      const remaining = businessDaysUntil(today, manualReviewDate);
-      const timingBand = remaining <= 5 ? 'this_week' : remaining <= 10 ? 'next_week' : 'later';
+      const manualReviewAt = addBusinessDaysTimestamp(scheduled, 4);
+      const manualReviewDate = localIso(validDate(manualReviewAt));
+      const timingBand = quoteTimingBand(today, manualReviewDate);
       return { ...base, priority:timingBand === 'this_week' ? 'urgent' : timingBand === 'next_week' ? 'high' : 'upcoming', timingBand,
-        reasonCode:'automation_scheduled', recommendedDate:manualReviewDate, automationDate, automationStatus:'scheduled', manualReviewDate,
+        reasonCode:'automation_scheduled', recommendedDate:manualReviewDate, automationDate, automationStatus:'scheduled', manualReviewDate, manualReviewAt,
         reason:`The CRM automation is scheduled for ${automationDate}; manual review is booked four business days later.`,
         recommendedAction:`Let the CRM message send on ${automationDate}, then manually follow up on ${manualReviewDate} if the quote is still pending.` };
     }
@@ -291,18 +317,23 @@ function pendingQuoteBaseline(item, now, signals) {
       reason:'No automated quote follow-up is currently scheduled.', recommendedAction:'Check the quote delivery state in the CRM.' };
   }
 
-  const manualDueDate = addBusinessDays(localIso(latestDeliveryAt), 4);
+  const manualDueAt = addBusinessDaysTimestamp(latestDeliveryAt, 4);
+  const manualDueDate = localIso(validDate(manualDueAt));
   const storedDate = validDate(item.nextFollowUpAt);
   const lastFollowUpAt = validDate(item.lastFollowUpAt);
-  const nextDate = storedDate && lastFollowUpAt && lastFollowUpAt > latestDeliveryAt ? localIso(storedDate) : manualDueDate;
-  const remaining = businessDaysUntil(today, nextDate);
-  const timingBand = remaining <= 5 ? 'this_week' : remaining <= 10 ? 'next_week' : 'later';
+  const nextAutomationScheduled = storedDate && lastFollowUpAt && lastFollowUpAt > latestDeliveryAt;
+  const automationAt = nextAutomationScheduled ? storedDate.toISOString() : latestDeliveryAt.toISOString();
+  const automationStatus = nextAutomationScheduled ? 'scheduled' : 'sent';
+  const manualReviewAt = nextAutomationScheduled ? addBusinessDaysTimestamp(storedDate, 4) : manualDueAt;
+  const nextDate = localIso(validDate(manualReviewAt));
+  const timingBand = quoteTimingBand(today, nextDate);
   const priority = timingBand === 'this_week' ? 'urgent' : timingBand === 'next_week' ? 'high' : 'upcoming';
+  const manualUnlocked = validDate(manualReviewAt) <= now;
   const sequence = Number(latestDelivery?.sequenceNumber) || deliveries.length;
-  return { ...base, priority, timingBand, reasonCode:remaining === 0 ? 'manual_follow_up_due' : 'manual_follow_up_scheduled', recommendedDate:nextDate,
-    automationDate:localIso(latestDeliveryAt), automationStatus:'sent', manualReviewDate:nextDate,
+  return { ...base, priority, timingBand, reasonCode:manualUnlocked ? 'manual_follow_up_due' : 'manual_follow_up_scheduled', recommendedDate:nextDate,
+    automationDate:localIso(validDate(automationAt)), automationStatus, manualReviewDate:nextDate, manualReviewAt,
     reason:`The next personal follow-up is booked for ${nextDate}${nextDate === manualDueDate ? `, four business days after CRM message ${sequence}` : ''}.`,
-    recommendedAction:remaining === 0 ? 'Follow up with the customer and record the structured outcome.' : `Follow up on ${nextDate}.` };
+    recommendedAction:manualUnlocked ? 'Follow up with the customer and record the structured outcome.' : `Follow up on ${nextDate}.` };
 }
 
 function baseline(item, now) {
@@ -468,7 +499,8 @@ function mergedResult(item, fallback, ai) {
     timingBand:fallback.timingBand || '',
     automationDate:fallback.automationDate || '',
     automationStatus:fallback.automationStatus || '',
-    manualReviewDate:fallback.manualReviewDate || fallback.recommendedDate || ''
+    manualReviewDate:fallback.manualReviewDate || fallback.recommendedDate || '',
+    manualReviewAt:fallback.manualReviewAt || ''
   };
 }
 

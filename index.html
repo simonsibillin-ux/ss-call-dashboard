@@ -618,11 +618,11 @@
               <div class="modal-title" id="priority-detail-title">Follow-up details</div>
               <div id="priority-detail-service" class="priority-detail-service"></div>
             </div>
-            <button class="priority-detail-close" onclick="closePriorityDetail()" aria-label="Close follow-up details">×</button>
+            <button class="btn-secondary" onclick="closePriorityDetail()" aria-label="Back to follow-ups" style="width:auto;">← Back to follow-ups</button>
           </div>
           <div id="priority-detail-body"></div>
           <div class="priority-detail-footer">
-            <button class="btn-secondary" onclick="closePriorityDetail()">Close</button>
+            <button class="btn-secondary" onclick="closePriorityDetail()">← Back to follow-ups</button>
             <button class="btn-primary" id="priority-detail-open-btn" style="width:auto;">Open record</button>
           </div>
         </div>
@@ -4062,6 +4062,9 @@ function openPriorityItem(candidateId) {
   const modal = document.getElementById('priority-detail-modal');
   if (!title || !service || !body || !openButton || !modal) return;
   _prioritySelectedId = candidateId;
+  const isPendingQuote = candidate.kind === 'pending_quote';
+  const manualUnlocked = isPendingQuote && analysis.manualReviewAt && Date.now() >= new Date(analysis.manualReviewAt).getTime();
+  const unlockLabel = analysis.manualReviewAt ? new Date(analysis.manualReviewAt).toLocaleString('en-AU', { dateStyle:'long', timeStyle:'short' }) : '';
   title.textContent = candidate.clientName || 'Follow-up details';
   service.textContent = (candidate.services || []).join(' + ') || priorityRecordLabel(candidate);
   body.innerHTML = `
@@ -4071,35 +4074,38 @@ function openPriorityItem(candidateId) {
       <div><span>Last activity</span><strong>${_escHtml(priorityCandidateDate(analysis.effectiveActivityAt || candidate.latestActivityAt) || 'Unknown')}</strong></div>
       <div><span>${candidate.kind === 'pending_quote' ? 'Automation' : 'Review by'}</span><strong>${_escHtml(candidate.kind === 'pending_quote' ? `${analysis.automationStatus === 'sent' ? 'Sent' : 'Scheduled'} ${priorityCandidateDate(analysis.automationDate) || 'Not scheduled'}` : priorityCandidateDate(analysis.recommendedDate) || 'No review scheduled')}</strong></div>
       ${candidate.kind === 'pending_quote' ? `<div><span>Manual follow-up</span><strong>${_escHtml(priorityCandidateDate(analysis.manualReviewDate) || 'Not scheduled')}</strong></div>` : ''}
-      <div><span>Opportunity rank</span><strong>${_escHtml(String(analysis.opportunityScore || 0))}/100</strong></div>
     </div>
+    ${isPendingQuote ? `<section class="priority-lifecycle" aria-label="Quote follow-up timeline">
+      <div class="priority-lifecycle-step is-complete"><strong>Quote sent</strong><span>${_escHtml(priorityCandidateDate(candidate.sentAt) || 'Recorded')}</span></div>
+      <div class="priority-lifecycle-step ${analysis.automationStatus === 'sent' ? 'is-complete' : 'is-current'}"><strong>Automation ${analysis.automationStatus === 'sent' ? 'sent' : 'scheduled'}</strong><span>${_escHtml(priorityCandidateDate(analysis.automationDate) || 'Not scheduled')}</span></div>
+      <div class="priority-lifecycle-step ${manualUnlocked ? 'is-current' : ''}"><strong>Manual follow-up</strong><span>${_escHtml(priorityCandidateDate(analysis.manualReviewDate) || 'Not scheduled')}</span></div>
+    </section>` : ''}
     <section class="priority-detail-section"><h4>${candidate.kind === 'pending_quote' ? 'Workflow assessment' : 'AI perception'}</h4><p>${_escHtml(analysis.reason || 'No assessment is available yet.')}</p></section>
     ${analysis.priorityConflict ? `<div class="alert alert-danger" style="margin:0 0 14px;"><strong>Priority check needed:</strong> ${_escHtml(analysis.priorityConflictMessage || 'The AI timing assessment does not match the assigned priority. Review the latest note before contacting the customer.')}</div>` : ''}
     <section class="priority-detail-section priority-detail-recommendation"><h4>Recommended next step</h4><p>${_escHtml(analysis.recommendedAction || 'Review the record and contact the customer.')}</p></section>
     ${analysis.priority === 'review' ? `<section class="priority-detail-section"><h4>Review options</h4><div style="display:flex;gap:7px;flex-wrap:wrap;"><button class="btn-secondary" onclick="priorityPrepareReview('resume')" style="width:auto;">Resume in 10 business days</button><button class="btn-secondary" onclick="priorityPrepareReview('schedule')" style="width:auto;">Choose a date</button><button class="btn-secondary" onclick="priorityPrepareReview('customer')" style="width:auto;">Wait for customer</button><button class="btn-secondary" onclick="priorityPrepareReview('owner')" style="width:auto;">Simon handling</button><button class="btn-secondary" onclick="priorityPrepareReview('close')" style="width:auto;color:#a33;">Close — no response</button></div></section>` : ''}
     <section class="priority-detail-section"><h4>Internal communication history</h4>
       <div id="priority-note-timeline"><div class="priority-no-notes">Loading note history…</div></div>
-      <label class="form-label" for="priority-outcome">Outcome</label>
+      ${isPendingQuote ? `<div class="priority-manual-state ${manualUnlocked ? 'is-unlocked' : 'is-locked'}"><strong>${manualUnlocked ? 'Manual follow-up unlocked' : 'Manual follow-up locked'}</strong><span>${manualUnlocked ? 'The response window has elapsed. Record the result of the personal follow-up below.' : analysis.manualReviewAt ? `Available immediately after ${_escHtml(unlockLabel)}.` : 'The CRM automation must be scheduled before a manual follow-up can unlock.'}</span></div>` : ''}
+      <fieldset class="priority-manual-controls" ${isPendingQuote && !manualUnlocked ? 'disabled' : ''}>
+      <label class="form-label" for="priority-outcome">Manual follow-up outcome</label>
       <div class="priority-outcome-grid">
         <select id="priority-outcome" class="form-input" onchange="priorityOutcomeChanged()">
           <option value="">General note</option>
           <option value="voicemail_left">Voicemail left</option>
-          <option value="sms_sent">SMS sent</option>
-          <option value="email_sent">Email sent</option>
           <option value="no_answer">No answer</option>
-          <option value="spoke_thinking">Spoke — still thinking</option>
+          <option value="call_on_date">Spoke — needs more time</option>
           <option value="ready_to_book">Ready to book</option>
-          <option value="call_on_date">Call on selected date</option>
           <option value="customer_will_contact">Customer will contact us</option>
-          <option value="owner_handling">Owner handling</option>
           <option value="declined">Declined</option>
           <option value="do_not_contact">Do not contact</option>
         </select>
         <input id="priority-next-contact-date" class="form-input" type="date" min="${localToday()}" aria-label="Next contact date" style="display:none;">
       </div>
+      </fieldset>
       <label class="form-label" for="priority-new-note" style="margin-top:10px;">Note <span style="font-weight:400;color:var(--text3);">(optional with an outcome)</span></label>
       <textarea id="priority-new-note" class="form-input" rows="3" placeholder="Add context for the next rep…" style="width:100%;box-sizing:border-box;resize:vertical;line-height:1.5;"></textarea>
-      <div class="priority-note-actions"><span id="priority-note-status">Automatically timestamped and shared with this ${_escHtml(priorityRecordLabel(candidate))}.</span><button id="priority-add-note-btn" class="btn-primary" onclick="priorityAddNoteEntry()" style="width:auto;white-space:nowrap;">Add Note</button></div>
+      <div class="priority-note-actions"><span id="priority-note-status">Notes can be added at any time. Structured outcomes unlock when the response window ends.</span><button id="priority-add-note-btn" class="btn-primary" onclick="priorityAddNoteEntry()" style="width:auto;white-space:nowrap;">Save</button></div>
     </section>`;
   openButton.textContent = `Open ${priorityRecordLabel(candidate)}`;
   openButton.onclick = () => openPriorityRecord(candidateId);
@@ -4229,6 +4235,7 @@ async function priorityLoadNoteEntries(syncProjection = false) {
 
 async function priorityAddNoteEntry() {
   const candidate = _priorityCandidatesById[_prioritySelectedId];
+  const analysis = (_priorityCachedAnalysis?.priorities || []).find(row => row.id === _prioritySelectedId) || {};
   const target = priorityNoteTarget(candidate);
   const input = document.getElementById('priority-new-note');
   const button = document.getElementById('priority-add-note-btn');
@@ -4237,14 +4244,15 @@ async function priorityAddNoteEntry() {
   const nextContactDate = document.getElementById('priority-next-contact-date')?.value || '';
   const body = input?.value.trim();
   if (!target || (!body && !outcomeCode)) { showToast('Choose an outcome or enter a note first', 'error'); return; }
+  if (candidate?.kind === 'pending_quote' && outcomeCode && (!analysis.manualReviewAt || Date.now() < new Date(analysis.manualReviewAt).getTime())) { showToast('The manual follow-up is still locked', 'error'); return; }
   if (outcomeCode === 'call_on_date' && !nextContactDate) { showToast('Choose the next contact date', 'error'); return; }
   if (button) { button.disabled = true; button.textContent = 'Adding…'; }
   if (status) status.textContent = 'Adding timestamped note…';
   try {
-    const outcomeLabels = { voicemail_left:'Voicemail left', sms_sent:'SMS sent', email_sent:'Email sent', no_answer:'No answer', spoke_thinking:'Spoke — still thinking', ready_to_book:'Ready to book', call_on_date:'Follow up on selected date', customer_will_contact:'Customer will contact us', owner_handling:'Owner handling', declined:'Declined', do_not_contact:'Do not contact' };
+    const outcomeLabels = { voicemail_left:'Voicemail left', no_answer:'No answer', ready_to_book:'Ready to book', call_on_date:'Spoke — needs more time', customer_will_contact:'Customer will contact us', declined:'Declined', do_not_contact:'Do not contact' };
     await createRecordNote(target.recordType, target.recordId, body || outcomeLabels[outcomeCode], { outcomeCode, nextContactDate });
     if (candidate.kind === 'pending_quote' && outcomeCode) {
-      const retryOutcomes = new Set(['voicemail_left', 'sms_sent', 'email_sent', 'no_answer', 'spoke_thinking']);
+      const retryOutcomes = new Set(['voicemail_left', 'no_answer']);
       const closeOutcomes = new Set(['ready_to_book', 'customer_will_contact', 'owner_handling', 'declined', 'do_not_contact']);
       const nextDate = outcomeCode === 'call_on_date' ? nextContactDate : retryOutcomes.has(outcomeCode) ? priorityBusinessDate(3) : null;
       const quoteChanges = {

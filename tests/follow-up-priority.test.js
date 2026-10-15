@@ -16,17 +16,25 @@ test('manual follow-up is due four business days after successful CRM delivery',
   assert.equal(result.timingBand, 'this_week');
   assert.equal(result.reasonCode, 'manual_follow_up_due');
 });
-test('a manually marked-sent quote shows both the scheduled automation and manual review', () => {
-  const result = _test.baseline(quote({ sentAt:'2026-09-25T01:00:00Z', deliveryStatus:'sent', nextFollowUpAt:'2026-09-29T01:00:00Z' }), now);
-  assert.equal(result.automationDate, '2026-09-29');
-  assert.equal(result.automationStatus, 'scheduled');
-  assert.equal(result.manualReviewDate, '2026-10-05');
+test('calendar-week grouping puts Thursday 22 October in next week from Thursday 15 October', () => {
+  const octoberNow = new Date('2026-10-15T02:00:00Z');
+  const result = _test.baseline(quote({ sentAt:'2026-10-14T08:00:00Z', deliveryStatus:'sent', nextFollowUpAt:'2026-10-17T08:00:00Z' }), octoberNow);
+  assert.equal(result.manualReviewDate, '2026-10-22');
   assert.equal(result.timingBand, 'next_week');
 });
-test('a structured next date written after delivery is the source of truth', () => {
-  const result = _test.baseline(quote({ deliveryEntries:[{ sentAt:'2026-09-20T01:00:00Z', status:'sent' }], lastFollowUpAt:'2026-09-25T01:00:00Z', nextFollowUpAt:'2026-10-08T00:00:00Z', followUpCount:2 }), now);
-  assert.equal(result.recommendedDate, '2026-10-08');
+test('a manually marked-sent quote shows both the scheduled automation and manual review', () => {
+  const result = _test.baseline(quote({ sentAt:'2026-09-25T01:00:00Z', deliveryStatus:'sent', nextFollowUpAt:'2026-09-28T01:00:00Z' }), now);
+  assert.equal(result.automationDate, '2026-09-28');
+  assert.equal(result.automationStatus, 'scheduled');
+  assert.equal(result.manualReviewDate, '2026-10-02');
   assert.equal(result.timingBand, 'next_week');
+});
+test('a structured customer date schedules the next automation and then its manual review', () => {
+  const result = _test.baseline(quote({ deliveryEntries:[{ sentAt:'2026-09-20T01:00:00Z', status:'sent' }], lastFollowUpAt:'2026-09-25T01:00:00Z', nextFollowUpAt:'2026-10-08T00:00:00Z', followUpCount:2 }), now);
+  assert.equal(result.automationDate, '2026-10-08');
+  assert.equal(result.automationStatus, 'scheduled');
+  assert.equal(result.recommendedDate, '2026-10-14');
+  assert.equal(result.timingBand, 'later');
   assert.equal(result.attemptCount, 2);
 });
 test('disabled quote follow-ups are not scheduled', () => {
