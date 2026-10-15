@@ -603,11 +603,15 @@
       <!-- ==================== FOLLOW-UPS PAGE ==================== -->
       <div class="page" id="page-followups">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;">
-          <div><div class="page-title">Follow-up Centre</div><div class="page-subtitle">Personal actions after CRM automation, draft checks, and upcoming job scheduling</div></div>
+          <div><div class="page-title">Follow-ups</div><div class="page-subtitle">Quote follow-ups and upcoming work in one clear workspace</div></div>
           <button id="priority-refresh-btn" class="btn-secondary" onclick="loadAiFollowUpPriorities(true)" style="width:auto;">↻ Refresh</button>
         </div>
-        <div id="priority-status" style="font-size:11px;color:var(--text3);margin:-8px 0 14px;"></div>
-        <div id="priority-overview" class="priority-overview"></div>
+        <div class="priority-page-tabs" role="tablist" aria-label="Follow-up pages">
+          <button id="priority-tab-quotes" class="priority-page-tab active" onclick="setPriorityPage('quotes')" role="tab">Pending Quotes <span id="priority-tab-quotes-count"></span></button>
+          <button id="priority-tab-jobs" class="priority-page-tab" onclick="setPriorityPage('jobs')" role="tab">Unscheduled Jobs <span id="priority-tab-jobs-count"></span></button>
+        </div>
+        <div id="priority-status" style="display:none;"></div>
+        <div id="priority-overview" style="display:none;"></div>
         <div id="priority-list"><div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">Building the follow-up centre…</div><div class="empty-state-desc">Reading CRM deliveries, customer responses, internal notes, drafts and jobs</div></div></div>
       </div>
 
@@ -4037,6 +4041,14 @@ let _priorityRequestId = 0;
 let _priorityCachedCandidates = null;
 let _priorityCachedAnalysis = null;
 let _prioritySelectedId = null;
+let _priorityPage = 'quotes';
+
+function setPriorityPage(page) {
+  _priorityPage = page === 'jobs' ? 'jobs' : 'quotes';
+  document.getElementById('priority-tab-quotes')?.classList.toggle('active', _priorityPage === 'quotes');
+  document.getElementById('priority-tab-jobs')?.classList.toggle('active', _priorityPage === 'jobs');
+  if (_priorityCachedCandidates && _priorityCachedAnalysis) renderAiFollowUpPriorities(_priorityCachedCandidates, _priorityCachedAnalysis);
+}
 
 function priorityNavItem(label) {
   return [...document.querySelectorAll('.nav-item')].find(item => item.textContent.includes(label)) || null;
@@ -4373,12 +4385,12 @@ function renderAiFollowUpPriorities(candidates, analysis) {
   const quoteBands = [['this_week', '🔴 This week'], ['next_week', '🟡 Next week'], ['later', '🟢 Later'], ['not_scheduled', '⚪ Not currently scheduled']];
   const jobBands = [['this_month', '🔴 Book this month'], ['next_month', '🟡 Book next month'], ['later', '🟢 Later in the year']];
   const draftCount = rows.filter(row => row.kind === 'draft_quote').length;
-  overview.innerHTML = [
-    ['Quotes this week', quoteRows.filter(row => row.timingBand === 'this_week').length],
-    ['Quotes next week', quoteRows.filter(row => row.timingBand === 'next_week').length],
-    ['Jobs this month', jobRows.filter(row => row.schedulingBand === 'this_month').length], ['Drafts', draftCount]
-  ].map(([label, value]) => `<div class="priority-stat"><div class="priority-stat-value">${value}</div><div class="priority-stat-label">${label}</div></div>`).join('');
-  status.textContent = `Quote dates use CRM rules only · AI classifies unscheduled jobs only · ${rows.length} active item${rows.length === 1 ? '' : 's'} · Updated ${new Date(analysis.generatedAt || Date.now()).toLocaleString('en-AU')}${analysis.warning ? ` · ${analysis.warning}` : ''}`;
+  overview.innerHTML = '';
+  status.textContent = '';
+  const quoteTabCount = document.getElementById('priority-tab-quotes-count');
+  const jobTabCount = document.getElementById('priority-tab-jobs-count');
+  if (quoteTabCount) quoteTabCount.textContent = quoteRows.length + draftCount;
+  if (jobTabCount) jobTabCount.textContent = jobRows.length;
   if (!rows.length) {
     container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✓</div><div class="empty-state-title">Nothing needs following up</div><div class="empty-state-desc">No pending quotes or unscheduled jobs were found.</div></div>';
     return;
@@ -4398,9 +4410,9 @@ function renderAiFollowUpPriorities(candidates, analysis) {
   });
   const draftHtml = `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">📝 Draft quote review</div><span class="priority-group-count">${draftRows.length}</span></div><div class="priority-queue-help">Draft age does not create urgency. Internal notes are checked for missing information, promised contact and due commitments.</div>${draftRows.map(row => cardHtml(row, row.priority)).join('') || '<div class="priority-no-notes">No draft quotes were found.</div>'}</section>`;
   const section = (title, help, bandRows, key) => `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">${title}</div><span class="priority-group-count">${bandRows.length}</span></div>${help ? `<div class="priority-queue-help">${help}</div>` : ''}${bandRows.map(row => cardHtml(row, key)).join('') || '<div class="priority-no-notes">No items in this category.</div>'}</section>`;
-  const quoteHtml = `<div class="priority-system-heading"><strong>Quote follow-ups</strong><span>Dates and recorded outcomes only — no AI interpretation</span></div>` + quoteBands.map(([key, label]) => section(label, '', quoteRows.filter(row => (row.timingBand || 'not_scheduled') === key).sort((a,b) => String(a.recommendedDate || '').localeCompare(String(b.recommendedDate || ''))), key === 'this_week' ? 'urgent' : key === 'next_week' ? 'high' : 'low')).join('');
-  const jobsHtml = `<div class="priority-system-heading"><strong>Unscheduled jobs</strong><span>AI classification from internal communications</span></div>` + jobBands.map(([key, label]) => section(label, '', jobRows.filter(row => (row.schedulingBand || 'later') === key), key === 'this_month' ? 'urgent' : key === 'next_month' ? 'high' : 'low')).join('');
-  container.innerHTML = quoteHtml + jobsHtml + draftHtml;
+  const quoteHtml = quoteBands.map(([key, label]) => section(label, '', quoteRows.filter(row => (row.timingBand || 'not_scheduled') === key).sort((a,b) => String(a.recommendedDate || '').localeCompare(String(b.recommendedDate || ''))), key === 'this_week' ? 'urgent' : key === 'next_week' ? 'high' : 'low')).join('') + draftHtml;
+  const jobsHtml = jobBands.map(([key, label]) => section(label, '', jobRows.filter(row => (row.schedulingBand || 'later') === key), key === 'this_month' ? 'urgent' : key === 'next_month' ? 'high' : 'low')).join('');
+  container.innerHTML = _priorityPage === 'jobs' ? jobsHtml : quoteHtml;
 }
 
 async function loadAiFollowUpPriorities(force = false) {
