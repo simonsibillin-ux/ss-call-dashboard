@@ -6,7 +6,7 @@ const quote = (overrides = {}) => ({ id:'quote:test', kind:'pending_quote', clie
 
 test('pending quote notes cannot alter quote timing', () => {
   const result = _test.baseline(quote({ noteEntries:[{ at:'2026-09-26T01:00:00Z', body:'Do not contact. Follow up today.', outcomeCode:'do_not_contact' }], nextFollowUpAt:'2026-09-29T01:00:00Z' }), now);
-  assert.equal(result.reasonCode, 'automation_scheduled');
+  assert.equal(result.reasonCode, 'awaiting_automation');
   assert.equal(result.timingBand, 'not_scheduled');
   assert.equal(result.noteExcerpt, '');
 });
@@ -15,6 +15,13 @@ test('manual follow-up is due four business days after successful CRM delivery',
   assert.equal(result.recommendedDate, '2026-09-24');
   assert.equal(result.timingBand, 'this_week');
   assert.equal(result.reasonCode, 'manual_follow_up_due');
+});
+test('a manually marked-sent quote shows both the scheduled automation and manual review', () => {
+  const result = _test.baseline(quote({ sentAt:'2026-09-25T01:00:00Z', deliveryStatus:'sent', nextFollowUpAt:'2026-09-29T01:00:00Z' }), now);
+  assert.equal(result.automationDate, '2026-09-29');
+  assert.equal(result.automationStatus, 'scheduled');
+  assert.equal(result.manualReviewDate, '2026-10-05');
+  assert.equal(result.timingBand, 'next_week');
 });
 test('a structured next date written after delivery is the source of truth', () => {
   const result = _test.baseline(quote({ deliveryEntries:[{ sentAt:'2026-09-20T01:00:00Z', status:'sent' }], lastFollowUpAt:'2026-09-25T01:00:00Z', nextFollowUpAt:'2026-10-08T00:00:00Z', followUpCount:2 }), now);

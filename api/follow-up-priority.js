@@ -266,8 +266,10 @@ function pendingQuoteBaseline(item, now, signals) {
     if (latestResponse.responseType === 'more_time') {
       const scheduled = validDate(latestResponse.contactAgainAt || item.nextFollowUpAt);
       const scheduledDay = scheduled ? localIso(scheduled) : '';
-      const remaining = scheduledDay ? businessDaysUntil(today, scheduledDay) : 99;
-      return { ...base, priority:remaining <= 5 ? 'urgent' : remaining <= 10 ? 'high' : 'upcoming', timingBand:remaining <= 5 ? 'this_week' : remaining <= 10 ? 'next_week' : 'later', reasonCode:'customer_requested_more_time', recommendedDate:scheduledDay,
+      const manualReviewDate = scheduledDay ? addBusinessDays(scheduledDay, 4) : '';
+      const remaining = manualReviewDate ? businessDaysUntil(today, manualReviewDate) : 99;
+      return { ...base, priority:remaining <= 5 ? 'urgent' : remaining <= 10 ? 'high' : 'upcoming', timingBand:remaining <= 5 ? 'this_week' : remaining <= 10 ? 'next_week' : 'later', reasonCode:'customer_requested_more_time', recommendedDate:manualReviewDate,
+        automationDate:scheduledDay, automationStatus:'scheduled', manualReviewDate,
         reason:`The customer requested more time through the portal${latestResponse.reason ? `: ${clean(latestResponse.reason, 160)}` : ''}.`,
         recommendedAction:scheduled ? 'Let the CRM contact the customer on their selected date; create a personal task only after that message’s response window.' : 'Keep the quote paused until a contact date is confirmed.' };
     }
@@ -275,9 +277,18 @@ function pendingQuoteBaseline(item, now, signals) {
 
   if (!latestDeliveryAt) {
     const scheduled = validDate(item.nextFollowUpAt);
-    return { ...base, priority:'low', timingBand:'not_scheduled', reasonCode:scheduled ? 'automation_scheduled' : 'awaiting_automation',
-      recommendedDate:scheduled ? localIso(scheduled) : '', reason:'No successful automated quote follow-up delivery has been recorded yet.',
-      recommendedAction:scheduled ? 'Let the CRM send the scheduled first follow-up; no personal contact is due.' : 'Check the quote delivery state in the CRM; do not create a personal follow-up from quote age alone.' };
+    const automationDate = scheduled ? localIso(scheduled) : '';
+    if (scheduled && item.deliveryStatus === 'sent' && validDate(item.sentAt)) {
+      const manualReviewDate = addBusinessDays(automationDate, 4);
+      const remaining = businessDaysUntil(today, manualReviewDate);
+      const timingBand = remaining <= 5 ? 'this_week' : remaining <= 10 ? 'next_week' : 'later';
+      return { ...base, priority:timingBand === 'this_week' ? 'urgent' : timingBand === 'next_week' ? 'high' : 'upcoming', timingBand,
+        reasonCode:'automation_scheduled', recommendedDate:manualReviewDate, automationDate, automationStatus:'scheduled', manualReviewDate,
+        reason:`The CRM automation is scheduled for ${automationDate}; manual review is booked four business days later.`,
+        recommendedAction:`Let the CRM message send on ${automationDate}, then manually follow up on ${manualReviewDate} if the quote is still pending.` };
+    }
+    return { ...base, priority:'low', timingBand:'not_scheduled', reasonCode:'awaiting_automation', recommendedDate:'', automationDate:'', automationStatus:'not_scheduled', manualReviewDate:'',
+      reason:'No automated quote follow-up is currently scheduled.', recommendedAction:'Check the quote delivery state in the CRM.' };
   }
 
   const manualDueDate = addBusinessDays(localIso(latestDeliveryAt), 4);
@@ -289,6 +300,7 @@ function pendingQuoteBaseline(item, now, signals) {
   const priority = timingBand === 'this_week' ? 'urgent' : timingBand === 'next_week' ? 'high' : 'upcoming';
   const sequence = Number(latestDelivery?.sequenceNumber) || deliveries.length;
   return { ...base, priority, timingBand, reasonCode:remaining === 0 ? 'manual_follow_up_due' : 'manual_follow_up_scheduled', recommendedDate:nextDate,
+    automationDate:localIso(latestDeliveryAt), automationStatus:'sent', manualReviewDate:nextDate,
     reason:`The next personal follow-up is booked for ${nextDate}${nextDate === manualDueDate ? `, four business days after CRM message ${sequence}` : ''}.`,
     recommendedAction:remaining === 0 ? 'Follow up with the customer and record the structured outcome.' : `Follow up on ${nextDate}.` };
 }
@@ -453,7 +465,10 @@ function mergedResult(item, fallback, ai) {
     attemptCount:fallback.attemptCount,
     outcomeCode:fallback.outcomeCode,
     schedulingBand,
-    timingBand:fallback.timingBand || ''
+    timingBand:fallback.timingBand || '',
+    automationDate:fallback.automationDate || '',
+    automationStatus:fallback.automationStatus || '',
+    manualReviewDate:fallback.manualReviewDate || fallback.recommendedDate || ''
   };
 }
 
@@ -478,6 +493,7 @@ module.exports = async function handler(req, res) {
     clientName:clean(raw.clientName, 160), services:Array.isArray(raw.services) ? raw.services.slice(0, 12).map(value => clean(value, 180)).filter(Boolean) : [],
     total:Number(raw.total) || 0, createdAt:clean(raw.createdAt, 80), recordDate:clean(raw.recordDate, 80), latestActivityAt:clean(raw.latestActivityAt, 80),
     legacyNotes:clean(raw.legacyNotes, 2400), nextFollowUpAt:clean(raw.nextFollowUpAt, 80), lastFollowUpAt:clean(raw.lastFollowUpAt, 80),
+    sentAt:clean(raw.sentAt, 80), deliveryStatus:clean(raw.deliveryStatus, 40), deliveryChannel:clean(raw.deliveryChannel, 30),
     followUpEnabled:raw.followUpEnabled !== false, followUpCount:Number(raw.followUpCount) || 0,
     deliveryEntries:Array.isArray(raw.deliveryEntries) ? raw.deliveryEntries.slice(0, 20).map(row => ({
       sentAt:clean(row.sentAt, 80), createdAt:clean(row.createdAt, 80), status:clean(row.status, 30),
