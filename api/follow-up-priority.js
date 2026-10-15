@@ -198,6 +198,19 @@ function daysSince(value, now) {
   return Math.max(0, Math.round((currentDay - valueDay) / 86400000));
 }
 
+function businessDaysUntil(fromIso, toIso) {
+  let cursor = dateFromIsoDay(fromIso);
+  const target = dateFromIsoDay(toIso);
+  if (target <= cursor) return 0;
+  let count = 0;
+  while (cursor < target) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    const day = cursor.getUTCDay();
+    if (day !== 0 && day !== 6) count++;
+  }
+  return count;
+}
+
 function draftBaseline(item, now, signals) {
   const created = validDate(item.createdAt || item.recordDate);
   const ageDays = daysSince(created, now);
@@ -238,67 +251,46 @@ function pendingQuoteBaseline(item, now, signals) {
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   const latestResponse = responses[0];
   const latestResponseAt = validDate(latestResponse?.createdAt);
-  const latestNoteAfterDelivery = signals.latestEntryAt && (!latestDeliveryAt || signals.latestEntryAt > latestDeliveryAt);
   const total = Math.max(0, Number(item.total) || 0);
   const valueScore = total >= 2000 ? 20 : total >= 1000 ? 12 : total >= 500 ? 6 : 0;
-  const base = { score:45 + valueScore, opportunityScore:45 + valueScore, attemptCount:signals.attemptCount,
-    outcomeCode:signals.outcomeCode, noteExcerpt:signals.excerpt, effectiveActivityAt:(signals.latestEntryAt || latestDeliveryAt)?.toISOString() || '' };
+  const base = { score:45 + valueScore, opportunityScore:45 + valueScore, attemptCount:Number(item.followUpCount) || 0,
+    outcomeCode:'', noteExcerpt:'', effectiveActivityAt:latestDeliveryAt?.toISOString() || '' };
 
-  if (signals.doNotFollow || signals.declined) return { ...base, priority:'low', reasonCode:signals.doNotFollow ? 'do_not_follow' : 'customer_declined', recommendedDate:'',
-    reason:'The latest recorded outcome closes or suppresses customer contact.', recommendedAction:'Do not contact the customer unless a newer instruction reopens the quote.' };
-  if (signals.ownerHandling) return { ...base, priority:'owner', reasonCode:'owner_handling', recommendedDate:'',
-    reason:`Simon is handling this quote.${signals.excerpt ? ` Latest note: “${signals.excerpt}”.` : ''}`, recommendedAction:'Keep this in the owner queue until Simon records another outcome.' };
-  if (signals.explicitDate && compareIsoDays(signals.explicitDate, today) > 0) return { ...base, priority:'upcoming', reasonCode:'explicit_future_date', recommendedDate:signals.explicitDate,
-    reason:`The latest outcome schedules contact for ${signals.explicitDate}.`, recommendedAction:'Wait until the selected business date before making the next contact.' };
-  if (signals.explicitDate) return { ...base, priority:'urgent', reasonCode:'follow_up_due', recommendedDate:today,
-    reason:`The selected follow-up date ${signals.explicitDate} is due.`, recommendedAction:'Complete the promised personal follow-up today and record the outcome.' };
-  if (signals.customerWillInitiate) return { ...base, priority:'low', reasonCode:'customer_will_initiate', recommendedDate:'',
-    reason:'The latest outcome says the customer will initiate contact.', recommendedAction:'Wait for the customer unless a new instruction is recorded.' };
-  if (signals.interested) return { ...base, priority:'urgent', reasonCode:'ready_to_book', recommendedDate:today,
-    reason:`The latest recorded outcome says the customer is ready to proceed.${signals.excerpt ? ` Latest note: “${signals.excerpt}”.` : ''}`,
-    recommendedAction:'Contact the customer promptly and move the quote into booking.' };
+  if (item.followUpEnabled === false) return { ...base, priority:'low', timingBand:'not_scheduled', reasonCode:'follow_up_disabled', recommendedDate:'',
+    reason:'Quote follow-ups are switched off.', recommendedAction:'No quote follow-up is scheduled.' };
 
   if (latestResponseAt && (!latestDeliveryAt || latestResponseAt > latestDeliveryAt)) {
-    if (['call_request', 'correction'].includes(latestResponse.responseType)) return { ...base, priority:'urgent', reasonCode:`portal_${latestResponse.responseType}`, recommendedDate:today,
+    if (['call_request', 'correction'].includes(latestResponse.responseType)) return { ...base, priority:'urgent', timingBand:'this_week', reasonCode:`portal_${latestResponse.responseType}`, recommendedDate:today,
       reason:latestResponse.responseType === 'call_request' ? 'The customer requested a call through the quote portal.' : 'The customer requested a quote correction through the portal.',
       recommendedAction:latestResponse.responseType === 'call_request' ? 'Call the customer and record the outcome.' : 'Review the requested change, update the quote, and contact the customer.' };
     if (latestResponse.responseType === 'more_time') {
       const scheduled = validDate(latestResponse.contactAgainAt || item.nextFollowUpAt);
-      return { ...base, priority:'waiting', reasonCode:'customer_requested_more_time', recommendedDate:scheduled ? localIso(scheduled) : '',
+      const scheduledDay = scheduled ? localIso(scheduled) : '';
+      const remaining = scheduledDay ? businessDaysUntil(today, scheduledDay) : 99;
+      return { ...base, priority:remaining <= 5 ? 'urgent' : remaining <= 10 ? 'high' : 'upcoming', timingBand:remaining <= 5 ? 'this_week' : remaining <= 10 ? 'next_week' : 'later', reasonCode:'customer_requested_more_time', recommendedDate:scheduledDay,
         reason:`The customer requested more time through the portal${latestResponse.reason ? `: ${clean(latestResponse.reason, 160)}` : ''}.`,
         recommendedAction:scheduled ? 'Let the CRM contact the customer on their selected date; create a personal task only after that message’s response window.' : 'Keep the quote paused until a contact date is confirmed.' };
     }
   }
 
-  if (latestNoteAfterDelivery && signals.attempted) {
-    if (signals.attemptCount >= 3) return { ...base, priority:'review', reasonCode:'manual_attempt_review', recommendedDate:'',
-      reason:`Three consecutive unsuccessful personal follow-ups have been recorded.${signals.excerpt ? ` Latest note: “${signals.excerpt}”.` : ''}`,
-      recommendedAction:'Review the quote and choose: resume in 10 business days, schedule a specific date, pause for customer contact, close as no response, or assign to Simon.' };
-    const retryDate = addBusinessDays(localIso(signals.latestEntryAt), 3);
-    return { ...base, priority:compareIsoDays(retryDate, today) <= 0 ? 'urgent' : 'waiting', reasonCode:'manual_contact_cooldown', recommendedDate:retryDate,
-      reason:`The last personal contact attempt was unsuccessful; the standard three-business-day response window ${compareIsoDays(retryDate, today) <= 0 ? 'has ended' : 'is still open'}.`,
-      recommendedAction:compareIsoDays(retryDate, today) <= 0 ? 'Make the next personal follow-up and record the outcome.' : 'Wait for the customer to respond before trying again.' };
-  }
-
-  if (latestNoteAfterDelivery && signals.decisionPending) {
-    const retryDate = addBusinessDays(localIso(signals.latestEntryAt), 3);
-    return { ...base, priority:compareIsoDays(retryDate, today) <= 0 ? 'urgent' : 'waiting', reasonCode:'conversation_reset', recommendedDate:retryDate,
-      reason:'A customer conversation reset the response timer.', recommendedAction:compareIsoDays(retryDate, today) <= 0 ? 'Follow up after the agreed response window and record the outcome.' : 'Allow three business days from the conversation before following up.' };
-  }
-
   if (!latestDeliveryAt) {
     const scheduled = validDate(item.nextFollowUpAt);
-    return { ...base, priority:scheduled ? 'waiting' : 'low', reasonCode:scheduled ? 'automation_scheduled' : 'awaiting_automation',
+    return { ...base, priority:'low', timingBand:'not_scheduled', reasonCode:scheduled ? 'automation_scheduled' : 'awaiting_automation',
       recommendedDate:scheduled ? localIso(scheduled) : '', reason:'No successful automated quote follow-up delivery has been recorded yet.',
       recommendedAction:scheduled ? 'Let the CRM send the scheduled first follow-up; no personal contact is due.' : 'Check the quote delivery state in the CRM; do not create a personal follow-up from quote age alone.' };
   }
 
   const manualDueDate = addBusinessDays(localIso(latestDeliveryAt), 4);
-  const due = compareIsoDays(manualDueDate, today) <= 0;
+  const storedDate = validDate(item.nextFollowUpAt);
+  const lastFollowUpAt = validDate(item.lastFollowUpAt);
+  const nextDate = storedDate && lastFollowUpAt && lastFollowUpAt > latestDeliveryAt ? localIso(storedDate) : manualDueDate;
+  const remaining = businessDaysUntil(today, nextDate);
+  const timingBand = remaining <= 5 ? 'this_week' : remaining <= 10 ? 'next_week' : 'later';
+  const priority = timingBand === 'this_week' ? 'urgent' : timingBand === 'next_week' ? 'high' : 'upcoming';
   const sequence = Number(latestDelivery?.sequenceNumber) || deliveries.length;
-  return { ...base, priority:due ? 'urgent' : 'waiting', reasonCode:due ? 'manual_follow_up_due' : 'automated_follow_up_cooldown', recommendedDate:manualDueDate,
-    reason:`CRM follow-up ${sequence} was successfully sent by ${(latestDelivery.channel || 'message').toUpperCase()} on ${localIso(latestDeliveryAt)}; the four-business-day response window ${due ? 'has ended' : 'is still open'}.`,
-    recommendedAction:due ? 'Make a personal follow-up today and record the result.' : 'Wait for the customer during the CRM follow-up response window.' };
+  return { ...base, priority, timingBand, reasonCode:remaining === 0 ? 'manual_follow_up_due' : 'manual_follow_up_scheduled', recommendedDate:nextDate,
+    reason:`The next personal follow-up is booked for ${nextDate}${nextDate === manualDueDate ? `, four business days after CRM message ${sequence}` : ''}.`,
+    recommendedAction:remaining === 0 ? 'Follow up with the customer and record the structured outcome.' : `Follow up on ${nextDate}.` };
 }
 
 function baseline(item, now) {
@@ -388,11 +380,13 @@ function parseJson(text) {
   return match ? JSON.parse(match[0]) : null;
 }
 
-const SYSTEM = `You explain sales and booking follow-ups for SS Exterior Services in Victoria, Australia.
+const SYSTEM = `You classify unscheduled work and explain draft-quote review items for SS Exterior Services in Victoria, Australia.
 
 The application's fixed business rules have already assigned each priority. Do not classify, rank, or change priority. Read the newest timestamped note first; it supersedes conflicting older notes. Use the supplied baseline reason code, note excerpt, dates, age, and value to explain the situation and recommend the next concrete action. Treat dates as Australian day/month/year and operate in the Australia/Melbourne timezone.
 
-Return strict JSON only: {"priorities":[{"id":"exact supplied id","reason":"one concise sentence explicitly referencing the newest relevant note when one exists","recommendedAction":"one specific next action","timingAssessment":"now|soon|wait|no_contact"}]}.
+For every unscheduled_job, classify the booking timing from its internal communications as exactly this_month, next_month, or later. Use later when the notes do not support either of the first two categories. Draft quotes keep the supplied baseline.
+
+Return strict JSON only: {"priorities":[{"id":"exact supplied id","reason":"one concise sentence explicitly referencing the newest relevant note when one exists","recommendedAction":"one specific next action","timingAssessment":"now|soon|wait|no_contact","schedulingBand":"this_month|next_month|later"}]}.
 
 Return exactly one result for every supplied item. Set timingAssessment to now for action today; soon for any dated action within this week (including a short response cooldown); wait only for a date beyond this week or customer-led contact; and no_contact for an explicit instruction not to contact. Never invent facts or urgency labels.`;
 
@@ -437,6 +431,8 @@ function mergedResult(item, fallback, ai) {
   const aiTimingAssessment = ['now', 'soon', 'wait', 'no_contact'].includes(ai?.timingAssessment) ? ai.timingAssessment : '';
   const timingAssessment = deterministicTiming(fallback);
   const priorityConflict = timingConflict(fallback.priority, aiTimingAssessment, fallback.reasonCode);
+  const schedulingBand = item.kind === 'unscheduled_job' && ['this_month', 'next_month', 'later'].includes(ai?.schedulingBand)
+    ? ai.schedulingBand : item.kind === 'unscheduled_job' ? 'later' : (fallback.timingBand || '');
   return {
     id:item.id,
     kind:item.kind,
@@ -455,7 +451,9 @@ function mergedResult(item, fallback, ai) {
     effectiveActivityAt:fallback.effectiveActivityAt,
     opportunityScore:fallback.opportunityScore,
     attemptCount:fallback.attemptCount,
-    outcomeCode:fallback.outcomeCode
+    outcomeCode:fallback.outcomeCode,
+    schedulingBand,
+    timingBand:fallback.timingBand || ''
   };
 }
 
@@ -479,7 +477,8 @@ module.exports = async function handler(req, res) {
     id:clean(raw.id, 180), kind:['pending_quote', 'draft_quote', 'unscheduled_job', 'recurring_job'].includes(raw.kind) ? raw.kind : 'unscheduled_job',
     clientName:clean(raw.clientName, 160), services:Array.isArray(raw.services) ? raw.services.slice(0, 12).map(value => clean(value, 180)).filter(Boolean) : [],
     total:Number(raw.total) || 0, createdAt:clean(raw.createdAt, 80), recordDate:clean(raw.recordDate, 80), latestActivityAt:clean(raw.latestActivityAt, 80),
-    legacyNotes:clean(raw.legacyNotes, 2400), nextFollowUpAt:clean(raw.nextFollowUpAt, 80),
+    legacyNotes:clean(raw.legacyNotes, 2400), nextFollowUpAt:clean(raw.nextFollowUpAt, 80), lastFollowUpAt:clean(raw.lastFollowUpAt, 80),
+    followUpEnabled:raw.followUpEnabled !== false, followUpCount:Number(raw.followUpCount) || 0,
     deliveryEntries:Array.isArray(raw.deliveryEntries) ? raw.deliveryEntries.slice(0, 20).map(row => ({
       sentAt:clean(row.sentAt, 80), createdAt:clean(row.createdAt, 80), status:clean(row.status, 30),
       channel:clean(row.channel, 30), sequenceNumber:Number(row.sequenceNumber) || 0

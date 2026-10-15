@@ -4242,6 +4242,18 @@ async function priorityAddNoteEntry() {
   try {
     const outcomeLabels = { voicemail_left:'Voicemail left', sms_sent:'SMS sent', email_sent:'Email sent', no_answer:'No answer', spoke_thinking:'Spoke — still thinking', ready_to_book:'Ready to book', call_on_date:'Follow up on selected date', customer_will_contact:'Customer will contact us', owner_handling:'Owner handling', declined:'Declined', do_not_contact:'Do not contact' };
     await createRecordNote(target.recordType, target.recordId, body || outcomeLabels[outcomeCode], { outcomeCode, nextContactDate });
+    if (candidate.kind === 'pending_quote' && outcomeCode) {
+      const retryOutcomes = new Set(['voicemail_left', 'sms_sent', 'email_sent', 'no_answer', 'spoke_thinking']);
+      const closeOutcomes = new Set(['ready_to_book', 'customer_will_contact', 'owner_handling', 'declined', 'do_not_contact']);
+      const nextDate = outcomeCode === 'call_on_date' ? nextContactDate : retryOutcomes.has(outcomeCode) ? priorityBusinessDate(3) : null;
+      const quoteChanges = {
+        last_follow_up_at:new Date().toISOString(),
+        follow_up_count:(Number(candidate.followUpCount) || 0) + 1,
+        next_follow_up_at:nextDate ? new Date(`${nextDate}T10:00:00`).toISOString() : null,
+        follow_up_enabled:!closeOutcomes.has(outcomeCode)
+      };
+      await priorityPatchRecord('quotes', candidate.recordId, quoteChanges);
+    }
     input.value = '';
     await priorityLoadNoteEntries(true);
     await loadAiFollowUpPriorities(true);
@@ -4271,17 +4283,16 @@ function priorityCandidateDate(value) {
 
 async function fetchFollowUpPriorityCandidates() {
   const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` };
-  const [quoteResponse, jobResponse, noteResponse, deliveryResponse, responseResponse, recurringResponse] = await Promise.all([
+  const [quoteResponse, jobResponse, noteResponse, deliveryResponse, responseResponse] = await Promise.all([
     fetch(`${SUPABASE_URL}/rest/v1/quotes?status=in.(pending,draft)&deleted_at=is.null&select=id,client,date,total,status,items,notes,created_at,delivery_status,delivery_channel,sent_at,last_follow_up_at,next_follow_up_at,follow_up_enabled,follow_up_paused_until,follow_up_count&order=created_at.desc`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/jobs?status=eq.Active&select=id,client,service,revenue,items,notes,description,created_at,completion_date,google_calendar_event_id&order=created_at.asc`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/record_notes?deleted_at=is.null&record_type=in.(quote,job,calendar_event)&select=record_type,record_id,body,author_name,created_at,outcome_code,next_contact_date,action_result&order=created_at.desc`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/quote_follow_up_deliveries?select=id,quote_id,sequence_number,channel,status,sent_at,error,created_at&order=created_at.desc`, { headers }),
-    fetch(`${SUPABASE_URL}/rest/v1/quote_responses?select=id,quote_id,response_type,reason,notes,preferred_timeframe,preferred_dates,contact_again_at,created_at&order=created_at.desc`, { headers }),
-    fetch(`${SUPABASE_URL}/rest/v1/recurring_jobs?active=eq.true&select=id,client,service,description,revenue,frequency,next_date,notes,source_job_id,created_at,custom_days&order=next_date.asc.nullslast`, { headers })
+    fetch(`${SUPABASE_URL}/rest/v1/quote_responses?select=id,quote_id,response_type,reason,notes,preferred_timeframe,preferred_dates,contact_again_at,created_at&order=created_at.desc`, { headers })
   ]);
-  if (!quoteResponse.ok || !jobResponse.ok || !noteResponse.ok || !deliveryResponse.ok || !responseResponse.ok || !recurringResponse.ok) throw new Error('Could not load the complete follow-up data set.');
-  const [quotes, jobs, notes, deliveries, quoteResponses, recurringJobs] = await Promise.all([
-    quoteResponse.json(), jobResponse.json(), noteResponse.json(), deliveryResponse.json(), responseResponse.json(), recurringResponse.json()
+  if (!quoteResponse.ok || !jobResponse.ok || !noteResponse.ok || !deliveryResponse.ok || !responseResponse.ok) throw new Error('Could not load the complete follow-up data set.');
+  const [quotes, jobs, notes, deliveries, quoteResponses] = await Promise.all([
+    quoteResponse.json(), jobResponse.json(), noteResponse.json(), deliveryResponse.json(), responseResponse.json()
   ]);
   let calendarEvents = [];
   try { calendarEvents = (await ujFetchCalendarEvents()).events || []; } catch (error) { console.warn('Standalone unscheduled calendar events were not included:', error); }
@@ -4304,11 +4315,13 @@ async function fetchFollowUpPriorityCandidates() {
       id:`quote:${quote.id}`, kind:quote.status === 'draft' ? 'draft_quote' : 'pending_quote', recordId:String(quote.id), clientName:quote.client || 'Unknown client',
       services:(quote.items || []).map(item => item.description || item.name).filter(name => name && name !== 'TOTAL'),
       total:Number(quote.total) || 0, createdAt:quote.created_at, recordDate:quote.date,
-      latestActivityAt:entries[0]?.at || quote.created_at || quote.date, legacyNotes:recordNotesWithoutProjection(quote.notes),
-      recordLegacyNotes:recordNotesWithoutProjection(quote.notes), noteEntries:entries,
+      latestActivityAt:quote.status === 'draft' ? (entries[0]?.at || quote.created_at || quote.date) : (quote.last_follow_up_at || quote.sent_at || quote.created_at || quote.date),
+      legacyNotes:quote.status === 'draft' ? recordNotesWithoutProjection(quote.notes) : '',
+      recordLegacyNotes:recordNotesWithoutProjection(quote.notes), noteEntries:quote.status === 'draft' ? entries : [],
       deliveryEntries:deliveriesByQuote[quote.id] || [], responseEntries:responsesByQuote[quote.id] || [],
       nextFollowUpAt:quote.next_follow_up_at, sentAt:quote.sent_at, deliveryStatus:quote.delivery_status,
-      followUpEnabled:quote.follow_up_enabled !== false, followUpPausedUntil:quote.follow_up_paused_until
+      followUpEnabled:quote.follow_up_enabled !== false, followUpPausedUntil:quote.follow_up_paused_until,
+      lastFollowUpAt:quote.last_follow_up_at, followUpCount:Number(quote.follow_up_count) || 0
     };
   });
   const unscheduledJobs = jobs.filter(job => ujIsBlankDate(job.completion_date));
@@ -4336,15 +4349,7 @@ async function fetchFollowUpPriorityCandidates() {
       legacyNotes:recordNotesWithoutProjection(event.description), recordLegacyNotes:recordNotesWithoutProjection(event.description), noteEntries:entries
     };
   });
-  const recurringCandidates = recurringJobs.filter(job => !job.next_date || job.notes || job.description).map(job => ({
-    id:`recurring:${job.id}`, kind:'recurring_job', sourceRecordType:'recurring_job', recordId:String(job.id),
-    clientName:job.client || 'Unknown client', services:[job.service || 'Recurring service'], total:Number(job.revenue) || 0,
-    createdAt:job.created_at, recordDate:job.next_date, latestActivityAt:job.created_at,
-    legacyNotes:[job.description, job.notes, job.next_date ? `Recurring visit due ${job.next_date}` : 'Recurring visit date is not set'].filter(Boolean).join(' | '),
-    recordLegacyNotes:[job.description, job.notes].filter(Boolean).join(' | '), noteEntries:[], recurringFrequency:job.frequency,
-    sourceJobId:job.source_job_id || '', nextVisitDate:job.next_date || ''
-  }));
-  return [...quoteCandidates, ...jobCandidates, ...calendarCandidates, ...recurringCandidates];
+  return [...quoteCandidates, ...jobCandidates, ...calendarCandidates];
 }
 
 function renderAiFollowUpPriorities(candidates, analysis) {
@@ -4354,43 +4359,36 @@ function renderAiFollowUpPriorities(candidates, analysis) {
   if (!container || !overview || !status) return;
   const resultById = new Map((analysis.priorities || []).map(result => [result.id, result]));
   const rows = candidates.map(candidate => ({ ...candidate, ...(resultById.get(candidate.id) || {}) }));
-  const groups = [
-    ['urgent', '🔴 Action required'], ['high', '🟠 Internal note needs review'], ['review', '🟣 Three-attempt review'],
-    ['waiting', '🕓 Waiting for customer or CRM'], ['upcoming', '⚪ Scheduled later'],
-    ['owner', '👤 Owner handling — Simon’s queue'], ['low', '🔵 No action identified']
-  ];
-  const counts = Object.fromEntries(groups.map(([key]) => [key, rows.filter(row => row.priority === key).length]));
+  const quoteRows = rows.filter(row => row.kind === 'pending_quote');
+  const jobRows = rows.filter(row => row.kind === 'unscheduled_job');
+  const quoteBands = [['this_week', '🔴 This week'], ['next_week', '🟡 Next week'], ['later', '🟢 Later'], ['not_scheduled', '⚪ Not currently scheduled']];
+  const jobBands = [['this_month', '🔴 Book this month'], ['next_month', '🟡 Book next month'], ['later', '🟢 Later in the year']];
   const draftCount = rows.filter(row => row.kind === 'draft_quote').length;
   overview.innerHTML = [
-    ['Action required', counts.urgent + counts.high], ['Waiting', counts.waiting + counts.upcoming],
-    ['Needs review', counts.review], ['Drafts checked', draftCount]
+    ['Quotes this week', quoteRows.filter(row => row.timingBand === 'this_week').length],
+    ['Quotes next week', quoteRows.filter(row => row.timingBand === 'next_week').length],
+    ['Jobs this month', jobRows.filter(row => row.schedulingBand === 'this_month').length], ['Drafts', draftCount]
   ].map(([label, value]) => `<div class="priority-stat"><div class="priority-stat-value">${value}</div><div class="priority-stat-label">${label}</div></div>`).join('');
-  const sourceLabel = analysis.source === 'ai' ? 'Stable priority rules + AI insight' : analysis.source === 'hybrid' ? 'Stable priority rules + partial AI insight' : 'Stable priority rules';
-  const dailyCount = rows.filter(row => row.inDailyQueue).length;
-  const ownerCount = counts.owner || 0;
-  status.textContent = `${sourceLabel} · ${dailyCount} in today's queue (target ${analysis.dailyQueueLimit || 10}) · ${ownerCount} owner-handled · ${rows.length} active item${rows.length === 1 ? '' : 's'} · Updated ${new Date(analysis.generatedAt || Date.now()).toLocaleString('en-AU')}${analysis.warning ? ` · ${analysis.warning}` : ''}`;
+  status.textContent = `Quote dates use CRM rules only · AI classifies unscheduled jobs only · ${rows.length} active item${rows.length === 1 ? '' : 's'} · Updated ${new Date(analysis.generatedAt || Date.now()).toLocaleString('en-AU')}${analysis.warning ? ` · ${analysis.warning}` : ''}`;
   if (!rows.length) {
     container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✓</div><div class="empty-state-title">Nothing needs following up</div><div class="empty-state-desc">No pending quotes or unscheduled jobs were found.</div></div>';
     return;
   }
-  const typeLabel = { pending_quote:'Pending quote', draft_quote:'Draft quote', unscheduled_job:'Unscheduled job', recurring_job:'Recurring job' };
-  const cardHtml = (row, key, queue = false) => `
+  const typeLabel = { pending_quote:'Pending quote', draft_quote:'Draft quote', unscheduled_job:'Unscheduled job' };
+  const cardHtml = (row, key) => `
     <div class="priority-card priority-card--${key}" onclick="openPriorityItem('${_escHtml(row.id)}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPriorityItem('${_escHtml(row.id)}')}">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;"><div><div style="font-size:15px;font-weight:800;color:var(--text1);">${queue ? `<span class="priority-queue-number">${row.queuePosition}</span>` : ''}${_escHtml(row.clientName)}</div><div style="font-size:12px;color:var(--ss-green);margin-top:3px;">${_escHtml(row.services.join(' + ') || typeLabel[row.kind])}</div></div><span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);white-space:nowrap;">${typeLabel[row.kind]}</span></div>
-      <div class="priority-card-meta"><span>${row.recommendedDate ? `Due ${_escHtml(priorityCandidateDate(row.recommendedDate))}` : 'No contact scheduled'}</span>${row.kind === 'pending_quote' ? `<span>${_escHtml(String(row.attemptCount || 0))} recent personal attempt${Number(row.attemptCount) === 1 ? '' : 's'}</span>` : ''}${row.outcomeCode ? `<span>${_escHtml(row.outcomeCode.replaceAll('_', ' '))}</span>` : ''}</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;"><div><div style="font-size:15px;font-weight:800;color:var(--text1);">${_escHtml(row.clientName)}</div><div style="font-size:12px;color:var(--ss-green);margin-top:3px;">${_escHtml(row.services.join(' + ') || typeLabel[row.kind])}</div></div><span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);white-space:nowrap;">${typeLabel[row.kind]}</span></div>
+      <div class="priority-card-meta"><span>${row.recommendedDate ? `Next follow-up ${_escHtml(priorityCandidateDate(row.recommendedDate))}` : row.kind === 'unscheduled_job' ? _escHtml(row.reason || 'Timing classified from internal communications') : 'No follow-up scheduled'}</span></div>
     </div>`;
-  const dailyRows = rows.filter(row => row.inDailyQueue).sort((a, b) => (a.queuePosition || 99) - (b.queuePosition || 99));
   const draftRows = rows.filter(row => row.kind === 'draft_quote').sort((a, b) => {
     const order = { urgent:0, high:1, upcoming:2, low:3 };
     return (order[a.priority] ?? 9) - (order[b.priority] ?? 9) || String(a.recommendedDate || '').localeCompare(String(b.recommendedDate || ''));
   });
-  const dailyHtml = `<section class="priority-group priority-daily-queue"><div class="priority-group-header"><div class="priority-group-title">Today's personal action list</div><span class="priority-group-count">${dailyRows.length}/${analysis.dailyQueueLimit || 10}</span></div><div class="priority-queue-help">Only customer contacts and internal commitments that are genuinely due appear here. CRM-scheduled messages remain in Waiting.</div>${dailyRows.map(row => cardHtml(row, row.priority, true)).join('') || '<div class="priority-no-notes">No personal calls or internal actions are due today.</div>'}</section>`;
   const draftHtml = `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">📝 Draft quote review</div><span class="priority-group-count">${draftRows.length}</span></div><div class="priority-queue-help">Draft age does not create urgency. Internal notes are checked for missing information, promised contact and due commitments.</div>${draftRows.map(row => cardHtml(row, row.priority)).join('') || '<div class="priority-no-notes">No draft quotes were found.</div>'}</section>`;
-  container.innerHTML = dailyHtml + draftHtml + groups.map(([key, label]) => {
-    const groupRows = rows.filter(row => row.kind !== 'draft_quote' && row.priority === key).sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
-    if (!groupRows.length) return '';
-    return `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">${label}</div><span class="priority-group-count">${groupRows.length}</span></div>${groupRows.map(row => cardHtml(row, key)).join('')}</section>`;
-  }).join('');
+  const section = (title, help, bandRows, key) => `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">${title}</div><span class="priority-group-count">${bandRows.length}</span></div>${help ? `<div class="priority-queue-help">${help}</div>` : ''}${bandRows.map(row => cardHtml(row, key)).join('') || '<div class="priority-no-notes">No items in this category.</div>'}</section>`;
+  const quoteHtml = `<div class="priority-system-heading"><strong>Quote follow-ups</strong><span>Dates and recorded outcomes only — no AI interpretation</span></div>` + quoteBands.map(([key, label]) => section(label, '', quoteRows.filter(row => (row.timingBand || 'not_scheduled') === key).sort((a,b) => String(a.recommendedDate || '').localeCompare(String(b.recommendedDate || ''))), key === 'this_week' ? 'urgent' : key === 'next_week' ? 'high' : 'low')).join('');
+  const jobsHtml = `<div class="priority-system-heading"><strong>Unscheduled jobs</strong><span>AI classification from internal communications</span></div>` + jobBands.map(([key, label]) => section(label, '', jobRows.filter(row => (row.schedulingBand || 'later') === key), key === 'this_month' ? 'urgent' : key === 'next_month' ? 'high' : 'low')).join('');
+  container.innerHTML = quoteHtml + jobsHtml + draftHtml;
 }
 
 async function loadAiFollowUpPriorities(force = false) {
