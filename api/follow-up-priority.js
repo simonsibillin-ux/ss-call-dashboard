@@ -198,8 +198,113 @@ function daysSince(value, now) {
   return Math.max(0, Math.round((currentDay - valueDay) / 86400000));
 }
 
+function draftBaseline(item, now, signals) {
+  const created = validDate(item.createdAt || item.recordDate);
+  const ageDays = daysSince(created, now);
+  const text = clean([signals.excerpt, item.legacyNotes].filter(Boolean).join(' '), 2400).toLowerCase();
+  const attentionLanguage = /\b(?:follow\s*up|call|contact|waiting for|need(?:s|ed)?|missing|before sending|send (?:the )?quote|due|urgent|customer asked|confirm|find out)\b/.test(text);
+  let priority = 'low';
+  let reasonCode = 'draft_no_action';
+  let recommendedDate = '';
+  let recommendedAction = 'Leave the draft open; no follow-up commitment was identified in its internal notes.';
+  if (signals.doNotFollow || signals.declined) {
+    priority = 'low'; reasonCode = signals.declined ? 'customer_declined' : 'do_not_follow';
+    recommendedAction = 'Review whether this draft should be archived; do not contact the customer automatically.';
+  } else if (signals.explicitDate && compareIsoDays(signals.explicitDate, signals.today) <= 0) {
+    priority = 'urgent'; reasonCode = 'draft_commitment_due'; recommendedDate = signals.today;
+    recommendedAction = 'Review the draft today because its internal note contains a due contact or completion commitment.';
+  } else if (signals.explicitDate) {
+    priority = 'upcoming'; reasonCode = 'draft_future_commitment'; recommendedDate = signals.explicitDate;
+    recommendedAction = 'Keep the draft open and review it on the date stated in the internal note.';
+  } else if (attentionLanguage) {
+    priority = 'high'; reasonCode = 'draft_note_needs_review'; recommendedDate = signals.today;
+    recommendedAction = 'Review the internal note and complete the missing action before sending or archiving the quote.';
+  }
+  return {
+    priority, score:Math.min(100, 20 + ageDays), opportunityScore:Math.min(100, 20 + ageDays), reasonCode,
+    reason:`${ageDays}-day-old draft.${signals.excerpt ? ` Internal note: “${signals.excerpt}”.` : ' No actionable internal note was found.'}`,
+    recommendedAction, recommendedDate, attemptCount:signals.attemptCount, outcomeCode:signals.outcomeCode,
+    noteExcerpt:signals.excerpt, effectiveActivityAt:signals.latestEntryAt?.toISOString() || created?.toISOString() || ''
+  };
+}
+
+function pendingQuoteBaseline(item, now, signals) {
+  const today = signals.today;
+  const deliveries = [...(item.deliveryEntries || [])].filter(row => row.status === 'sent' && validDate(row.sentAt || row.createdAt))
+    .sort((a, b) => String(b.sentAt || b.createdAt).localeCompare(String(a.sentAt || a.createdAt)));
+  const latestDelivery = deliveries[0];
+  const latestDeliveryAt = validDate(latestDelivery?.sentAt || latestDelivery?.createdAt);
+  const responses = [...(item.responseEntries || [])].filter(row => validDate(row.createdAt))
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const latestResponse = responses[0];
+  const latestResponseAt = validDate(latestResponse?.createdAt);
+  const latestNoteAfterDelivery = signals.latestEntryAt && (!latestDeliveryAt || signals.latestEntryAt > latestDeliveryAt);
+  const total = Math.max(0, Number(item.total) || 0);
+  const valueScore = total >= 2000 ? 20 : total >= 1000 ? 12 : total >= 500 ? 6 : 0;
+  const base = { score:45 + valueScore, opportunityScore:45 + valueScore, attemptCount:signals.attemptCount,
+    outcomeCode:signals.outcomeCode, noteExcerpt:signals.excerpt, effectiveActivityAt:(signals.latestEntryAt || latestDeliveryAt)?.toISOString() || '' };
+
+  if (signals.doNotFollow || signals.declined) return { ...base, priority:'low', reasonCode:signals.doNotFollow ? 'do_not_follow' : 'customer_declined', recommendedDate:'',
+    reason:'The latest recorded outcome closes or suppresses customer contact.', recommendedAction:'Do not contact the customer unless a newer instruction reopens the quote.' };
+  if (signals.ownerHandling) return { ...base, priority:'owner', reasonCode:'owner_handling', recommendedDate:'',
+    reason:`Simon is handling this quote.${signals.excerpt ? ` Latest note: “${signals.excerpt}”.` : ''}`, recommendedAction:'Keep this in the owner queue until Simon records another outcome.' };
+  if (signals.explicitDate && compareIsoDays(signals.explicitDate, today) > 0) return { ...base, priority:'upcoming', reasonCode:'explicit_future_date', recommendedDate:signals.explicitDate,
+    reason:`The latest outcome schedules contact for ${signals.explicitDate}.`, recommendedAction:'Wait until the selected business date before making the next contact.' };
+  if (signals.explicitDate) return { ...base, priority:'urgent', reasonCode:'follow_up_due', recommendedDate:today,
+    reason:`The selected follow-up date ${signals.explicitDate} is due.`, recommendedAction:'Complete the promised personal follow-up today and record the outcome.' };
+  if (signals.customerWillInitiate) return { ...base, priority:'low', reasonCode:'customer_will_initiate', recommendedDate:'',
+    reason:'The latest outcome says the customer will initiate contact.', recommendedAction:'Wait for the customer unless a new instruction is recorded.' };
+  if (signals.interested) return { ...base, priority:'urgent', reasonCode:'ready_to_book', recommendedDate:today,
+    reason:`The latest recorded outcome says the customer is ready to proceed.${signals.excerpt ? ` Latest note: “${signals.excerpt}”.` : ''}`,
+    recommendedAction:'Contact the customer promptly and move the quote into booking.' };
+
+  if (latestResponseAt && (!latestDeliveryAt || latestResponseAt > latestDeliveryAt)) {
+    if (['call_request', 'correction'].includes(latestResponse.responseType)) return { ...base, priority:'urgent', reasonCode:`portal_${latestResponse.responseType}`, recommendedDate:today,
+      reason:latestResponse.responseType === 'call_request' ? 'The customer requested a call through the quote portal.' : 'The customer requested a quote correction through the portal.',
+      recommendedAction:latestResponse.responseType === 'call_request' ? 'Call the customer and record the outcome.' : 'Review the requested change, update the quote, and contact the customer.' };
+    if (latestResponse.responseType === 'more_time') {
+      const scheduled = validDate(latestResponse.contactAgainAt || item.nextFollowUpAt);
+      return { ...base, priority:'waiting', reasonCode:'customer_requested_more_time', recommendedDate:scheduled ? localIso(scheduled) : '',
+        reason:`The customer requested more time through the portal${latestResponse.reason ? `: ${clean(latestResponse.reason, 160)}` : ''}.`,
+        recommendedAction:scheduled ? 'Let the CRM contact the customer on their selected date; create a personal task only after that message’s response window.' : 'Keep the quote paused until a contact date is confirmed.' };
+    }
+  }
+
+  if (latestNoteAfterDelivery && signals.attempted) {
+    if (signals.attemptCount >= 3) return { ...base, priority:'review', reasonCode:'manual_attempt_review', recommendedDate:'',
+      reason:`Three consecutive unsuccessful personal follow-ups have been recorded.${signals.excerpt ? ` Latest note: “${signals.excerpt}”.` : ''}`,
+      recommendedAction:'Review the quote and choose: resume in 10 business days, schedule a specific date, pause for customer contact, close as no response, or assign to Simon.' };
+    const retryDate = addBusinessDays(localIso(signals.latestEntryAt), 3);
+    return { ...base, priority:compareIsoDays(retryDate, today) <= 0 ? 'urgent' : 'waiting', reasonCode:'manual_contact_cooldown', recommendedDate:retryDate,
+      reason:`The last personal contact attempt was unsuccessful; the standard three-business-day response window ${compareIsoDays(retryDate, today) <= 0 ? 'has ended' : 'is still open'}.`,
+      recommendedAction:compareIsoDays(retryDate, today) <= 0 ? 'Make the next personal follow-up and record the outcome.' : 'Wait for the customer to respond before trying again.' };
+  }
+
+  if (latestNoteAfterDelivery && signals.decisionPending) {
+    const retryDate = addBusinessDays(localIso(signals.latestEntryAt), 3);
+    return { ...base, priority:compareIsoDays(retryDate, today) <= 0 ? 'urgent' : 'waiting', reasonCode:'conversation_reset', recommendedDate:retryDate,
+      reason:'A customer conversation reset the response timer.', recommendedAction:compareIsoDays(retryDate, today) <= 0 ? 'Follow up after the agreed response window and record the outcome.' : 'Allow three business days from the conversation before following up.' };
+  }
+
+  if (!latestDeliveryAt) {
+    const scheduled = validDate(item.nextFollowUpAt);
+    return { ...base, priority:scheduled ? 'waiting' : 'low', reasonCode:scheduled ? 'automation_scheduled' : 'awaiting_automation',
+      recommendedDate:scheduled ? localIso(scheduled) : '', reason:'No successful automated quote follow-up delivery has been recorded yet.',
+      recommendedAction:scheduled ? 'Let the CRM send the scheduled first follow-up; no personal contact is due.' : 'Check the quote delivery state in the CRM; do not create a personal follow-up from quote age alone.' };
+  }
+
+  const manualDueDate = addBusinessDays(localIso(latestDeliveryAt), 4);
+  const due = compareIsoDays(manualDueDate, today) <= 0;
+  const sequence = Number(latestDelivery?.sequenceNumber) || deliveries.length;
+  return { ...base, priority:due ? 'urgent' : 'waiting', reasonCode:due ? 'manual_follow_up_due' : 'automated_follow_up_cooldown', recommendedDate:manualDueDate,
+    reason:`CRM follow-up ${sequence} was successfully sent by ${(latestDelivery.channel || 'message').toUpperCase()} on ${localIso(latestDeliveryAt)}; the four-business-day response window ${due ? 'has ended' : 'is still open'}.`,
+    recommendedAction:due ? 'Make a personal follow-up today and record the result.' : 'Wait for the customer during the CRM follow-up response window.' };
+}
+
 function baseline(item, now) {
   const signals = noteSignals(item, now);
+  if (item.kind === 'draft_quote') return draftBaseline(item, now, signals);
+  if (item.kind === 'pending_quote') return pendingQuoteBaseline(item, now, signals);
   const created = validDate(item.createdAt || item.recordDate);
   const structuredActivity = validDate(item.latestActivityAt);
   const effectiveActivity = [structuredActivity, signals.latestEntryAt].filter(Boolean).sort((a, b) => b - a)[0] || created;
@@ -246,7 +351,7 @@ function baseline(item, now) {
   } else if (ageDays >= 10 || inactiveDays >= 7) {
     priority = 'high'; reasonCode = 'follow_up_due_soon'; recommendedDate = addBusinessDays(signals.today, 2);
   }
-  const kindLabel = item.kind === 'pending_quote' ? 'pending quote' : 'unscheduled job';
+  const kindLabel = item.kind === 'recurring_job' ? 'recurring job' : 'unscheduled job';
   const noteReason = signals.excerpt ? ` Notes reviewed: “${signals.excerpt}”.` : ' No existing note was found.';
   const reason = `${ageDays}-day-old ${kindLabel}${total ? ` worth $${total.toFixed(0)}` : ''}; latest note/activity is ${inactiveDays} day${inactiveDays === 1 ? '' : 's'} old.${noteReason}`;
   if (reasonCode === 'explicit_future_date') action = `Wait until ${dateFromIsoDay(signals.explicitDate).toLocaleDateString('en-AU', { timeZone:'Australia/Melbourne' })} and follow up as requested in the latest note.`;
@@ -267,8 +372,8 @@ function baseline(item, now) {
 }
 
 function assignDailyQueue(priorities) {
-  const order = { urgent:0, high:1, medium:2, low:3, upcoming:4, owner:5 };
-  const eligible = priorities.filter(row => !['low', 'upcoming', 'owner'].includes(row.priority))
+  const order = { urgent:0, high:1, medium:2, review:3, waiting:4, low:5, upcoming:6, owner:7 };
+  const eligible = priorities.filter(row => row.kind !== 'draft_quote' && !['low', 'upcoming', 'owner', 'waiting', 'review'].includes(row.priority))
     .sort((a, b) => (order[a.priority] - order[b.priority]) || compareIsoDays(a.recommendedDate, b.recommendedDate) || (b.opportunityScore - a.opportunityScore));
   const urgentCount = eligible.filter(row => row.priority === 'urgent').length;
   const queueSize = Math.max(DAILY_QUEUE_LIMIT, urgentCount);
@@ -322,6 +427,7 @@ function deterministicTiming(fallback) {
   if (fallback.priority === 'high') return fallback.recommendedDate === localIso(new Date()) ? 'now' : 'soon';
   if (fallback.priority === 'medium') return 'soon';
   if (fallback.priority === 'upcoming') return 'wait';
+  if (fallback.priority === 'waiting' || fallback.priority === 'review') return 'wait';
   if (fallback.priority === 'owner') return 'wait';
   if (['do_not_follow', 'customer_declined'].includes(fallback.reasonCode)) return 'no_contact';
   return 'wait';
@@ -333,6 +439,7 @@ function mergedResult(item, fallback, ai) {
   const priorityConflict = timingConflict(fallback.priority, aiTimingAssessment, fallback.reasonCode);
   return {
     id:item.id,
+    kind:item.kind,
     priority:fallback.priority,
     score:fallback.score,
     reasonCode:fallback.reasonCode,
@@ -367,12 +474,20 @@ module.exports = async function handler(req, res) {
   else if (++currentRate.count > 20) return res.status(429).json({ error:'Too many priority refreshes. Please wait a minute.' });
 
   const now = new Date();
-  const rawItems = Array.isArray(req.body?.items) ? req.body.items.slice(0, 100) : [];
+  const rawItems = Array.isArray(req.body?.items) ? req.body.items.slice(0, 250) : [];
   const items = rawItems.map(raw => ({
-    id:clean(raw.id, 180), kind:['pending_quote', 'unscheduled_job'].includes(raw.kind) ? raw.kind : 'unscheduled_job',
+    id:clean(raw.id, 180), kind:['pending_quote', 'draft_quote', 'unscheduled_job', 'recurring_job'].includes(raw.kind) ? raw.kind : 'unscheduled_job',
     clientName:clean(raw.clientName, 160), services:Array.isArray(raw.services) ? raw.services.slice(0, 12).map(value => clean(value, 180)).filter(Boolean) : [],
     total:Number(raw.total) || 0, createdAt:clean(raw.createdAt, 80), recordDate:clean(raw.recordDate, 80), latestActivityAt:clean(raw.latestActivityAt, 80),
-    legacyNotes:clean(raw.legacyNotes, 2400),
+    legacyNotes:clean(raw.legacyNotes, 2400), nextFollowUpAt:clean(raw.nextFollowUpAt, 80),
+    deliveryEntries:Array.isArray(raw.deliveryEntries) ? raw.deliveryEntries.slice(0, 20).map(row => ({
+      sentAt:clean(row.sentAt, 80), createdAt:clean(row.createdAt, 80), status:clean(row.status, 30),
+      channel:clean(row.channel, 30), sequenceNumber:Number(row.sequenceNumber) || 0
+    })) : [],
+    responseEntries:Array.isArray(raw.responseEntries) ? raw.responseEntries.slice(0, 20).map(row => ({
+      responseType:clean(row.response_type || row.responseType, 40), reason:clean(row.reason, 240),
+      contactAgainAt:clean(row.contact_again_at || row.contactAgainAt, 80), createdAt:clean(row.created_at || row.createdAt, 80)
+    })) : [],
     noteEntries:Array.isArray(raw.noteEntries) ? raw.noteEntries.slice(0, 20).map(note => ({ at:clean(note.at, 80), body:clean(note.body, 900), author:clean(note.author, 100),
       outcomeCode:clean(note.outcomeCode, 40), nextContactDate:clean(note.nextContactDate, 20) })) : []
   })).filter(item => item.id && item.clientName);
@@ -380,8 +495,13 @@ module.exports = async function handler(req, res) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!items.length || !apiKey) return res.status(200).json({ generatedAt:now.toISOString(), source:'note-aware rules', dailyQueueLimit:DAILY_QUEUE_LIMIT, priorities:assignDailyQueue(items.map(item => mergedResult(item, fallbacks[item.id]))) });
 
+  // Pending-quote timing is entirely event-driven. AI is reserved for drafts
+  // and scheduling records where interpreting internal prose is useful.
+  const aiItems = items.filter(item => item.kind !== 'pending_quote');
+  if (!aiItems.length) return res.status(200).json({ generatedAt:now.toISOString(), source:'workflow rules', dailyQueueLimit:DAILY_QUEUE_LIMIT,
+    priorities:assignDailyQueue(items.map(item => mergedResult(item, fallbacks[item.id]))) });
   const batches = [];
-  for (let index = 0; index < items.length; index += BATCH_SIZE) batches.push(items.slice(index, index + BATCH_SIZE));
+  for (let index = 0; index < aiItems.length; index += BATCH_SIZE) batches.push(aiItems.slice(index, index + BATCH_SIZE));
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {

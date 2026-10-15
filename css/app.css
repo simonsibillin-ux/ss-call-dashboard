@@ -647,6 +647,8 @@
   .priority-card--low { border-left-color: #2563eb; }
   .priority-card--upcoming { border-left-color: #64748b; }
   .priority-card--owner { border-left-color: #7c3aed; }
+  .priority-card--waiting { border-left-color: #0891b2; }
+  .priority-card--review { border-left-color: #9333ea; }
 
   .priority-card-reason { color: var(--text2); font-size: 12px; line-height: 1.5; margin-top: 8px; }
   .priority-card-action { background: #f0fdf4; border-radius: 7px; color: #166534; font-size: 12px; font-weight: 700; line-height: 1.45; margin-top: 9px; padding: 8px 10px; }
@@ -664,6 +666,8 @@
   .priority-detail-level--low { background: #dbeafe; color: #1e40af; }
   .priority-detail-level--upcoming { background: #e2e8f0; color: #475569; }
   .priority-detail-level--owner { background: #ede9fe; color: #5b21b6; }
+  .priority-detail-level--waiting { background: #cffafe; color: #155e75; }
+  .priority-detail-level--review { background: #f3e8ff; color: #6b21a8; }
   .priority-detail-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 14px; }
   .priority-detail-grid > div { background: var(--surface2); border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px; }
   .priority-detail-grid span { color: var(--text3); display: block; font-size: 10px; font-weight: 700; margin-bottom: 3px; text-transform: uppercase; }

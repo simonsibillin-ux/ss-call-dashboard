@@ -442,7 +442,7 @@
               </div>
               <div class="form-group">
                 <label class="form-label">Phone Number *</label>
-                <input class="form-input" id="client-phone" placeholder="04XX XXX XXX" oninput="updateClientInfo()">
+                <input class="form-input" id="client-phone" placeholder="04XX XXX XXX" oninput="updateClientInfo()" onblur="loadClientAttributionDefault()">
               </div>
             </div>
             <div class="form-row">
@@ -473,7 +473,8 @@
             <div class="form-row">
               <div class="form-group">
                 <label class="form-label">Lead Source <span style="color:var(--text3);font-weight:400;">(if known)</span></label>
-                <select class="form-input" id="client-source" onchange="updateClientInfo()" style="background:#fff;">
+                <select class="form-input" id="client-source" onchange="updateClientSource()" style="background:#fff;">
+                  <option value="">— Select source —</option>
                   <option value="phone-call">📞 Inbound phone call</option>
                   <option value="meta-ad">📘 Meta / Facebook Ad</option>
                   <option value="google-ad">🔍 Google Ad</option>
@@ -483,8 +484,10 @@
                   <option value="other">❓ Other</option>
                 </select>
               </div>
-              <div class="form-group" style="display:flex;align-items:flex-end;">
-                <div style="font-size:11px;color:var(--text3);padding-bottom:4px;">Select if source is already known. Ask the client at end of call if unsure.</div>
+              <div class="form-group" id="client-campaign-group" style="display:none;">
+                <label class="form-label">Ad Campaign *</label>
+                <input class="form-input" id="client-campaign" list="campaign-options" placeholder="Select or enter campaign" oninput="updateClientCampaign()">
+                <datalist id="campaign-options"></datalist>
               </div>
             </div>
             <div id="client-warning" class="alert alert-info" style="display:none;">
@@ -600,12 +603,12 @@
       <!-- ==================== FOLLOW-UPS PAGE ==================== -->
       <div class="page" id="page-followups">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;">
-          <div><div class="page-title">AI Follow-up Priorities</div><div class="page-subtitle">What to action next across pending quotes and unscheduled jobs</div></div>
-          <button id="priority-refresh-btn" class="btn-secondary" onclick="loadAiFollowUpPriorities(true)" style="width:auto;">✨ Reanalyse</button>
+          <div><div class="page-title">Follow-up Centre</div><div class="page-subtitle">Personal actions after CRM automation, draft checks, and upcoming job scheduling</div></div>
+          <button id="priority-refresh-btn" class="btn-secondary" onclick="loadAiFollowUpPriorities(true)" style="width:auto;">↻ Refresh</button>
         </div>
         <div id="priority-status" style="font-size:11px;color:var(--text3);margin:-8px 0 14px;"></div>
         <div id="priority-overview" class="priority-overview"></div>
-        <div id="priority-list"><div class="empty-state"><div class="empty-state-icon">✨</div><div class="empty-state-title">Analysing follow-ups…</div><div class="empty-state-desc">Reading live quotes, jobs, and their note history</div></div></div>
+        <div id="priority-list"><div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">Building the follow-up centre…</div><div class="empty-state-desc">Reading CRM deliveries, customer responses, internal notes, drafts and jobs</div></div></div>
       </div>
 
       <div class="modal-overlay" id="priority-detail-modal" onclick="if(event.target===this) closePriorityDetail()">
@@ -950,7 +953,7 @@ let currentService = null;
 let currentStep = 0;
 let answers = {};
 let multiServiceItems = []; // accumulated line items for multi-service quotes
-let clientInfo = { name: '', phone: '', suburb: '', email: '', address: '', source: '', travelKm: 0, travelCost: 0 };
+let clientInfo = { name: '', phone: '', suburb: '', email: '', address: '', source: '', campaignName: '', campaignId: '', travelKm: 0, travelCost: 0 };
 
 function serviceAmount(item) {
   const value = Number(item && item.rawTotal !== undefined ? item.rawTotal : item && item.total);
@@ -1498,12 +1501,132 @@ function updateClientInfo() {
   clientInfo.suburb = document.getElementById('client-suburb').value.trim();
   clientInfo.email = document.getElementById('client-email').value.trim();
   clientInfo.address = (document.getElementById('client-address') || {}).value?.trim() || '';
-  clientInfo.source = (document.getElementById('client-source') || {}).value || 'phone-call';
+  clientInfo.source = (document.getElementById('client-source') || {}).value || '';
+  clientInfo.campaignName = (document.getElementById('client-campaign') || {}).value?.trim() || '';
+  const campaignGroup = document.getElementById('client-campaign-group');
+  const isAd = clientInfo.source === 'meta-ad' || clientInfo.source === 'google-ad';
+  if (campaignGroup) campaignGroup.style.display = isAd ? 'block' : 'none';
+  if (isAd) loadCampaignOptions();
+}
+
+function updateClientSource() {
+  const nextSource = document.getElementById('client-source')?.value || '';
+  if (clientInfo.source && clientInfo.source !== nextSource) {
+    const campaignInput = document.getElementById('client-campaign');
+    if (campaignInput) campaignInput.value = '';
+    clientInfo.campaignId = '';
+  }
+  updateClientInfo();
+}
+
+function crmAttributionSource(source) {
+  return ({ 'meta-ad':'Meta Ads', 'google-ad':'Google Ads', website:'Website', referral:'Referral', repeat:'Repeat customer', 'phone-call':'Inbound phone call', other:'Other' })[source] || source || null;
+}
+
+function uiAttributionSource(source) {
+  const value = String(source || '').toLowerCase();
+  if (value.includes('meta') || value.includes('facebook')) return 'meta-ad';
+  if (value.includes('google')) return 'google-ad';
+  if (value.includes('website')) return 'website';
+  if (value.includes('refer')) return 'referral';
+  if (value.includes('repeat')) return 'repeat';
+  if (value.includes('phone') || value.includes('call')) return 'phone-call';
+  return value ? 'other' : '';
+}
+
+function quoteAttributionPayload(method = 'rep_selected') {
+  return {
+    ad_source: crmAttributionSource(clientInfo.source),
+    campaign_name: clientInfo.campaignName || null,
+    campaign_id: clientInfo.campaignId || null,
+    attribution_method: method
+  };
+}
+
+function validateQuoteAttribution() {
+  if (!clientInfo.source) { showToast('Select the lead source before saving the quote', 'error'); return false; }
+  if ((clientInfo.source === 'meta-ad' || clientInfo.source === 'google-ad') && !clientInfo.campaignName) {
+    showToast('Select or enter the ad campaign before saving the quote', 'error');
+    return false;
+  }
+  return true;
+}
+
+let _campaignOptionsLoaded = false;
+let _campaignOptionsLoading = false;
+let _campaignOptions = [];
+async function loadCampaignOptions() {
+  if (_campaignOptionsLoaded || _campaignOptionsLoading) return;
+  _campaignOptionsLoading = true;
+  try {
+    const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` };
+    const [clientsRes, bookingsRes] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/clients?campaign_name=not.is.null&select=campaign_name,campaign_id`, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/bookings?campaign_name=not.is.null&select=campaign_name,campaign_id`, { headers })
+    ]);
+    const rows = [...(clientsRes.ok ? await clientsRes.json() : []), ...(bookingsRes.ok ? await bookingsRes.json() : [])];
+    const unique = [...new Map(rows.filter(row=>row.campaign_name).map(row=>[row.campaign_name,row])).values()];
+    _campaignOptions = unique;
+    document.querySelectorAll('#campaign-options, #quote-end-campaign-options').forEach(list => {
+      list.innerHTML = unique.map(row=>`<option value="${_escHtml(row.campaign_name)}"></option>`).join('');
+    });
+    _campaignOptionsLoaded = true;
+  } catch (_) {
+  } finally {
+    _campaignOptionsLoading = false;
+  }
+}
+
+function updateClientCampaign() {
+  const value = document.getElementById('client-campaign')?.value?.trim() || '';
+  const match = _campaignOptions.find(row => row.campaign_name === value);
+  clientInfo.campaignId = match?.campaign_id || '';
+  updateClientInfo();
+}
+
+async function loadClientAttributionDefault() {
+  const phone = String(clientInfo.phone || '').trim();
+  if (!phone || clientInfo.source) return;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/clients?phone=eq.${encodeURIComponent(phone)}&select=source,campaign_name,campaign_id&limit=1`, { headers:{ 'apikey':SUPABASE_KEY, 'Authorization':`Bearer ${SUPABASE_KEY}` } });
+    const rows = res.ok ? await res.json() : [];
+    if (!rows[0]) return;
+    const source = uiAttributionSource(rows[0].source);
+    const sourceInput = document.getElementById('client-source');
+    const campaignInput = document.getElementById('client-campaign');
+    if (sourceInput) sourceInput.value = source;
+    if (campaignInput) campaignInput.value = rows[0].campaign_name || '';
+    clientInfo.campaignId = rows[0].campaign_id || '';
+    updateClientInfo();
+  } catch (_) {}
 }
 
 function syncQuoteEndSource() {
   const endSource = document.getElementById('quote-end-source');
   if (endSource && clientInfo.source) endSource.value = clientInfo.source;
+  const endCampaign = document.getElementById('quote-end-campaign');
+  if (endCampaign) {
+    endCampaign.value = clientInfo.campaignName || '';
+    endCampaign.style.display = (clientInfo.source === 'meta-ad' || clientInfo.source === 'google-ad') ? 'block' : 'none';
+  }
+}
+
+function updateQuoteEndAttribution() {
+  const source = document.getElementById('quote-end-source')?.value || '';
+  const campaign = document.getElementById('quote-end-campaign');
+  const sourceInput = document.getElementById('client-source');
+  if (sourceInput) sourceInput.value = source;
+  if (campaign) campaign.style.display = (source === 'meta-ad' || source === 'google-ad') ? 'block' : 'none';
+  updateClientSource();
+  loadCampaignOptions();
+}
+
+function updateQuoteEndCampaign() {
+  const value = document.getElementById('quote-end-campaign')?.value || '';
+  const campaignInput = document.getElementById('client-campaign');
+  if (campaignInput) campaignInput.value = value;
+  clientInfo.campaignId = '';
+  updateClientInfo();
 }
 
 function normaliseSuburb(raw) {
@@ -1955,7 +2078,9 @@ async function ensureClientProfile() {
     email: clientInfo.email || null,
     address: clientInfo.address || null,
     suburb: clientInfo.suburb || null,
-    source: clientInfo.source || 'phone-call'
+    source: crmAttributionSource(clientInfo.source),
+    campaign_name: clientInfo.campaignName || null,
+    campaign_id: clientInfo.campaignId || null
   };
   const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' };
   const existingRes = await fetch(
@@ -1992,6 +2117,7 @@ async function ensureClientProfile() {
 // Passing customNotes overrides the default Call Dashboard note string.
 async function saveQuoteToCRMWithOverride(total, serviceName, quoteItems, customNotes) {
   try {
+    if (!validateQuoteAttribution()) return;
     const quoteId = 'Q-' + Date.now();
     const clientId = await ensureClientProfile();
 
@@ -2015,6 +2141,7 @@ async function saveQuoteToCRMWithOverride(total, serviceName, quoteItems, custom
         status: 'pending',
         items: quoteItems,
         notes,
+        ...quoteAttributionPayload(),
         created_at: new Date().toISOString()
       })
     });
@@ -2439,7 +2566,7 @@ function showQuote() {
       <div style="background:#e8f0fe;border:1px solid #bfdbfe;border-radius:10px;padding:12px 14px;margin:12px 0;">
         <div style="font-size:12px;font-weight:700;color:#1a56cc;margin-bottom:4px;">💬 Lead Source — Ask Before Closing</div>
         <div style="font-size:12px;color:#1e3a5f;margin-bottom:8px;">"Just out of curiosity — how did you hear about us today?"</div>
-        <select id="quote-end-source" onchange="(function(){const v=document.getElementById('quote-end-source').value;if(v){const s=document.getElementById('client-source');if(s){s.value=v;updateClientInfo();}}})()" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #bfdbfe;background:#fff;font-size:12px;font-family:inherit;">
+        <select id="quote-end-source" onchange="updateQuoteEndAttribution()" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #bfdbfe;background:#fff;font-size:12px;font-family:inherit;">
           <option value="">— Select source after asking —</option>
           <option value="phone-call">📞 Inbound phone call</option>
           <option value="meta-ad">📘 Meta / Facebook Ad</option>
@@ -2449,6 +2576,8 @@ function showQuote() {
           <option value="repeat">🔁 Repeat customer</option>
           <option value="other">❓ Other</option>
         </select>
+        <input id="quote-end-campaign" list="quote-end-campaign-options" oninput="updateQuoteEndCampaign()" placeholder="Select or enter ad campaign *" style="display:none;width:100%;box-sizing:border-box;margin-top:8px;padding:8px 10px;border-radius:8px;border:1px solid #bfdbfe;background:#fff;font-size:12px;font-family:inherit;">
+        <datalist id="quote-end-campaign-options"></datalist>
       </div>
 
       <details class="detail-accordion detail-accordion--green">
@@ -2509,6 +2638,7 @@ async function supabase(table, method, data) {
 
 async function saveQuoteToCRM(total) {
   try {
+    if (!validateQuoteAttribution()) return;
     const svc = SERVICES[currentService];
     const quoteId = 'Q-' + Date.now();
     const clientId = await ensureClientProfile();
@@ -2530,6 +2660,7 @@ async function saveQuoteToCRM(total) {
       status: 'pending',
       items: quoteItems,
       notes: '',
+      ...quoteAttributionPayload(),
       created_at: new Date().toISOString()
     });
 
@@ -2709,6 +2840,7 @@ async function acceptQuote(total) {
   const svc = SERVICES[currentService];
   const items = getMultiItems();
   if (!svc && !items.length) return;
+  if (!validateQuoteAttribution()) return;
 
   // Require full property address before proceeding
   if (!clientInfo.address || clientInfo.address.length < 5) {
@@ -2768,7 +2900,7 @@ async function _doAcceptQuote(total) {
     const acceptedQuoteRes = await fetch(`${SUPABASE_URL}/rest/v1/quotes`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ id: quoteId, client: clientInfo.name, client_id: clientId, date: localToday(), total, status: 'approved', items: lineItems, notes: (window._chatPdfCustomizations || []).filter(Boolean).join(' | '), created_at: new Date().toISOString() })
+      body: JSON.stringify({ id: quoteId, client: clientInfo.name, client_id: clientId, date: localToday(), total, status: 'approved', follow_up_enabled: false, follow_up_paused_until: null, next_follow_up_at: null, items: lineItems, notes: (window._chatPdfCustomizations || []).filter(Boolean).join(' | '), ...quoteAttributionPayload(), created_at: new Date().toISOString() })
     });
     if (!acceptedQuoteRes.ok) throw new Error(`Accepted quote save failed: ${await acceptedQuoteRes.text()}`);
 
@@ -2776,7 +2908,7 @@ async function _doAcceptQuote(total) {
     const jobRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
-      body: JSON.stringify({ id: jobId, client: clientInfo.name, client_id: clientId, service: combinedLabel, description: `Phone-quoted job. Address: ${clientInfo.address || clientInfo.suburb}.`, status: 'Active', revenue: total, items: lineItems, hours: 0, completion_date: null, notes: (window._chatPdfCustomizations || []).filter(Boolean).join(' | '), created_at: new Date().toISOString() })
+      body: JSON.stringify({ id: jobId, client: clientInfo.name, client_id: clientId, quote_id: quoteId, service: combinedLabel, description: `Phone-quoted job. Address: ${clientInfo.address || clientInfo.suburb}.`, status: 'Active', revenue: total, items: lineItems, hours: 0, completion_date: null, notes: (window._chatPdfCustomizations || []).filter(Boolean).join(' | '), ...quoteAttributionPayload('quote_inherited'), created_at: new Date().toISOString() })
     });
     if (!jobRes.ok) throw new Error(`Job creation failed: ${await jobRes.text()}`);
     await createRecordNote('quote', quoteId, `Accepted on call via Call Dashboard. Service: ${combinedLabel}. Address: ${clientInfo.address || clientInfo.suburb}. Source: ${clientInfo.source || 'phone-call'}. Travel: $${clientInfo.travelCost.toFixed(2)}. Rep: ${currentRep ? currentRep.name : 'unknown'}.`);
@@ -3911,7 +4043,7 @@ function priorityNavItem(label) {
 }
 
 function priorityRecordLabel(candidate) {
-  return candidate?.kind === 'pending_quote' ? 'pending quote' : 'unscheduled job';
+  return ({ pending_quote:'pending quote', draft_quote:'draft quote', recurring_job:'recurring job', unscheduled_job:'unscheduled job' })[candidate?.kind] || 'follow-up record';
 }
 
 function closePriorityDetail() {
@@ -3940,10 +4072,11 @@ function openPriorityItem(candidateId) {
       <div><span>Follow up by</span><strong>${_escHtml(priorityCandidateDate(analysis.recommendedDate) || 'No contact scheduled')}</strong></div>
       <div><span>Opportunity rank</span><strong>${_escHtml(String(analysis.opportunityScore || 0))}/100</strong></div>
     </div>
-    <section class="priority-detail-section"><h4>AI perception</h4><p>${_escHtml(analysis.reason || 'No AI assessment is available yet.')}</p></section>
+    <section class="priority-detail-section"><h4>${candidate.kind === 'pending_quote' ? 'Workflow assessment' : 'AI perception'}</h4><p>${_escHtml(analysis.reason || 'No assessment is available yet.')}</p></section>
     ${analysis.priorityConflict ? `<div class="alert alert-danger" style="margin:0 0 14px;"><strong>Priority check needed:</strong> ${_escHtml(analysis.priorityConflictMessage || 'The AI timing assessment does not match the assigned priority. Review the latest note before contacting the customer.')}</div>` : ''}
     <section class="priority-detail-section priority-detail-recommendation"><h4>Recommended next step</h4><p>${_escHtml(analysis.recommendedAction || 'Review the record and contact the customer.')}</p></section>
-    <section class="priority-detail-section"><h4>Note history</h4>
+    ${analysis.priority === 'review' ? `<section class="priority-detail-section"><h4>Review options</h4><div style="display:flex;gap:7px;flex-wrap:wrap;"><button class="btn-secondary" onclick="priorityPrepareReview('resume')" style="width:auto;">Resume in 10 business days</button><button class="btn-secondary" onclick="priorityPrepareReview('schedule')" style="width:auto;">Choose a date</button><button class="btn-secondary" onclick="priorityPrepareReview('customer')" style="width:auto;">Wait for customer</button><button class="btn-secondary" onclick="priorityPrepareReview('owner')" style="width:auto;">Simon handling</button><button class="btn-secondary" onclick="priorityPrepareReview('close')" style="width:auto;color:#a33;">Close — no response</button></div></section>` : ''}
+    <section class="priority-detail-section"><h4>Internal communication history</h4>
       <div id="priority-note-timeline"><div class="priority-no-notes">Loading note history…</div></div>
       <label class="form-label" for="priority-outcome">Outcome</label>
       <div class="priority-outcome-grid">
@@ -3983,6 +4116,14 @@ async function openPriorityRecord(candidateId) {
     await pqOpenDetail(candidate.recordId);
     return;
   }
+  if (candidate.kind === 'draft_quote') {
+    window.open(`${CRM_URL}/quotes/${encodeURIComponent(candidate.recordId)}`, '_blank', 'noopener');
+    return;
+  }
+  if (candidate.kind === 'recurring_job') {
+    window.open(`${CRM_URL}/jobs/recurring/${encodeURIComponent(candidate.recordId)}`, '_blank', 'noopener');
+    return;
+  }
   if (candidate.kind === 'unscheduled_job') {
     showPage('unscheduled', priorityNavItem('Unscheduled Jobs'));
     await loadUnscheduledTab();
@@ -3997,7 +4138,29 @@ async function openPriorityRecord(candidateId) {
 
 function priorityNoteTarget(candidate = _priorityCandidatesById[_prioritySelectedId]) {
   if (!candidate) return null;
-  return { recordType:candidate.sourceRecordType || (candidate.kind === 'pending_quote' ? 'quote' : 'job'), recordId:String(candidate.recordId) };
+  if (candidate.kind === 'recurring_job') return null;
+  return { recordType:candidate.sourceRecordType || (['pending_quote','draft_quote'].includes(candidate.kind) ? 'quote' : 'job'), recordId:String(candidate.recordId) };
+}
+
+function priorityBusinessDate(amount) {
+  const date = new Date(`${localToday()}T12:00:00`);
+  let remaining = amount;
+  while (remaining > 0) { date.setDate(date.getDate() + 1); if (date.getDay() !== 0 && date.getDay() !== 6) remaining--; }
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+}
+
+function priorityPrepareReview(action) {
+  const outcome = document.getElementById('priority-outcome');
+  const date = document.getElementById('priority-next-contact-date');
+  const note = document.getElementById('priority-new-note');
+  if (!outcome || !date || !note) return;
+  if (action === 'resume') { outcome.value = 'call_on_date'; date.value = priorityBusinessDate(10); note.value = 'Review complete — resume personal follow-ups after the 10-business-day pause.'; }
+  if (action === 'schedule') { outcome.value = 'call_on_date'; date.value = ''; note.value = 'Review complete — follow up on the selected date.'; }
+  if (action === 'customer') { outcome.value = 'customer_will_contact'; date.value = ''; note.value = 'Review complete — pause active chasing and wait for the customer to make contact.'; }
+  if (action === 'owner') { outcome.value = 'owner_handling'; date.value = ''; note.value = 'Review complete — Simon is handling the next step.'; }
+  if (action === 'close') { outcome.value = 'do_not_contact'; date.value = ''; note.value = 'Review complete — close the follow-up cycle after repeated unsuccessful attempts.'; }
+  priorityOutcomeChanged();
+  if (action === 'schedule') date.focus(); else note.focus();
 }
 
 async function priorityPatchRecord(table, recordId, changes) {
@@ -4035,7 +4198,14 @@ async function priorityLoadNoteEntries(syncProjection = false) {
   const target = priorityNoteTarget(candidate);
   const timeline = document.getElementById('priority-note-timeline');
   const status = document.getElementById('priority-note-status');
-  if (!candidate || !target || !timeline) return;
+  if (!candidate || !timeline) return;
+  if (!target) {
+    timeline.innerHTML = candidate.recordLegacyNotes ? `<div class="priority-note"><div class="priority-note-body">${_escHtml(candidate.recordLegacyNotes)}</div></div>` : '<div class="priority-no-notes">No recurring-job note has been recorded.</div>';
+    if (status) status.textContent = 'Edit recurring-job notes in the CRM record.';
+    const addButton = document.getElementById('priority-add-note-btn');
+    if (addButton) addButton.style.display = 'none';
+    return;
+  }
   let notes;
   try { notes = await fetchRecordNotes(target.recordType, target.recordId); }
   catch (error) {
@@ -4101,13 +4271,18 @@ function priorityCandidateDate(value) {
 
 async function fetchFollowUpPriorityCandidates() {
   const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` };
-  const [quoteResponse, jobResponse, noteResponse] = await Promise.all([
-    fetch(`${SUPABASE_URL}/rest/v1/quotes?status=eq.pending&select=id,client,date,total,items,notes,created_at&order=created_at.desc`, { headers }),
+  const [quoteResponse, jobResponse, noteResponse, deliveryResponse, responseResponse, recurringResponse] = await Promise.all([
+    fetch(`${SUPABASE_URL}/rest/v1/quotes?status=in.(pending,draft)&deleted_at=is.null&select=id,client,date,total,status,items,notes,created_at,delivery_status,delivery_channel,sent_at,last_follow_up_at,next_follow_up_at,follow_up_enabled,follow_up_paused_until,follow_up_count&order=created_at.desc`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/jobs?status=eq.Active&select=id,client,service,revenue,items,notes,description,created_at,completion_date,google_calendar_event_id&order=created_at.asc`, { headers }),
-    fetch(`${SUPABASE_URL}/rest/v1/record_notes?deleted_at=is.null&record_type=in.(quote,job,calendar_event)&select=record_type,record_id,body,author_name,created_at,outcome_code,next_contact_date,action_result&order=created_at.desc`, { headers })
+    fetch(`${SUPABASE_URL}/rest/v1/record_notes?deleted_at=is.null&record_type=in.(quote,job,calendar_event)&select=record_type,record_id,body,author_name,created_at,outcome_code,next_contact_date,action_result&order=created_at.desc`, { headers }),
+    fetch(`${SUPABASE_URL}/rest/v1/quote_follow_up_deliveries?select=id,quote_id,sequence_number,channel,status,sent_at,error,created_at&order=created_at.desc`, { headers }),
+    fetch(`${SUPABASE_URL}/rest/v1/quote_responses?select=id,quote_id,response_type,reason,notes,preferred_timeframe,preferred_dates,contact_again_at,created_at&order=created_at.desc`, { headers }),
+    fetch(`${SUPABASE_URL}/rest/v1/recurring_jobs?active=eq.true&select=id,client,service,description,revenue,frequency,next_date,notes,source_job_id,created_at,custom_days&order=next_date.asc.nullslast`, { headers })
   ]);
-  if (!quoteResponse.ok || !jobResponse.ok || !noteResponse.ok) throw new Error('Could not load the complete follow-up data set.');
-  const [quotes, jobs, notes] = await Promise.all([quoteResponse.json(), jobResponse.json(), noteResponse.json()]);
+  if (!quoteResponse.ok || !jobResponse.ok || !noteResponse.ok || !deliveryResponse.ok || !responseResponse.ok || !recurringResponse.ok) throw new Error('Could not load the complete follow-up data set.');
+  const [quotes, jobs, notes, deliveries, quoteResponses, recurringJobs] = await Promise.all([
+    quoteResponse.json(), jobResponse.json(), noteResponse.json(), deliveryResponse.json(), responseResponse.json(), recurringResponse.json()
+  ]);
   let calendarEvents = [];
   try { calendarEvents = (await ujFetchCalendarEvents()).events || []; } catch (error) { console.warn('Standalone unscheduled calendar events were not included:', error); }
   const calendarEventsById = new Map(calendarEvents.map(event => [String(event.id), event]));
@@ -4118,15 +4293,22 @@ async function fetchFollowUpPriorityCandidates() {
     notesByRecord[key].push(note);
   });
   const entryPayload = (type, id) => (notesByRecord[`${type}:${id}`] || []).map(note => ({ at:note.created_at, body:note.body, author:note.author_name, outcomeCode:note.outcome_code, nextContactDate:note.next_contact_date }));
+  const deliveriesByQuote = {};
+  deliveries.forEach(row => { (deliveriesByQuote[row.quote_id] ||= []).push({ sentAt:row.sent_at, createdAt:row.created_at, status:row.status, channel:row.channel, sequenceNumber:row.sequence_number, error:row.error }); });
+  const responsesByQuote = {};
+  quoteResponses.forEach(row => { (responsesByQuote[row.quote_id] ||= []).push(row); });
 
   const quoteCandidates = quotes.map(quote => {
     const entries = entryPayload('quote', quote.id);
     return {
-      id:`quote:${quote.id}`, kind:'pending_quote', recordId:String(quote.id), clientName:quote.client || 'Unknown client',
+      id:`quote:${quote.id}`, kind:quote.status === 'draft' ? 'draft_quote' : 'pending_quote', recordId:String(quote.id), clientName:quote.client || 'Unknown client',
       services:(quote.items || []).map(item => item.description || item.name).filter(name => name && name !== 'TOTAL'),
       total:Number(quote.total) || 0, createdAt:quote.created_at, recordDate:quote.date,
       latestActivityAt:entries[0]?.at || quote.created_at || quote.date, legacyNotes:recordNotesWithoutProjection(quote.notes),
-      recordLegacyNotes:recordNotesWithoutProjection(quote.notes), noteEntries:entries
+      recordLegacyNotes:recordNotesWithoutProjection(quote.notes), noteEntries:entries,
+      deliveryEntries:deliveriesByQuote[quote.id] || [], responseEntries:responsesByQuote[quote.id] || [],
+      nextFollowUpAt:quote.next_follow_up_at, sentAt:quote.sent_at, deliveryStatus:quote.delivery_status,
+      followUpEnabled:quote.follow_up_enabled !== false, followUpPausedUntil:quote.follow_up_paused_until
     };
   });
   const unscheduledJobs = jobs.filter(job => ujIsBlankDate(job.completion_date));
@@ -4154,7 +4336,15 @@ async function fetchFollowUpPriorityCandidates() {
       legacyNotes:recordNotesWithoutProjection(event.description), recordLegacyNotes:recordNotesWithoutProjection(event.description), noteEntries:entries
     };
   });
-  return [...quoteCandidates, ...jobCandidates, ...calendarCandidates];
+  const recurringCandidates = recurringJobs.filter(job => !job.next_date || job.notes || job.description).map(job => ({
+    id:`recurring:${job.id}`, kind:'recurring_job', sourceRecordType:'recurring_job', recordId:String(job.id),
+    clientName:job.client || 'Unknown client', services:[job.service || 'Recurring service'], total:Number(job.revenue) || 0,
+    createdAt:job.created_at, recordDate:job.next_date, latestActivityAt:job.created_at,
+    legacyNotes:[job.description, job.notes, job.next_date ? `Recurring visit due ${job.next_date}` : 'Recurring visit date is not set'].filter(Boolean).join(' | '),
+    recordLegacyNotes:[job.description, job.notes].filter(Boolean).join(' | '), noteEntries:[], recurringFrequency:job.frequency,
+    sourceJobId:job.source_job_id || '', nextVisitDate:job.next_date || ''
+  }));
+  return [...quoteCandidates, ...jobCandidates, ...calendarCandidates, ...recurringCandidates];
 }
 
 function renderAiFollowUpPriorities(candidates, analysis) {
@@ -4165,12 +4355,16 @@ function renderAiFollowUpPriorities(candidates, analysis) {
   const resultById = new Map((analysis.priorities || []).map(result => [result.id, result]));
   const rows = candidates.map(candidate => ({ ...candidate, ...(resultById.get(candidate.id) || {}) }));
   const groups = [
-    ['urgent', '🔴 Urgent — today'], ['high', '🟠 High — within 2 business days'], ['medium', '🟡 Medium — within 5 business days'],
-    ['low', '🔵 Low — review in 10–14 business days'], ['upcoming', '⚪ Upcoming — scheduled date'],
-    ['owner', '👤 Owner handling — Simon’s queue']
+    ['urgent', '🔴 Action required'], ['high', '🟠 Internal note needs review'], ['review', '🟣 Three-attempt review'],
+    ['waiting', '🕓 Waiting for customer or CRM'], ['upcoming', '⚪ Scheduled later'],
+    ['owner', '👤 Owner handling — Simon’s queue'], ['low', '🔵 No action identified']
   ];
   const counts = Object.fromEntries(groups.map(([key]) => [key, rows.filter(row => row.priority === key).length]));
-  overview.innerHTML = groups.slice(0, 4).map(([key, label]) => `<div class="priority-stat"><div class="priority-stat-value">${counts[key]}</div><div class="priority-stat-label">${label.replace(/^.. /, '')}</div></div>`).join('');
+  const draftCount = rows.filter(row => row.kind === 'draft_quote').length;
+  overview.innerHTML = [
+    ['Action required', counts.urgent + counts.high], ['Waiting', counts.waiting + counts.upcoming],
+    ['Needs review', counts.review], ['Drafts checked', draftCount]
+  ].map(([label, value]) => `<div class="priority-stat"><div class="priority-stat-value">${value}</div><div class="priority-stat-label">${label}</div></div>`).join('');
   const sourceLabel = analysis.source === 'ai' ? 'Stable priority rules + AI insight' : analysis.source === 'hybrid' ? 'Stable priority rules + partial AI insight' : 'Stable priority rules';
   const dailyCount = rows.filter(row => row.inDailyQueue).length;
   const ownerCount = counts.owner || 0;
@@ -4179,16 +4373,21 @@ function renderAiFollowUpPriorities(candidates, analysis) {
     container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✓</div><div class="empty-state-title">Nothing needs following up</div><div class="empty-state-desc">No pending quotes or unscheduled jobs were found.</div></div>';
     return;
   }
-  const typeLabel = { pending_quote:'Pending quote', unscheduled_job:'Unscheduled job' };
+  const typeLabel = { pending_quote:'Pending quote', draft_quote:'Draft quote', unscheduled_job:'Unscheduled job', recurring_job:'Recurring job' };
   const cardHtml = (row, key, queue = false) => `
     <div class="priority-card priority-card--${key}" onclick="openPriorityItem('${_escHtml(row.id)}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPriorityItem('${_escHtml(row.id)}')}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;"><div><div style="font-size:15px;font-weight:800;color:var(--text1);">${queue ? `<span class="priority-queue-number">${row.queuePosition}</span>` : ''}${_escHtml(row.clientName)}</div><div style="font-size:12px;color:var(--ss-green);margin-top:3px;">${_escHtml(row.services.join(' + ') || typeLabel[row.kind])}</div></div><span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);white-space:nowrap;">${typeLabel[row.kind]}</span></div>
-      <div class="priority-card-meta"><span>Due ${_escHtml(priorityCandidateDate(row.recommendedDate) || 'when reviewed')}</span><span>${_escHtml(String(row.attemptCount || 0))} recent attempt${Number(row.attemptCount) === 1 ? '' : 's'}</span>${row.outcomeCode ? `<span>${_escHtml(row.outcomeCode.replaceAll('_', ' '))}</span>` : ''}</div>
+      <div class="priority-card-meta"><span>${row.recommendedDate ? `Due ${_escHtml(priorityCandidateDate(row.recommendedDate))}` : 'No contact scheduled'}</span>${row.kind === 'pending_quote' ? `<span>${_escHtml(String(row.attemptCount || 0))} recent personal attempt${Number(row.attemptCount) === 1 ? '' : 's'}</span>` : ''}${row.outcomeCode ? `<span>${_escHtml(row.outcomeCode.replaceAll('_', ' '))}</span>` : ''}</div>
     </div>`;
   const dailyRows = rows.filter(row => row.inDailyQueue).sort((a, b) => (a.queuePosition || 99) - (b.queuePosition || 99));
-  const dailyHtml = `<section class="priority-group priority-daily-queue"><div class="priority-group-header"><div class="priority-group-title">Today's action list</div><span class="priority-group-count">${dailyRows.length}/${analysis.dailyQueueLimit || 10}</span></div><div class="priority-queue-help">Work from the top. Genuine same-day commitments stay included even when the queue exceeds its normal capacity.</div>${dailyRows.map(row => cardHtml(row, row.priority, true)).join('') || '<div class="priority-no-notes">No calls are due in today’s capacity queue.</div>'}</section>`;
-  container.innerHTML = dailyHtml + groups.map(([key, label]) => {
-    const groupRows = rows.filter(row => row.priority === key).sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+  const draftRows = rows.filter(row => row.kind === 'draft_quote').sort((a, b) => {
+    const order = { urgent:0, high:1, upcoming:2, low:3 };
+    return (order[a.priority] ?? 9) - (order[b.priority] ?? 9) || String(a.recommendedDate || '').localeCompare(String(b.recommendedDate || ''));
+  });
+  const dailyHtml = `<section class="priority-group priority-daily-queue"><div class="priority-group-header"><div class="priority-group-title">Today's personal action list</div><span class="priority-group-count">${dailyRows.length}/${analysis.dailyQueueLimit || 10}</span></div><div class="priority-queue-help">Only customer contacts and internal commitments that are genuinely due appear here. CRM-scheduled messages remain in Waiting.</div>${dailyRows.map(row => cardHtml(row, row.priority, true)).join('') || '<div class="priority-no-notes">No personal calls or internal actions are due today.</div>'}</section>`;
+  const draftHtml = `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">📝 Draft quote review</div><span class="priority-group-count">${draftRows.length}</span></div><div class="priority-queue-help">Draft age does not create urgency. Internal notes are checked for missing information, promised contact and due commitments.</div>${draftRows.map(row => cardHtml(row, row.priority)).join('') || '<div class="priority-no-notes">No draft quotes were found.</div>'}</section>`;
+  container.innerHTML = dailyHtml + draftHtml + groups.map(([key, label]) => {
+    const groupRows = rows.filter(row => row.kind !== 'draft_quote' && row.priority === key).sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
     if (!groupRows.length) return '';
     return `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">${label}</div><span class="priority-group-count">${groupRows.length}</span></div>${groupRows.map(row => cardHtml(row, key)).join('')}</section>`;
   }).join('');
@@ -4204,8 +4403,8 @@ async function loadAiFollowUpPriorities(force = false) {
     return;
   }
   const requestId = ++_priorityRequestId;
-  container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✨</div><div class="empty-state-title">Analysing follow-ups…</div><div class="empty-state-desc">Reading live quotes, jobs, and their note history</div></div>';
-  if (button) { button.disabled = true; button.textContent = 'Analysing…'; }
+  container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">Building the follow-up centre…</div><div class="empty-state-desc">Reading CRM deliveries, customer responses, internal notes, drafts and jobs</div></div>';
+  if (button) { button.disabled = true; button.textContent = 'Refreshing…'; }
   try {
     const candidates = await fetchFollowUpPriorityCandidates();
     if (requestId !== _priorityRequestId) return;
@@ -4221,7 +4420,7 @@ async function loadAiFollowUpPriorities(force = false) {
     console.error('AI follow-up priority load failed:', error);
     container.innerHTML = `<div class="alert alert-danger">Could not build the priority list. ${_escHtml(error.message)} <button onclick="loadAiFollowUpPriorities(true)" style="border:none;background:none;color:inherit;font-weight:800;cursor:pointer;">Try again</button></div>`;
   } finally {
-    if (button && requestId === _priorityRequestId) { button.disabled = false; button.textContent = '✨ Reanalyse'; }
+    if (button && requestId === _priorityRequestId) { button.disabled = false; button.textContent = '↻ Refresh'; }
   }
 }
 
@@ -5469,7 +5668,7 @@ async function loadPendingQuotesTab() {
 
   try {
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/quotes?status=eq.pending&select=id,client,client_id,date,total,items,notes,created_at&order=created_at.desc`,
+      `${SUPABASE_URL}/rest/v1/quotes?status=eq.pending&select=id,client,client_id,booking_id,date,total,items,notes,ad_source,campaign_name,campaign_id,attribution_method,created_at&order=created_at.desc`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
     );
     if (!res.ok) throw new Error('Fetch failed');
@@ -5770,7 +5969,7 @@ async function pqAcceptAndBook() {
   let clientPhone = '';
   try {
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/clients?${q.client_id ? `id=eq.${encodeURIComponent(q.client_id)}` : `name=eq.${encodeURIComponent(q.client)}`}&select=id,address,suburb,email,phone&limit=1`,
+      `${SUPABASE_URL}/rest/v1/clients?${q.client_id ? `id=eq.${encodeURIComponent(q.client_id)}` : `name=eq.${encodeURIComponent(q.client)}`}&select=id,address,suburb,email,phone,source,campaign_name,campaign_id&limit=1`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
     );
     if (res.ok) {
@@ -5780,6 +5979,9 @@ async function pqAcceptAndBook() {
         clientAddress = data[0].address || data[0].suburb || '';
         clientEmail = data[0].email || '';
         clientPhone = data[0].phone || '';
+        q.ad_source = q.ad_source || data[0].source || null;
+        q.campaign_name = q.campaign_name || data[0].campaign_name || null;
+        q.campaign_id = q.campaign_id || data[0].campaign_id || null;
       }
     }
   } catch(e) {}
@@ -5846,7 +6048,7 @@ async function _pqDoAccept(q, address, clientEmail, clientId, clientPhone) {
     const quoteUpdateRes = await fetch(`${SUPABASE_URL}/rest/v1/quotes?id=eq.${encodeURIComponent(q.id)}`, {
       method: 'PATCH',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'approved', total: jobTotal, items })
+      body: JSON.stringify({ status: 'approved', follow_up_enabled: false, follow_up_paused_until: null, next_follow_up_at: null, total: jobTotal, items, ad_source:q.ad_source||null, campaign_name:q.campaign_name||null, campaign_id:q.campaign_id||null, attribution_method:q.attribution_method||'client_default' })
     });
     if (!quoteUpdateRes.ok) throw new Error(`Quote approval failed: ${await quoteUpdateRes.text()}`);
     q.total = jobTotal;
@@ -5865,6 +6067,12 @@ async function _pqDoAccept(q, address, clientEmail, clientId, clientPhone) {
         revenue: jobTotal,
         items,
         client_id: clientId || q.client_id || null,
+        quote_id: q.id,
+        booking_id: q.booking_id || null,
+        ad_source: q.ad_source || null,
+        campaign_name: q.campaign_name || null,
+        campaign_id: q.campaign_id || null,
+        attribution_method: 'quote_inherited',
         hours: 0,
         completion_date: null,
         notes: customerDocumentNotes(q.notes),
@@ -5885,8 +6093,7 @@ async function _pqDoAccept(q, address, clientEmail, clientId, clientPhone) {
     }
 
     // 3. Booking record (same as new quote flow)
-    const clientSource = q.notes && (q.notes.includes('meta-ad') || q.notes.includes('Meta')) ? 'meta-ad'
-      : q.notes && (q.notes.includes('google-ad') || q.notes.includes('Google')) ? 'google-ad' : 'phone-call';
+    const clientSource = q.ad_source || null;
     const bookingCreateRes = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
       method: 'POST',
       headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
@@ -5895,7 +6102,9 @@ async function _pqDoAccept(q, address, clientEmail, clientId, clientPhone) {
         service: serviceLabel,
         status: 'confirmed',
         portal_token: null,
-        ad_source: clientSource !== 'phone-call' ? clientSource : null,
+        ad_source: clientSource,
+        campaign_name: q.campaign_name || null,
+        campaign_id: q.campaign_id || null,
         client_id: clientId || q.client_id || null,
         created_at: new Date().toISOString()
       })
@@ -6223,7 +6432,7 @@ async function pqSaveRejection() {
   if (error) error.style.display = 'none';
   if (saveButton) { saveButton.disabled = true; saveButton.textContent = 'Saving…'; }
   try {
-    const updatedQuote = await pqUpdateSelectedQuote({ status: 'rejected', rejection_reason: reason, rejected_at: new Date().toISOString() });
+    const updatedQuote = await pqUpdateSelectedQuote({ status: 'rejected', follow_up_enabled: false, follow_up_paused_until: null, next_follow_up_at: null, rejection_reason: reason, rejected_at: new Date().toISOString() });
     if (updatedQuote.status !== 'rejected') throw new Error(`Unexpected quote status: ${updatedQuote.status}`);
     document.getElementById('pq-reject-modal')?.remove();
     showToast('Quote marked as rejected', 'warn');
@@ -6769,7 +6978,7 @@ function buildChatQuote() {
       <div style="background:#e8f0fe;border:1px solid #bfdbfe;border-radius:10px;padding:12px 14px;margin:12px 0;">
         <div style="font-size:12px;font-weight:700;color:#1a56cc;margin-bottom:4px;">💬 Lead Source — Ask Before Closing</div>
         <div style="font-size:12px;color:#1e3a5f;margin-bottom:8px;">"Just out of curiosity — how did you hear about us today?"</div>
-        <select id="quote-end-source" onchange="(function(){const v=document.getElementById('quote-end-source').value;if(v){const s=document.getElementById('client-source');if(s){s.value=v;updateClientInfo();}}})()" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #bfdbfe;background:#fff;font-size:12px;font-family:inherit;">
+        <select id="quote-end-source" onchange="updateQuoteEndAttribution()" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid #bfdbfe;background:#fff;font-size:12px;font-family:inherit;">
           <option value="">— Select source after asking —</option>
           <option value="phone-call">📞 Inbound phone call</option>
           <option value="meta-ad">📘 Meta / Facebook Ad</option>
@@ -6779,6 +6988,8 @@ function buildChatQuote() {
           <option value="repeat">🔁 Repeat customer</option>
           <option value="other">❓ Other</option>
         </select>
+        <input id="quote-end-campaign" list="quote-end-campaign-options" oninput="updateQuoteEndCampaign()" placeholder="Select or enter ad campaign *" style="display:none;width:100%;box-sizing:border-box;margin-top:8px;padding:8px 10px;border-radius:8px;border:1px solid #bfdbfe;background:#fff;font-size:12px;font-family:inherit;">
+        <datalist id="quote-end-campaign-options"></datalist>
       </div>
 
       <div class="closing-script">
