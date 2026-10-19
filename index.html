@@ -441,7 +441,6 @@
           <article class="home-action-card is-loading" id="home-card-responses"><div class="home-card-top"><span class="home-card-icon">💬</span><span class="home-card-state">Loading…</span></div><div class="home-card-label">Customer responses</div><div class="home-card-count">—</div><div class="home-card-detail">Checking automation replies and CRM messages…</div><button class="home-card-link" onclick="openHomeSection('followups')">Review responses <span>→</span></button></article>
           <article class="home-action-card is-loading" id="home-card-unscheduled"><div class="home-card-top"><span class="home-card-icon">🗓️</span><span class="home-card-state">Loading…</span></div><div class="home-card-label">Unscheduled jobs</div><div class="home-card-count">—</div><div class="home-card-detail">Checking active jobs that need booking…</div><button class="home-card-link" onclick="openHomeSection('unscheduled')">View unscheduled jobs <span>→</span></button></article>
           <article class="home-action-card is-loading" id="home-card-todos"><div class="home-card-top"><span class="home-card-icon">✓</span><span class="home-card-state">Loading…</span></div><div class="home-card-label">Call tasks</div><div class="home-card-count">—</div><div class="home-card-detail">Checking the shared call task list…</div><button class="home-card-link" onclick="openHomeSection('calendar')">Open call tasks <span>→</span></button></article>
-          <article class="home-action-card is-loading" id="home-card-today"><div class="home-card-top"><span class="home-card-icon">📞</span><span class="home-card-state">Loading…</span></div><div class="home-card-label">Today’s calls</div><div class="home-card-count">—</div><div class="home-card-detail">Checking today’s scheduled callbacks…</div><button class="home-card-link" onclick="openHomeSection('calendar')">Open call calendar <span>→</span></button></article>
         </div>
         <div class="home-load-error" id="home-load-error" hidden></div>
       </div>
@@ -1346,9 +1345,8 @@ async function loadHomeDashboard(force = false) {
   if (refresh) { refresh.disabled = true; refresh.textContent = 'Refreshing…'; }
   if (errorBox) errorBox.hidden = true;
   try {
-    const [bookings, calls, quotes, responses, messages, jobs, notes, deliveries] = await Promise.all([
+    const [bookings, quotes, responses, messages, jobs, notes, deliveries] = await Promise.all([
       homeRest('bookings?select=*&order=created_at.desc&limit=200'),
-      homeRest('call_followups?select=*&order=call_date.asc,call_time.asc'),
       homeRest('quotes?select=*&status=in.(pending,draft)&deleted_at=is.null&order=created_at.desc'),
       homeRest('quote_responses?select=*&order=created_at.desc&limit=200'),
       homeRest('messages?select=*&order=created_at.desc&limit=200'),
@@ -1356,16 +1354,15 @@ async function loadHomeDashboard(force = false) {
       homeRest('record_notes?select=record_type,record_id,created_at&deleted_at=is.null&record_type=eq.quote&order=created_at.desc'),
       homeRest('quote_follow_up_deliveries?select=quote_id,status,sent_at,created_at&status=eq.sent&order=created_at.desc')
     ]);
-    const today = localToday();
     const now = new Date();
+    // Only website intake records belong to the CRM lead pipeline. Historical
+    // booking rows also use "pending", so counting by status alone inflates this card.
     const activeLeadStatuses = new Set(['pending', 'new', 'contact_attempted']);
-    const activeLeads = bookings.filter(row => activeLeadStatuses.has(String(row.status || 'pending').toLowerCase()));
-    const attempted = activeLeads.filter(row => String(row.status || '').toLowerCase() === 'contact_attempted').length;
-    const newLeads = activeLeads.length - attempted;
-
-    const dueCalls = calls.filter(row => row.status !== 'done' && row.call_date && row.call_date <= today);
-    const overdueCalls = dueCalls.filter(row => row.call_date < today).length;
-    const todayCalls = calls.filter(row => row.status !== 'done' && row.call_date === today);
+    const activeLeads = bookings.filter(row => row.form_version && activeLeadStatuses.has(String(row.status || 'pending').toLowerCase()));
+    // The current v2 intake remains in the CRM Intake column until it is moved on;
+    // older website records use contact_attempted directly.
+    const intake = activeLeads.filter(row => ['pending', 'new'].includes(String(row.status || '').toLowerCase()) || String(row.form_version).toLowerCase() === 'website-quote-v2').length;
+    const attempted = activeLeads.length - intake;
     const quoteIds = new Set(quotes.map(row => String(row.id)));
     const deliveryByQuote = new Map();
     deliveries.forEach(row => { if (!deliveryByQuote.has(String(row.quote_id))) deliveryByQuote.set(String(row.quote_id), row); });
@@ -1399,14 +1396,12 @@ async function loadHomeDashboard(force = false) {
     const urgentJobs = unscheduled.filter(row => row.created_at && new Date(row.created_at) <= urgentBefore).length;
     const openTodos = getOpenTodos();
 
-    homeCard('leads', activeLeads.length, `${newLeads} new${attempted ? ` · ${attempted} contact attempted` : ''}`, { urgent:activeLeads.length > 0, completeText:'No new leads waiting' });
+    homeCard('leads', activeLeads.length, `${intake} in intake · ${attempted} contact attempted`, { urgent:activeLeads.length > 0, completeText:'No new leads waiting' });
     homeCard('followups', quoteManualDue, `${quoteManualDue} quote follow-up${quoteManualDue === 1 ? '' : 's'} ready for a manual response`, { urgent:quoteManualDue > 0, completeText:'All manual follow-ups completed' });
     homeCard('responses', responseCount, `${responseQuoteIds.size} automation response${responseQuoteIds.size === 1 ? '' : 's'} · ${unreadThreads.size} unread message thread${unreadThreads.size === 1 ? '' : 's'}`, { urgent:responseCount > 0, completeText:'No customer responses waiting' });
     homeCard('unscheduled', unscheduled.length, `${urgentJobs} need immediate attention · ${Math.max(0, unscheduled.length - urgentJobs)} to book`, { urgent:urgentJobs > 0, completeText:'All active jobs are scheduled' });
     homeCard('todos', openTodos.length, `${openTodos.length} open team task${openTodos.length === 1 ? '' : 's'}`, { completeText:'Call task list complete' });
-    homeCard('today', dueCalls.length, `${overdueCalls ? `${overdueCalls} overdue · ` : ''}${todayCalls.length} callback${todayCalls.length === 1 ? '' : 's'} due today`, { urgent:dueCalls.length > 0, completeText:'Today’s scheduled calls are complete' });
-
-    const totalAttention = activeLeads.length + dueCalls.length + quoteManualDue + responseCount + unscheduled.length + openTodos.length;
+    const totalAttention = activeLeads.length + quoteManualDue + responseCount + unscheduled.length + openTodos.length;
     const caughtUp = document.getElementById('home-caught-up');
     if (caughtUp) caughtUp.hidden = totalAttention !== 0;
     homeDashboardLoadedAt = Date.now();
@@ -4673,9 +4668,23 @@ function renderAiFollowUpPriorities(candidates, analysis) {
     return (order[a.priority] ?? 9) - (order[b.priority] ?? 9) || String(a.recommendedDate || '').localeCompare(String(b.recommendedDate || ''));
   });
   const draftHtml = `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">📝 Draft quote review</div><span class="priority-group-count">${draftRows.length}</span></div><div class="priority-queue-help">Draft age does not create urgency. Internal notes are checked for missing information, promised contact and due commitments.</div>${draftRows.map(row => cardHtml(row, row.priority)).join('') || '<div class="priority-no-notes">No draft quotes were found.</div>'}</section>`;
-  const section = (title, help, bandRows, key) => `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">${title}</div><span class="priority-group-count">${bandRows.length}</span></div>${help ? `<div class="priority-queue-help">${help}</div>` : ''}${bandRows.map(row => cardHtml(row, key)).join('') || '<div class="priority-no-notes">No items in this category.</div>'}</section>`;
+  const datedCards = (bandRows, key) => {
+    if (!bandRows.length) return '<div class="priority-no-notes">No items in this category.</div>';
+    const groups = new Map();
+    bandRows.forEach(row => {
+      const date = row.manualReviewDate || row.recommendedDate || '';
+      if (!groups.has(date)) groups.set(date, []);
+      groups.get(date).push(row);
+    });
+    return [...groups.entries()].sort(([a], [b]) => !a ? 1 : !b ? -1 : a.localeCompare(b)).map(([date, dateRows]) => `
+      <div class="priority-date-group">
+        <div class="priority-date-heading"><span>${date ? _escHtml(priorityCandidateDate(date)) : 'No date scheduled'}</span><small>${dateRows.length} item${dateRows.length === 1 ? '' : 's'}</small></div>
+        ${dateRows.map(row => cardHtml(row, key)).join('')}
+      </div>`).join('');
+  };
+  const section = (title, help, bandRows, key) => `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">${title}</div><span class="priority-group-count">${bandRows.length}</span></div>${help ? `<div class="priority-queue-help">${help}</div>` : ''}${datedCards(bandRows, key)}</section>`;
   const quoteHtml = quoteBands.map(([key, label]) => section(label, '', quoteRows.filter(row => (row.timingBand || 'not_scheduled') === key).sort((a,b) => String(a.recommendedDate || '').localeCompare(String(b.recommendedDate || ''))), key === 'this_week' ? 'urgent' : key === 'next_week' ? 'high' : 'low')).join('') + draftHtml;
-  const jobsHtml = jobBands.map(([key, label]) => section(label, '', jobRows.filter(row => (row.schedulingBand || 'later') === key), key === 'this_month' ? 'urgent' : key === 'next_month' ? 'high' : 'low')).join('');
+  const jobsHtml = jobBands.map(([key, label]) => section(label, '', jobRows.filter(row => (row.schedulingBand || 'later') === key).sort((a,b) => String(a.recommendedDate || '').localeCompare(String(b.recommendedDate || ''))), key === 'this_month' ? 'urgent' : key === 'next_month' ? 'high' : 'low')).join('');
   container.innerHTML = _priorityPage === 'jobs' ? jobsHtml : quoteHtml;
 }
 
