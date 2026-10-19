@@ -2251,7 +2251,11 @@ async function ensureClientProfile() {
       body: JSON.stringify(profile)
     });
     if (!updateRes.ok) throw new Error(`Client profile update failed: ${await updateRes.text()}`);
-    await recordCallMarketingConsent(clientId);
+    // Consent recording is a separate, non-critical CRM operation. A temporary
+    // consent API outage must never prevent the client, quote, or job from saving.
+    recordCallMarketingConsent(clientId).catch(error => {
+      console.error('Marketing permission sync failed:', error);
+    });
     return clientId;
   }
 
@@ -2264,7 +2268,9 @@ async function ensureClientProfile() {
   if (!createRes.ok) throw new Error(`Client profile creation failed: ${await createRes.text()}`);
   const created = await createRes.json();
   if (!created || !created[0]?.id) throw new Error('Client profile creation returned no client ID.');
-  await recordCallMarketingConsent(created[0].id);
+  recordCallMarketingConsent(created[0].id).catch(error => {
+    console.error('Marketing permission sync failed:', error);
+  });
   return created[0].id;
 }
 
@@ -2322,7 +2328,7 @@ async function saveQuoteToCRMWithOverride(total, serviceName, quoteItems, custom
     showMarketingHubPrompt(clientInfo.name, 'pending');
     showQuoteSuccessScreen('saved');
   } catch(e) {
-    showToast('Saved locally — check CRM connection');
+    showToast('CRM save failed — please retry');
     console.error(e);
   }
 }
@@ -2857,7 +2863,7 @@ async function saveQuoteToCRM(total) {
     showMarketingHubPrompt(clientInfo.name, 'pending');
     showQuoteSuccessScreen('saved');
   } catch(e) {
-    showToast('Saved locally — check CRM connection');
+    showToast('CRM save failed — please retry');
     console.error(e);
   }
 }
