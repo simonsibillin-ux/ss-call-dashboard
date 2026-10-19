@@ -4,6 +4,7 @@ import { useAppContext } from "../context/AppContext.jsx";
 import { G, LOGO, supabase } from "../utils/constants.js";
 import { Topbar, Badge, Avatar, Card, StatCard, Modal, Field, BtnRow, showToast, showConfirm, showPrompt } from "../utils/ui.jsx";
 import { exportCSV } from "../utils/helpers.js";
+import { calendarLocation } from "../utils/calendarTitle.js";
 
 export default function Jobs() {
   const ctx = useAppContext();
@@ -156,7 +157,8 @@ export default function Jobs() {
               // Just update next_date for this one visit
               await supabase.from("recurring_jobs").update({next_date:newDate}).eq("id",r.id);
               setRecurringJobs(rs=>rs.map(x=>x.id===r.id?{...x,next_date:newDate}:x));
-              await addToCalendar(`${r.client} | ${r.service} | $${(r.revenue||0).toFixed(0)} (Recurring)`,newDate,r.notes||"",null,"#1565c0");
+              const calC = getClientByRecord(r) || {};
+              await addToCalendar([r.client,calendarLocation(calC.address,calC.suburb),r.service,`$${(r.revenue||0).toFixed(0)} (Recurring)`].filter(Boolean).join(" | "),newDate,r.notes||"",null,"#1565c0");
               showToast("Visit rescheduled to "+newDate,"success");
             } else {
               // Update next_date (all future flows from this new date)

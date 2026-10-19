@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useAppContext } from "../context/AppContext.jsx";
 import { Modal, Field, BtnRow, showToast, showConfirm } from "../utils/ui.jsx";
+import { calendarLocation } from "../utils/calendarTitle.js";
 
 export default function Modals() {
   const {
@@ -133,8 +134,9 @@ export default function Modals() {
       sendClientPush(f.client,'🔧 Job Scheduled','Your '+f.service+' job'+(f.completion_date?' on '+f.completion_date:' has been added')+'. We will be in touch shortly.');
       if (f.completion_date) {
         const calC = clients.find(c=>c.name===f.client)||{};
-        const calTitle = [f.client, calC.phone||f.phone, calC.address||f.address, f.service, parseFloat(f.revenue)>0?`$${parseFloat(f.revenue).toFixed(0)}`:""].filter(Boolean).join(" | ");
-        const calDesc = `Service: ${f.service}\nPrice: $${parseFloat(f.revenue)||0}\nAddress: ${calC.address||""}\nPhone: ${calC.phone||""}\nNotes: ${f.notes||""}`;
+        const location = calendarLocation(calC.address||f.address, calC.suburb||f.suburb);
+        const calTitle = [f.client, calC.phone||f.phone, location, f.service, parseFloat(f.revenue)>0?`$${parseFloat(f.revenue).toFixed(0)}`:""].filter(Boolean).join(" | ");
+        const calDesc = `Service: ${f.service}\nPrice: $${parseFloat(f.revenue)||0}\nAddress: ${location}\nPhone: ${calC.phone||""}\nNotes: ${f.notes||""}`;
         const evId = await addToCalendar(calTitle, f.completion_date, calDesc);
         if (evId) loadCalEvents();
       }
@@ -345,7 +347,7 @@ export default function Modals() {
       // Sync Google Calendar
       if(true) {
         const calC = clients.find(c=>c.name===f.client)||{};
-        const calTitle = [f.client,calC.phone,calC.address,f.service,parseFloat(f.revenue)>0?`$${parseFloat(f.revenue).toFixed(0)}`:""].filter(Boolean).join(" | ");
+        const calTitle = [f.client,calC.phone,calendarLocation(calC.address,calC.suburb),f.service,parseFloat(f.revenue)>0?`$${parseFloat(f.revenue).toFixed(0)}`:""].filter(Boolean).join(" | ");
         const oldDate = job.completionDate||job.completion_date;
         // Remove old event if date changed or job unscheduled
         if(oldDate) {
@@ -750,7 +752,8 @@ export default function Modals() {
     const days = rec.custom_days || parseInt(rec.customDays) || freqDaysMap[rec.frequency] || 91;
     const cutoff = new Date();
     cutoff.setMonth(cutoff.getMonth() + monthsAhead);
-    const calTitle = `${rec.client} | ${rec.service} | $${(rec.revenue||0).toFixed(0)} (Recurring)`;
+    const calC = clients.find(client => client.id === rec.client_id || client.name === rec.client) || {};
+    const calTitle = [rec.client, calendarLocation(calC.address,calC.suburb), rec.service, `$${(rec.revenue||0).toFixed(0)} (Recurring)`].filter(Boolean).join(" | ");
     let current = startDate;
     const eventIds = [];
     while (new Date(current + "T12:00:00") <= cutoff) {
@@ -800,7 +803,6 @@ export default function Modals() {
     const save = async () => {
       if(!f.client||!f.service){alert("Client and service are required");return;}
       setSaving(true);
-      const calTitle = `${f.client} | ${f.service} | $${(parseFloat(f.revenue)||0).toFixed(0)} (Recurring)`;
       if(isEditing) {
         // Update existing
         const customDaysVal = f.frequency==="custom" ? (parseInt(f.customDays)||91) : null;

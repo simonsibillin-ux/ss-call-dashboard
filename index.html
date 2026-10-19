@@ -2983,7 +2983,9 @@ async function loadCalendarFreeBusy(token, dateStr) {
 
 async function bookJobOnCalendar(token, dateStr, clientName, service, suburb, total, jobId) {
   const phone = clientInfo.phone || '';
-  const address = clientInfo.address || suburb || '';
+  const street = String(clientInfo.address || '').trim();
+  const area = String(suburb || clientInfo.suburb || '').trim();
+  const address = street && area && !street.toLowerCase().includes(area.toLowerCase()) ? `${street}, ${area}` : street || area;
   const title = [clientName, phone, address, service, `$${Number(total || 0).toFixed(2)}`].filter(Boolean).join(' | ');
   const endDate = new Date(dateStr + 'T12:00:00');
   endDate.setDate(endDate.getDate() + 1);

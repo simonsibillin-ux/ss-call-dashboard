@@ -3,6 +3,7 @@ import { supabase, G, LOGO, SYSTEM, PRICE_LIST } from "../utils/constants.js";
 import { parseJson, parseAllJson } from "../utils/helpers.js";
 import { showToast } from "../utils/ui.jsx";
 import { clientIdForName, findClientForRecord, recordBelongsToClient, supportsClientIdsIn, withClientLink } from "../utils/clientLinks.js";
+import { calendarLocation } from "../utils/calendarTitle.js";
 
 const AppContext = createContext(null);
 export const useAppContext = () => useContext(AppContext);
@@ -697,14 +698,14 @@ const handleAiSend = async () => {
         const rec=linkRecordToClient({id:`REC-${Date.now()}`,client:p.client||"",service:p.service||"",description:p.description||"",revenue:parseFloat(p.revenue)||0,hours:parseFloat(p.hours)||0,frequency:p.frequency||"quarterly",next_date:fixDate(p.next_date)||today,notes:p.notes||"",active:true,source_job_id:null,created_at:new Date().toISOString()}, p.client);
         await supabase.from("recurring_jobs").insert(rec);
         setRecurringJobs(rs=>[...rs,rec]);
-        if(calToken&&rec.next_date) await addToCalendar(`${rec.client} | ${rec.service} | $${rec.revenue.toFixed(0)} (Recurring)`,rec.next_date,rec.notes||"",null,"#1565c0");
+        if(calToken&&rec.next_date) { const calC=clients.find(c=>c.name===rec.client)||{}; await addToCalendar([rec.client,calendarLocation(calC.address,calC.suburb),rec.service,`$${rec.revenue.toFixed(0)} (Recurring)`].filter(Boolean).join(" | "),rec.next_date,rec.notes||"",null,"#1565c0"); }
         lastTab="jobs";
       } else if (p.type==="job") {
         const cd = fixDate(p.completion_date);
         const nj=linkRecordToClient({id:`J-NEW-${Date.now()}`,client:p.client||"",service:p.service||p.description||"",description:p.description||"",status:p.status||"Active",revenue:parseFloat(p.revenue)||0,hours:parseFloat(p.hours)||0,completion_date:cd,notes:p.notes||""}, p.client);
         await supabase.from("jobs").insert(nj);
         setJobs(j=>[{...nj,completionDate:cd,revenue:parseFloat(p.revenue)||0},...j]);
-        if (calToken && cd) (async ()=>{const calC=clients.find(c=>c.name===p.client)||{};const calTitle=[p.client,calC.phone,calC.address,p.service,parseFloat(p.revenue)>0?`$${parseFloat(p.revenue).toFixed(0)}`:""].filter(Boolean).join(" | ");await addToCalendar(calTitle,cd,`Service: ${p.service||""}\nPrice: $${p.revenue||0}\nAddress: ${calC.address||""}\nPhone: ${calC.phone||""}`);})();
+        if (calToken && cd) (async ()=>{const calC=clients.find(c=>c.name===p.client)||{};const location=calendarLocation(calC.address,calC.suburb);const calTitle=[p.client,calC.phone,location,p.service,parseFloat(p.revenue)>0?`$${parseFloat(p.revenue).toFixed(0)}`:""].filter(Boolean).join(" | ");await addToCalendar(calTitle,cd,`Service: ${p.service||""}\nPrice: $${p.revenue||0}\nAddress: ${location}\nPhone: ${calC.phone||""}`);})();
         lastTab="jobs";
       } else if (p.type==="invoice") {
         const d = fixDate(p.date);
@@ -963,8 +964,9 @@ const approveQuote = async (id) => {
   console.log("[approveQuote] freshToken:", !!freshToken, "tokenExpiry:", tokenExpiry, "now:", Date.now(), "validToken:", !!validToken);
   if (validToken) {
     const calC = clients.find(c=>c.name===q.client)||{};
-    const calTitle = [q.client, calC.phone, calC.address, (q.items||[]).map(it=>it.description).join(", "), `$${(q.total||0).toFixed(2)}`].filter(Boolean).join(" | ");
-    const calDesc = `Quote: ${q.id}\nTotal: $${(q.total||0).toFixed(2)}\nServices: ${(q.items||[]).map(it=>it.description).join(", ")}\nAddress: ${calC.address||""}\nPhone: ${calC.phone||""}`;
+    const location = calendarLocation(calC.address, calC.suburb);
+    const calTitle = [q.client, calC.phone, location, (q.items||[]).map(it=>it.description).join(", "), `$${(q.total||0).toFixed(2)}`].filter(Boolean).join(" | ");
+    const calDesc = `Quote: ${q.id}\nTotal: $${(q.total||0).toFixed(2)}\nServices: ${(q.items||[]).map(it=>it.description).join(", ")}\nAddress: ${location}\nPhone: ${calC.phone||""}`;
     console.log("[approveQuote] calling addToCalendar with title:", calTitle.slice(0,50));
     const eventId = await addToCalendar(calTitle, new Date().toISOString().split("T")[0], calDesc);
     console.log("[approveQuote] addToCalendar returned:", eventId);
@@ -1021,7 +1023,8 @@ const createRecurringCalendarSeries = async (rec, startDate, monthsAhead = 12) =
   const days = rec.custom_days || parseInt(rec.customDays) || freqDaysMap[rec.frequency] || 91;
   const cutoff = new Date();
   cutoff.setMonth(cutoff.getMonth() + monthsAhead);
-  const calTitle = `${rec.client} | ${rec.service} | $${(rec.revenue||0).toFixed(0)} (Recurring)`;
+  const calC = getClientByRecord(rec) || {};
+  const calTitle = [rec.client, calendarLocation(calC.address, calC.suburb), rec.service, `$${(rec.revenue||0).toFixed(0)} (Recurring)`].filter(Boolean).join(" | ");
   let current = startDate;
   const eventIds = [];
   while (new Date(current + "T12:00:00") <= cutoff) {
