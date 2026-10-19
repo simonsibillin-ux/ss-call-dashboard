@@ -10,9 +10,9 @@ test('pending quote notes cannot alter quote timing', () => {
   assert.equal(result.timingBand, 'not_scheduled');
   assert.equal(result.noteExcerpt, '');
 });
-test('manual follow-up is due four business days after successful CRM delivery', () => {
+test('manual follow-up is due four calendar days after successful CRM delivery', () => {
   const result = _test.baseline(quote({ deliveryEntries:[{ sentAt:'2026-09-18T01:00:00Z', status:'sent', channel:'sms', sequenceNumber:1 }] }), now);
-  assert.equal(result.recommendedDate, '2026-09-24');
+  assert.equal(result.recommendedDate, '2026-09-22');
   assert.equal(result.timingBand, 'this_week');
   assert.equal(result.reasonCode, 'manual_follow_up_due');
 });
@@ -29,18 +29,45 @@ test('a manually marked-sent quote shows both the scheduled automation and manua
   assert.equal(result.manualReviewDate, '2026-10-02');
   assert.equal(result.timingBand, 'next_week');
 });
+test('an overdue automatic date rolls visually to the next permitted five-minute window', () => {
+  const saturdayEvening = new Date('2026-10-17T09:38:00Z');
+  const result = _test.baseline(quote({ sentAt:'2026-10-11T10:12:00Z', deliveryStatus:'sent', nextFollowUpAt:'2026-10-14T23:00:00Z' }), saturdayEvening);
+  assert.equal(result.automationDate, '2026-10-18');
+  assert.equal(result.manualReviewDate, '2026-10-22');
+});
+test('a manual follow-up override supersedes the calculated date', () => {
+  const result = _test.baseline(quote({ sentAt:'2026-09-25T01:00:00Z', deliveryStatus:'sent', nextFollowUpAt:'2026-09-28T01:00:00Z', manualFollowUpAt:'2026-10-09T03:00:00Z' }), now);
+  assert.equal(result.manualReviewDate, '2026-10-09');
+});
+test('weekends count toward the four-day manual follow-up delay', () => {
+  const result = _test.baseline(quote({ deliveryEntries:[{ sentAt:'2026-10-16T22:05:00Z', status:'sent', sequenceNumber:1 }] }), new Date('2026-10-18T01:00:00Z'));
+  assert.equal(result.manualReviewDate, '2026-10-21');
+});
 test('a structured customer date schedules the next automation and then its manual review', () => {
   const result = _test.baseline(quote({ deliveryEntries:[{ sentAt:'2026-09-20T01:00:00Z', status:'sent' }], lastFollowUpAt:'2026-09-25T01:00:00Z', nextFollowUpAt:'2026-10-08T00:00:00Z', followUpCount:2 }), now);
   assert.equal(result.automationDate, '2026-10-08');
   assert.equal(result.automationStatus, 'scheduled');
-  assert.equal(result.recommendedDate, '2026-10-14');
+  assert.equal(result.recommendedDate, '2026-10-12');
   assert.equal(result.timingBand, 'later');
   assert.equal(result.attemptCount, 2);
+});
+test('a CRM customer response reschedule remains authoritative when delivery and last-follow-up timestamps match', () => {
+  const result = _test.baseline(quote({
+    deliveryEntries:[{ sentAt:'2026-10-18T00:00:01.245Z', status:'sent', sequenceNumber:1 }],
+    lastFollowUpAt:'2026-10-18T00:00:01.245Z',
+    nextFollowUpAt:'2026-12-31T23:00:00Z'
+  }), new Date('2026-10-18T10:00:00Z'));
+  assert.equal(result.automationDate, '2027-01-01');
+  assert.equal(result.automationStatus, 'scheduled');
+  assert.equal(result.manualReviewDate, '2027-01-05');
+  assert.equal(result.timingBand, 'later');
 });
 test('disabled quote follow-ups are not scheduled', () => {
   const result = _test.baseline(quote({ followUpEnabled:false }), now);
   assert.equal(result.reasonCode, 'follow_up_disabled');
   assert.equal(result.timingBand, 'not_scheduled');
+  assert.equal(result.automationStatus, 'paused');
+  assert.equal(result.manualStatus, 'paused');
 });
 test('portal call requests are immediate structured actions', () => {
   const result = _test.baseline(quote({ deliveryEntries:[{ sentAt:'2026-09-20T01:00:00Z', status:'sent' }], responseEntries:[{ createdAt:'2026-09-25T01:00:00Z', responseType:'call_request' }] }), now);

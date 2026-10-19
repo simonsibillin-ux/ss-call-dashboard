@@ -388,7 +388,10 @@
     <!-- SIDEBAR -->
     <div class="sidebar">
       <div class="sidebar-section">Navigation</div>
-      <div class="nav-item active" onclick="showPage('quotes')">
+      <div class="nav-item active" onclick="showPage('home')">
+        <span class="nav-icon">⌂</span> Home
+      </div>
+      <div class="nav-item" onclick="showPage('quotes')">
         <span class="nav-icon">📋</span> New Quote
       </div>
       <div class="nav-item" onclick="showPage('calendar')">
@@ -419,8 +422,32 @@
     <!-- CONTENT -->
     <div class="content">
 
+      <!-- ==================== HOME PAGE ==================== -->
+      <div class="page active" id="page-home">
+        <div class="home-heading">
+          <div>
+            <div class="page-title">Today</div>
+            <div class="page-subtitle" id="home-date">What needs your attention across the Call Dashboard and CRM</div>
+          </div>
+          <button class="btn-secondary home-refresh" id="home-refresh-btn" onclick="loadHomeDashboard(true)">↻ Refresh</button>
+        </div>
+        <div class="home-caught-up" id="home-caught-up" hidden>
+          <div class="home-caught-up-icon">✓</div>
+          <div><strong>You’re caught up for today</strong><span>Nothing needs immediate attention.</span></div>
+        </div>
+        <div class="home-card-grid" id="home-card-grid" aria-live="polite">
+          <article class="home-action-card is-loading" id="home-card-leads"><div class="home-card-top"><span class="home-card-icon">🎯</span><span class="home-card-state">Loading…</span></div><div class="home-card-label">Leads to action</div><div class="home-card-count">—</div><div class="home-card-detail">Checking new and contacted leads…</div><button class="home-card-link" onclick="openCrmPage('/inbox')">Open CRM inbox <span>→</span></button></article>
+          <article class="home-action-card is-loading" id="home-card-followups"><div class="home-card-top"><span class="home-card-icon">🔔</span><span class="home-card-state">Loading…</span></div><div class="home-card-label">Manual follow-ups</div><div class="home-card-count">—</div><div class="home-card-detail">Checking due and overdue follow-ups…</div><button class="home-card-link" onclick="openHomeSection('followups')">View follow-ups <span>→</span></button></article>
+          <article class="home-action-card is-loading" id="home-card-responses"><div class="home-card-top"><span class="home-card-icon">💬</span><span class="home-card-state">Loading…</span></div><div class="home-card-label">Customer responses</div><div class="home-card-count">—</div><div class="home-card-detail">Checking automation replies and CRM messages…</div><button class="home-card-link" onclick="openHomeSection('followups')">Review responses <span>→</span></button></article>
+          <article class="home-action-card is-loading" id="home-card-unscheduled"><div class="home-card-top"><span class="home-card-icon">🗓️</span><span class="home-card-state">Loading…</span></div><div class="home-card-label">Unscheduled jobs</div><div class="home-card-count">—</div><div class="home-card-detail">Checking active jobs that need booking…</div><button class="home-card-link" onclick="openHomeSection('unscheduled')">View unscheduled jobs <span>→</span></button></article>
+          <article class="home-action-card is-loading" id="home-card-todos"><div class="home-card-top"><span class="home-card-icon">✓</span><span class="home-card-state">Loading…</span></div><div class="home-card-label">Call tasks</div><div class="home-card-count">—</div><div class="home-card-detail">Checking the shared call task list…</div><button class="home-card-link" onclick="openHomeSection('calendar')">Open call tasks <span>→</span></button></article>
+          <article class="home-action-card is-loading" id="home-card-today"><div class="home-card-top"><span class="home-card-icon">📞</span><span class="home-card-state">Loading…</span></div><div class="home-card-label">Today’s calls</div><div class="home-card-count">—</div><div class="home-card-detail">Checking today’s scheduled callbacks…</div><button class="home-card-link" onclick="openHomeSection('calendar')">Open call calendar <span>→</span></button></article>
+        </div>
+        <div class="home-load-error" id="home-load-error" hidden></div>
+      </div>
+
       <!-- ==================== NEW QUOTE PAGE ==================== -->
-      <div class="page active" id="page-quotes">
+      <div class="page" id="page-quotes">
 
 
         <div id="service-select-view">
@@ -469,6 +496,12 @@
             <div class="form-group">
               <label class="form-label">Full Property Address <span style="color:var(--text3);font-weight:400;">(street number + street + suburb)</span></label>
               <input class="form-input" id="client-address" placeholder="e.g. 12 Smith St, Kilmore" oninput="updateClientInfo()">
+            </div>
+            <div class="form-group" style="background:#f4faef;border:1px solid #d8ebcb;border-radius:10px;padding:12px;">
+              <div class="form-label">Marketing permission <span style="color:var(--text3);font-weight:400;">(optional — ask the customer; leave unticked unless they say yes)</span></div>
+              <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;margin-top:7px;"><input type="checkbox" id="client-consent-sms" onchange="updateClientInfo()" style="margin-top:2px;"> SMS marketing: Yes</label>
+              <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;margin-top:7px;"><input type="checkbox" id="client-consent-email" onchange="updateClientInfo()" style="margin-top:2px;"> Email marketing: Yes</label>
+              <div style="font-size:11px;color:var(--text3);margin-top:7px;">Suggested wording: “Would you like occasional offers and seasonal service reminders? You can opt out at any time.”</div>
             </div>
             <div class="form-row">
               <div class="form-group">
@@ -957,7 +990,8 @@ let currentService = null;
 let currentStep = 0;
 let answers = {};
 let multiServiceItems = []; // accumulated line items for multi-service quotes
-let clientInfo = { name: '', phone: '', suburb: '', email: '', address: '', source: '', campaignName: '', campaignId: '', travelKm: 0, travelCost: 0 };
+let clientInfo = { name: '', phone: '', suburb: '', email: '', address: '', source: '', campaignName: '', campaignId: '', consentSms: false, consentEmail: false, travelKm: 0, travelCost: 0 };
+const recordedCallConsent = new Set();
 
 function serviceAmount(item) {
   const value = Number(item && item.rawTotal !== undefined ? item.rawTotal : item && item.total);
@@ -1254,6 +1288,7 @@ function showPage(page, navItem) {
     activeNav.classList.add('active');
     if (window.innerWidth <= 900) activeNav.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
   }
+  if (page === 'home') loadHomeDashboard();
   if (page === 'calendar') {
     const bd = document.getElementById('fu-browse-date');
     if (bd && !bd.value) bd.value = localToday();
@@ -1269,6 +1304,119 @@ function showPage(page, navItem) {
   }
   if (page === 'pricing') renderPricingPage();
   if (page === 'scripts') renderScriptsPage();
+}
+
+function openHomeSection(page) {
+  const navItem = [...document.querySelectorAll('.nav-item')].find(item => item.getAttribute('onclick')?.includes(`showPage('${page}')`));
+  showPage(page, navItem || null);
+}
+
+function openCrmPage(path) {
+  window.open(`https://ss-exterior-crm.vercel.app${path}`, '_blank', 'noopener');
+}
+
+let homeDashboardLoading = false;
+let homeDashboardLoadedAt = 0;
+
+function homeCard(id, count, detail, options = {}) {
+  const card = document.getElementById(`home-card-${id}`);
+  if (!card) return;
+  const complete = count === 0;
+  card.classList.remove('is-loading', 'is-action', 'is-urgent', 'is-complete', 'is-error');
+  card.classList.add(complete ? 'is-complete' : options.urgent ? 'is-urgent' : 'is-action');
+  card.querySelector('.home-card-count').textContent = complete ? '✓' : String(count);
+  card.querySelector('.home-card-state').textContent = complete ? 'Caught up' : options.urgent ? 'Needs attention' : 'Open';
+  card.querySelector('.home-card-detail').textContent = complete ? options.completeText : detail;
+}
+
+function homeRest(path) {
+  return fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers:{ 'apikey':SUPABASE_KEY, 'Authorization':`Bearer ${SUPABASE_KEY}` } })
+    .then(async response => {
+      if (!response.ok) throw new Error(await response.text() || `Request failed (${response.status})`);
+      return response.json();
+    });
+}
+
+async function loadHomeDashboard(force = false) {
+  if (homeDashboardLoading) return;
+  if (!force && homeDashboardLoadedAt && Date.now() - homeDashboardLoadedAt < 30000) return;
+  homeDashboardLoading = true;
+  const refresh = document.getElementById('home-refresh-btn');
+  const errorBox = document.getElementById('home-load-error');
+  if (refresh) { refresh.disabled = true; refresh.textContent = 'Refreshing…'; }
+  if (errorBox) errorBox.hidden = true;
+  try {
+    const [bookings, calls, quotes, responses, messages, jobs, notes, deliveries] = await Promise.all([
+      homeRest('bookings?select=*&order=created_at.desc&limit=200'),
+      homeRest('call_followups?select=*&order=call_date.asc,call_time.asc'),
+      homeRest('quotes?select=*&status=in.(pending,draft)&deleted_at=is.null&order=created_at.desc'),
+      homeRest('quote_responses?select=*&order=created_at.desc&limit=200'),
+      homeRest('messages?select=*&order=created_at.desc&limit=200'),
+      homeRest('jobs?select=*&status=eq.Active&order=created_at.asc'),
+      homeRest('record_notes?select=record_type,record_id,created_at&deleted_at=is.null&record_type=eq.quote&order=created_at.desc'),
+      homeRest('quote_follow_up_deliveries?select=quote_id,status,sent_at,created_at&status=eq.sent&order=created_at.desc')
+    ]);
+    const today = localToday();
+    const now = new Date();
+    const activeLeadStatuses = new Set(['pending', 'new', 'contact_attempted']);
+    const activeLeads = bookings.filter(row => activeLeadStatuses.has(String(row.status || 'pending').toLowerCase()));
+    const attempted = activeLeads.filter(row => String(row.status || '').toLowerCase() === 'contact_attempted').length;
+    const newLeads = activeLeads.length - attempted;
+
+    const dueCalls = calls.filter(row => row.status !== 'done' && row.call_date && row.call_date <= today);
+    const overdueCalls = dueCalls.filter(row => row.call_date < today).length;
+    const todayCalls = calls.filter(row => row.status !== 'done' && row.call_date === today);
+    const quoteIds = new Set(quotes.map(row => String(row.id)));
+    const deliveryByQuote = new Map();
+    deliveries.forEach(row => { if (!deliveryByQuote.has(String(row.quote_id))) deliveryByQuote.set(String(row.quote_id), row); });
+    const quoteManualDue = quotes.filter(quote => {
+      if (quote.follow_up_enabled === false) return false;
+      let dueAt = quote.manual_follow_up_at ? new Date(quote.manual_follow_up_at) : null;
+      if (!dueAt) {
+        const delivery = deliveryByQuote.get(String(quote.id));
+        const sentAt = delivery && new Date(delivery.sent_at || delivery.created_at);
+        if (sentAt && !Number.isNaN(sentAt.getTime())) { dueAt = new Date(sentAt); dueAt.setDate(dueAt.getDate() + 4); }
+      }
+      return dueAt && !Number.isNaN(dueAt.getTime()) && dueAt <= now;
+    }).length;
+
+    const latestNoteByQuote = new Map();
+    notes.forEach(row => { if (!latestNoteByQuote.has(String(row.record_id))) latestNoteByQuote.set(String(row.record_id), new Date(row.created_at)); });
+    const actionableResponseTypes = new Set(['call_request', 'correction', 'more_time', 'ready_to_book']);
+    const responseQuoteIds = new Set();
+    responses.forEach(row => {
+      const quoteId = String(row.quote_id);
+      if (!quoteIds.has(quoteId) || !actionableResponseTypes.has(String(row.response_type || '').toLowerCase())) return;
+      const responseAt = new Date(row.created_at);
+      const handledAt = latestNoteByQuote.get(quoteId);
+      if (!handledAt || handledAt < responseAt) responseQuoteIds.add(quoteId);
+    });
+    const unreadThreads = new Set(messages.filter(row => row.sender === 'client' && !row.read).map(row => row.client_name || row.portal_token || row.id));
+    const responseCount = responseQuoteIds.size + unreadThreads.size;
+
+    const unscheduled = jobs.filter(row => !String(row.completion_date || row.completionDate || '').trim());
+    const urgentBefore = new Date(); urgentBefore.setDate(urgentBefore.getDate() - 7);
+    const urgentJobs = unscheduled.filter(row => row.created_at && new Date(row.created_at) <= urgentBefore).length;
+    const openTodos = getOpenTodos();
+
+    homeCard('leads', activeLeads.length, `${newLeads} new${attempted ? ` · ${attempted} contact attempted` : ''}`, { urgent:activeLeads.length > 0, completeText:'No new leads waiting' });
+    homeCard('followups', quoteManualDue, `${quoteManualDue} quote follow-up${quoteManualDue === 1 ? '' : 's'} ready for a manual response`, { urgent:quoteManualDue > 0, completeText:'All manual follow-ups completed' });
+    homeCard('responses', responseCount, `${responseQuoteIds.size} automation response${responseQuoteIds.size === 1 ? '' : 's'} · ${unreadThreads.size} unread message thread${unreadThreads.size === 1 ? '' : 's'}`, { urgent:responseCount > 0, completeText:'No customer responses waiting' });
+    homeCard('unscheduled', unscheduled.length, `${urgentJobs} need immediate attention · ${Math.max(0, unscheduled.length - urgentJobs)} to book`, { urgent:urgentJobs > 0, completeText:'All active jobs are scheduled' });
+    homeCard('todos', openTodos.length, `${openTodos.length} open team task${openTodos.length === 1 ? '' : 's'}`, { completeText:'Call task list complete' });
+    homeCard('today', dueCalls.length, `${overdueCalls ? `${overdueCalls} overdue · ` : ''}${todayCalls.length} callback${todayCalls.length === 1 ? '' : 's'} due today`, { urgent:dueCalls.length > 0, completeText:'Today’s scheduled calls are complete' });
+
+    const totalAttention = activeLeads.length + dueCalls.length + quoteManualDue + responseCount + unscheduled.length + openTodos.length;
+    const caughtUp = document.getElementById('home-caught-up');
+    if (caughtUp) caughtUp.hidden = totalAttention !== 0;
+    homeDashboardLoadedAt = Date.now();
+  } catch (error) {
+    console.error('Home dashboard load failed:', error);
+    if (errorBox) { errorBox.hidden = false; errorBox.textContent = 'Some dashboard information could not be loaded. Refresh to try again.'; }
+  } finally {
+    homeDashboardLoading = false;
+    if (refresh) { refresh.disabled = false; refresh.textContent = '↻ Refresh'; }
+  }
 }
 
 // ============================================================
@@ -1507,6 +1655,8 @@ function updateClientInfo() {
   clientInfo.address = (document.getElementById('client-address') || {}).value?.trim() || '';
   clientInfo.source = (document.getElementById('client-source') || {}).value || '';
   clientInfo.campaignName = (document.getElementById('client-campaign') || {}).value?.trim() || '';
+  clientInfo.consentSms = Boolean(document.getElementById('client-consent-sms')?.checked);
+  clientInfo.consentEmail = Boolean(document.getElementById('client-consent-email')?.checked);
   const campaignGroup = document.getElementById('client-campaign-group');
   const isAd = clientInfo.source === 'meta-ad' || clientInfo.source === 'google-ad';
   if (campaignGroup) campaignGroup.style.display = isAd ? 'block' : 'none';
@@ -2043,8 +2193,12 @@ function buildCrmLineItems(items, travelCost = 0) {
     };
   });
   const travel = Number(travelCost) || 0;
-  if (travel > 0) {
-    lineItems.push({ description: 'Travel', qty: 1, unit: '', rate: travel, total: travel });
+  if (travel > 0 && lineItems.length > 0) {
+    lineItems[0] = {
+      ...lineItems[0],
+      rate: Number(lineItems[0].rate || 0) + travel,
+      total: Number(lineItems[0].total || 0) + travel
+    };
   }
   const totals = calculateQuoteTotals(items, travel);
   if (totals.minimumAdjustment > 0) {
@@ -2102,6 +2256,7 @@ async function ensureClientProfile() {
       body: JSON.stringify(profile)
     });
     if (!updateRes.ok) throw new Error(`Client profile update failed: ${await updateRes.text()}`);
+    await recordCallMarketingConsent(clientId);
     return clientId;
   }
 
@@ -2114,7 +2269,23 @@ async function ensureClientProfile() {
   if (!createRes.ok) throw new Error(`Client profile creation failed: ${await createRes.text()}`);
   const created = await createRes.json();
   if (!created || !created[0]?.id) throw new Error('Client profile creation returned no client ID.');
+  await recordCallMarketingConsent(created[0].id);
   return created[0].id;
+}
+
+async function recordCallMarketingConsent(clientId) {
+  const choices = [["sms", clientInfo.consentSms, clientInfo.phone], ["email", clientInfo.consentEmail, clientInfo.email]];
+  if (!choices.some(([,agreed,destination]) => agreed && destination)) return;
+  for (const [channel, agreed, destination] of choices) {
+    const key = `${clientId}:${channel}`;
+    if (!agreed || !destination || recordedCallConsent.has(key)) continue;
+    const response = await fetch('https://ss-exterior-crm.vercel.app/api/consent', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, channel, destination, action:'grant', status:'express', basis:'staff_recorded_verbal_consent', scope:['all_services'], sourceType:'call_dashboard', sourceId:currentRep?.id || null, disclosureVersion:'call-marketing-v1', disclosureText:'Customer agreed to receive occasional offers and seasonal service reminders and was told they can opt out at any time.', evidence:{repId:currentRep?.id||null,repName:currentRep?.name||null}, notes:'Express verbal consent captured during phone call.', recordedBy:currentRep?.name||'Call dashboard rep' })
+    });
+    if (!response.ok) { const data=await response.json().catch(()=>({})); throw new Error(data.error || 'Marketing permission could not be recorded'); }
+    recordedCallConsent.add(key);
+  }
 }
 
 // Shared CRM save helper for manual and chat-built multi-service quotes.
@@ -3679,6 +3850,7 @@ async function loadFollowUps() {
       if (document.getElementById('page-followups')?.classList.contains('active')) loadAiFollowUpPriorities(true);
       // Layer in pending quotes as synthetic follow-ups
       loadPendingQuoteFollowUps();
+      if (document.getElementById('page-home')?.classList.contains('active')) loadHomeDashboard(true);
     }
   } catch(e) {
     console.error('Could not load follow-ups', e);
@@ -3714,6 +3886,7 @@ async function loadTodos() {
     console.warn('Using local to-do fallback. Create app_todos table to sync across devices.', e);
   }
   renderTodoList();
+  if (document.getElementById('page-home')?.classList.contains('active')) loadHomeDashboard(true);
 }
 
 function saveTodos() {
@@ -4040,6 +4213,7 @@ let _priorityCandidatesById = {};
 let _priorityRequestId = 0;
 let _priorityCachedCandidates = null;
 let _priorityCachedAnalysis = null;
+let _priorityJobsAnalysed = false;
 let _prioritySelectedId = null;
 let _priorityPage = 'quotes';
 
@@ -4047,7 +4221,8 @@ function setPriorityPage(page) {
   _priorityPage = page === 'jobs' ? 'jobs' : 'quotes';
   document.getElementById('priority-tab-quotes')?.classList.toggle('active', _priorityPage === 'quotes');
   document.getElementById('priority-tab-jobs')?.classList.toggle('active', _priorityPage === 'jobs');
-  if (_priorityCachedCandidates && _priorityCachedAnalysis) renderAiFollowUpPriorities(_priorityCachedCandidates, _priorityCachedAnalysis);
+  if (_priorityPage === 'jobs' && !_priorityJobsAnalysed) loadAiFollowUpPriorities();
+  else if (_priorityCachedCandidates && _priorityCachedAnalysis) renderAiFollowUpPriorities(_priorityCachedCandidates, _priorityCachedAnalysis);
 }
 
 function priorityNavItem(label) {
@@ -4081,44 +4256,25 @@ function openPriorityItem(candidateId) {
   service.textContent = (candidate.services || []).join(' + ') || priorityRecordLabel(candidate);
   body.innerHTML = `
     <div class="priority-detail-badges"><span class="badge">${_escHtml(priorityRecordLabel(candidate))}</span><span class="priority-detail-level priority-detail-level--${_escHtml(analysis.priority || 'low')}">${_escHtml(analysis.priority || 'Unranked')} priority</span></div>
-    <div class="priority-detail-grid">
-      <div><span>Created</span><strong>${_escHtml(priorityCandidateDate(candidate.createdAt || candidate.recordDate) || 'Unknown')}</strong></div>
-      <div><span>Last activity</span><strong>${_escHtml(priorityCandidateDate(analysis.effectiveActivityAt || candidate.latestActivityAt) || 'Unknown')}</strong></div>
-      <div><span>${candidate.kind === 'pending_quote' ? 'Automation' : 'Review by'}</span><strong>${_escHtml(candidate.kind === 'pending_quote' ? `${analysis.automationStatus === 'sent' ? 'Sent' : 'Scheduled'} ${priorityCandidateDate(analysis.automationDate) || 'Not scheduled'}` : priorityCandidateDate(analysis.recommendedDate) || 'No review scheduled')}</strong></div>
-      ${candidate.kind === 'pending_quote' ? `<div><span>Manual follow-up</span><strong>${_escHtml(priorityCandidateDate(analysis.manualReviewDate) || 'Not scheduled')}</strong></div>` : ''}
-    </div>
-    ${isPendingQuote ? `<section class="priority-lifecycle" aria-label="Quote follow-up timeline">
-      <div class="priority-lifecycle-step is-complete"><strong>Quote sent</strong><span>${_escHtml(priorityCandidateDate(candidate.sentAt) || 'Recorded')}</span></div>
-      <div class="priority-lifecycle-step ${analysis.automationStatus === 'sent' ? 'is-complete' : 'is-current'}"><strong>Automation ${analysis.automationStatus === 'sent' ? 'sent' : 'scheduled'}</strong><span>${_escHtml(priorityCandidateDate(analysis.automationDate) || 'Not scheduled')}</span></div>
-      <div class="priority-lifecycle-step ${manualUnlocked ? 'is-current' : ''}"><strong>Manual follow-up</strong><span>${_escHtml(priorityCandidateDate(analysis.manualReviewDate) || 'Not scheduled')}</span></div>
+    <div class="priority-detail-meta">Created ${_escHtml(priorityCandidateDate(candidate.createdAt || candidate.recordDate) || 'Unknown')} · Last activity ${_escHtml(priorityCandidateDate(analysis.effectiveActivityAt || candidate.latestActivityAt) || 'Unknown')}</div>
+    ${isPendingQuote ? `<section class="priority-next-action"><h4>Next action</h4><p>${_escHtml(analysis.reason || 'Review the pending quote.')}</p><strong>${_escHtml(analysis.recommendedAction || 'Review the record and contact the customer.')}</strong></section>
+    <section class="priority-contact-card"><h4>Contact details</h4>${candidate.phone ? `<div><span>Phone</span><a href="tel:${_escHtml(String(candidate.phone).replace(/[^0-9+]/g, ''))}">${_escHtml(candidate.phone)}</a><button type="button" onclick="priorityCopyContact(decodeURIComponent('${encodeURIComponent(candidate.phone)}'))">Copy</button></div>` : ''}${candidate.email ? `<div><span>Email</span><a href="mailto:${_escHtml(candidate.email)}">${_escHtml(candidate.email)}</a><button type="button" onclick="priorityCopyContact(decodeURIComponent('${encodeURIComponent(candidate.email)}'))">Copy</button></div>` : ''}${!candidate.phone && !candidate.email ? '<p>No phone number or email address is recorded.</p>' : ''}</section>` : `<div class="priority-detail-grid"><div><span>Review by</span><strong>${_escHtml(priorityCandidateDate(analysis.recommendedDate) || 'No review scheduled')}</strong></div></div>`}
+    ${isPendingQuote ? `<section class="priority-delivery-card" aria-label="Delivery and follow-up">
+      <h4>Delivery &amp; follow-up</h4>
+      <div class="priority-schedule-row"><strong>Quote sent</strong><span>${_escHtml(priorityCandidateDateTime(candidate.sentAt) || 'Recorded')}</span><div></div></div>
+      <div class="priority-schedule-row"><strong>Automatic message</strong><span>${_escHtml(candidate.followUpEnabled === false ? `Paused · ${priorityCandidateDateTime(candidate.followUpPausedUntil || candidate.nextFollowUpAt) || 'No retained date'}` : `${analysis.automationStatus === 'sent' ? 'Sent ' : ''}${priorityCandidateDateTime(analysis.automationAt || analysis.automationDate) || 'Not scheduled'}`)}</span><div class="priority-schedule-actions"><button class="priority-schedule-action" onclick="priorityToggleScheduleEditor('automatic')">Edit</button><button class="priority-schedule-action" onclick="priorityToggleAutomaticPause()">${candidate.followUpEnabled === false ? 'Resume' : 'Pause'}</button><button class="priority-schedule-action" onclick="priorityToggleCustomerResponse()">Customer response</button></div><div class="priority-schedule-editor" id="priority-automatic-editor"><input class="form-input" id="priority-automatic-input" type="datetime-local" value="${_escHtml(priorityDateTimeInput(analysis.automationAt || candidate.followUpPausedUntil || candidate.nextFollowUpAt))}"><button class="btn-primary" onclick="prioritySaveSchedule('automatic')" style="width:auto;">Save</button><button class="btn-secondary" onclick="priorityToggleScheduleEditor('automatic')" style="width:auto;">Cancel</button></div></div>
+      <div class="priority-schedule-row"><strong>Manual follow-up</strong><span>${_escHtml(candidate.followUpEnabled === false ? 'Paused with automatic message' : `${priorityCandidateDateTime(analysis.manualReviewAt) || 'Not scheduled'}${candidate.manualFollowUpAt ? ' · Custom' : ' · Calculated'}`)}</span><div class="priority-schedule-actions">${candidate.followUpEnabled === false ? '' : '<button class="priority-schedule-action" onclick="priorityToggleScheduleEditor(\'manual\')">Edit</button>'}</div>${candidate.followUpEnabled === false ? '' : `<div class="priority-schedule-editor" id="priority-manual-editor"><input class="form-input" id="priority-manual-input" type="datetime-local" value="${_escHtml(priorityDateTimeInput(analysis.manualReviewAt))}"><button class="btn-primary" onclick="prioritySaveSchedule('manual')" style="width:auto;">Save</button>${candidate.manualFollowUpAt ? `<button class="btn-secondary" onclick="priorityResetManualSchedule()" style="width:auto;">Use calculated</button>` : ''}<button class="btn-secondary" onclick="priorityToggleScheduleEditor('manual')" style="width:auto;">Cancel</button></div>`}</div>
+      <div class="priority-response-editor" id="priority-response-editor" onclick="if(event.target===this) priorityToggleCustomerResponse()"><div class="priority-response-card" role="dialog" aria-modal="true" aria-labelledby="priority-response-title"><div class="priority-response-header"><h4 id="priority-response-title">Customer response</h4><button type="button" aria-label="Close customer response" onclick="priorityToggleCustomerResponse()">×</button></div><p>Record what the customer said and reschedule the automatic message when needed.</p>
+        <label class="form-label" for="priority-contact-source">Where did the response come from?</label><select id="priority-contact-source" class="form-input"><option value="">Select source…</option><option value="sms_reply">SMS reply</option><option value="phone_call">Phone call</option><option value="email_reply">Email reply</option><option value="portal">Customer portal</option><option value="other">Other</option></select>
+        <label class="form-label" for="priority-outcome">Outcome</label><div class="priority-outcome-grid"><select id="priority-outcome" class="form-input" onchange="priorityOutcomeChanged()"><option value="">Select outcome…</option><option value="call_on_date">Needs more time</option><option value="ready_to_book">Ready to book</option><option value="customer_will_contact">Customer will contact us</option><option value="declined">Declined</option><option value="do_not_contact">Do not contact</option></select><input id="priority-next-contact-date" class="form-input" type="date" min="${localToday()}" aria-label="Next contact date" style="display:none;"></div>
+        <label class="form-label" for="priority-new-note">Reason / note</label><textarea id="priority-new-note" class="form-input" rows="3" placeholder="Customer asked to delay until the new year…"></textarea><div class="priority-note-actions"><span id="priority-response-status"></span><button id="priority-add-note-btn" class="btn-primary" onclick="priorityAddNoteEntry()" style="width:auto;">Save response</button><button class="btn-secondary" onclick="priorityToggleCustomerResponse()" style="width:auto;">Cancel</button></div>
+      </div></div>
     </section>` : ''}
-    <section class="priority-detail-section"><h4>${candidate.kind === 'pending_quote' ? 'Workflow assessment' : 'AI perception'}</h4><p>${_escHtml(analysis.reason || 'No assessment is available yet.')}</p></section>
+    ${!isPendingQuote ? `<section class="priority-detail-section"><h4>AI perception</h4><p>${_escHtml(analysis.reason || 'No assessment is available yet.')}</p></section>` : ''}
     ${analysis.priorityConflict ? `<div class="alert alert-danger" style="margin:0 0 14px;"><strong>Priority check needed:</strong> ${_escHtml(analysis.priorityConflictMessage || 'The AI timing assessment does not match the assigned priority. Review the latest note before contacting the customer.')}</div>` : ''}
-    <section class="priority-detail-section priority-detail-recommendation"><h4>Recommended next step</h4><p>${_escHtml(analysis.recommendedAction || 'Review the record and contact the customer.')}</p></section>
+    ${!isPendingQuote ? `<section class="priority-detail-section priority-detail-recommendation"><h4>Recommended next step</h4><p>${_escHtml(analysis.recommendedAction || 'Review the record and contact the customer.')}</p></section>` : ''}
     ${analysis.priority === 'review' ? `<section class="priority-detail-section"><h4>Review options</h4><div style="display:flex;gap:7px;flex-wrap:wrap;"><button class="btn-secondary" onclick="priorityPrepareReview('resume')" style="width:auto;">Resume in 10 business days</button><button class="btn-secondary" onclick="priorityPrepareReview('schedule')" style="width:auto;">Choose a date</button><button class="btn-secondary" onclick="priorityPrepareReview('customer')" style="width:auto;">Wait for customer</button><button class="btn-secondary" onclick="priorityPrepareReview('owner')" style="width:auto;">Simon handling</button><button class="btn-secondary" onclick="priorityPrepareReview('close')" style="width:auto;color:#a33;">Close — no response</button></div></section>` : ''}
-    <section class="priority-detail-section"><h4>Internal communication history</h4>
-      <div id="priority-note-timeline"><div class="priority-no-notes">Loading note history…</div></div>
-      ${isPendingQuote ? `<div class="priority-manual-state ${manualUnlocked ? 'is-unlocked' : 'is-locked'}"><strong>${manualUnlocked ? 'Manual follow-up unlocked' : 'Manual follow-up locked'}</strong><span>${manualUnlocked ? 'The response window has elapsed. Record the result of the personal follow-up below.' : analysis.manualReviewAt ? `Available immediately after ${_escHtml(unlockLabel)}.` : 'The CRM automation must be scheduled before a manual follow-up can unlock.'}</span></div>` : ''}
-      <fieldset class="priority-manual-controls" ${isPendingQuote && !manualUnlocked ? 'disabled' : ''}>
-      <label class="form-label" for="priority-outcome">Manual follow-up outcome</label>
-      <div class="priority-outcome-grid">
-        <select id="priority-outcome" class="form-input" onchange="priorityOutcomeChanged()">
-          <option value="">General note</option>
-          <option value="voicemail_left">Voicemail left</option>
-          <option value="no_answer">No answer</option>
-          <option value="call_on_date">Spoke — needs more time</option>
-          <option value="ready_to_book">Ready to book</option>
-          <option value="customer_will_contact">Customer will contact us</option>
-          <option value="declined">Declined</option>
-          <option value="do_not_contact">Do not contact</option>
-        </select>
-        <input id="priority-next-contact-date" class="form-input" type="date" min="${localToday()}" aria-label="Next contact date" style="display:none;">
-      </div>
-      </fieldset>
-      <label class="form-label" for="priority-new-note" style="margin-top:10px;">Note <span style="font-weight:400;color:var(--text3);">(optional with an outcome)</span></label>
-      <textarea id="priority-new-note" class="form-input" rows="3" placeholder="Add context for the next rep…" style="width:100%;box-sizing:border-box;resize:vertical;line-height:1.5;"></textarea>
-      <div class="priority-note-actions"><span id="priority-note-status">Notes can be added at any time. Structured outcomes unlock when the response window ends.</span><button id="priority-add-note-btn" class="btn-primary" onclick="priorityAddNoteEntry()" style="width:auto;white-space:nowrap;">Save</button></div>
-    </section>`;
+    <div class="priority-detail-section"><button class="btn-secondary" onclick="priorityToggleInternalCommunications()" style="width:auto;">Internal communications</button><div id="priority-internal-communications" style="display:none;margin-top:12px;"><div id="priority-note-timeline"><div class="priority-no-notes">Loading note history…</div></div><label class="form-label" for="priority-internal-note">New internal communication</label><textarea id="priority-internal-note" class="form-input" rows="3" placeholder="Add an internal note…"></textarea><div class="priority-note-actions"><span id="priority-note-status"></span><button class="btn-primary" onclick="priorityAddInternalCommunication()" style="width:auto;">Add communication</button></div></div></div>`;
   openButton.textContent = `Open ${priorityRecordLabel(candidate)}`;
   openButton.onclick = () => openPriorityRecord(candidateId);
   modal.classList.add('open');
@@ -4251,30 +4407,39 @@ async function priorityAddNoteEntry() {
   const target = priorityNoteTarget(candidate);
   const input = document.getElementById('priority-new-note');
   const button = document.getElementById('priority-add-note-btn');
-  const status = document.getElementById('priority-note-status');
+  const status = document.getElementById('priority-response-status');
   const outcomeCode = document.getElementById('priority-outcome')?.value || '';
+  const contactSource = document.getElementById('priority-contact-source')?.value || '';
   const nextContactDate = document.getElementById('priority-next-contact-date')?.value || '';
   const body = input?.value.trim();
+  if (!contactSource) { showToast('Choose where the customer response came from', 'error'); return; }
   if (!target || (!body && !outcomeCode)) { showToast('Choose an outcome or enter a note first', 'error'); return; }
-  if (candidate?.kind === 'pending_quote' && outcomeCode && (!analysis.manualReviewAt || Date.now() < new Date(analysis.manualReviewAt).getTime())) { showToast('The manual follow-up is still locked', 'error'); return; }
+  const isInboundCustomerUpdate = Boolean(contactSource);
+  if (candidate?.kind === 'pending_quote' && outcomeCode && !isInboundCustomerUpdate && (!analysis.manualReviewAt || Date.now() < new Date(analysis.manualReviewAt).getTime())) { showToast('Choose how the customer contacted us, or wait until the manual follow-up is due', 'error'); return; }
   if (outcomeCode === 'call_on_date' && !nextContactDate) { showToast('Choose the next contact date', 'error'); return; }
   if (button) { button.disabled = true; button.textContent = 'Adding…'; }
   if (status) status.textContent = 'Adding timestamped note…';
   try {
     const outcomeLabels = { voicemail_left:'Voicemail left', no_answer:'No answer', ready_to_book:'Ready to book', call_on_date:'Spoke — needs more time', customer_will_contact:'Customer will contact us', declined:'Declined', do_not_contact:'Do not contact' };
-    await createRecordNote(target.recordType, target.recordId, body || outcomeLabels[outcomeCode], { outcomeCode, nextContactDate });
+    const sourceLabels = { sms_reply:'SMS reply', phone_call:'Phone call', email_reply:'Email reply', portal:'Customer portal', other:'Other customer contact' };
+    const noteBody = [contactSource ? `[Customer update · ${sourceLabels[contactSource]}]` : '', body || outcomeLabels[outcomeCode]].filter(Boolean).join('\n');
+    await createRecordNote(target.recordType, target.recordId, noteBody, { outcomeCode, nextContactDate });
     if (candidate.kind === 'pending_quote' && outcomeCode) {
       const retryOutcomes = new Set(['voicemail_left', 'no_answer']);
       const closeOutcomes = new Set(['ready_to_book', 'customer_will_contact', 'owner_handling', 'declined', 'do_not_contact']);
       const nextDate = outcomeCode === 'call_on_date' ? nextContactDate : retryOutcomes.has(outcomeCode) ? priorityBusinessDate(3) : null;
       const quoteChanges = {
-        last_follow_up_at:new Date().toISOString(),
-        follow_up_count:(Number(candidate.followUpCount) || 0) + 1,
+        ...(isInboundCustomerUpdate ? {} : {
+          last_follow_up_at:new Date().toISOString(),
+          follow_up_count:(Number(candidate.followUpCount) || 0) + 1
+        }),
         next_follow_up_at:nextDate ? new Date(`${nextDate}T10:00:00`).toISOString() : null,
+        manual_follow_up_at:null,
         follow_up_enabled:!closeOutcomes.has(outcomeCode)
       };
       await priorityPatchRecord('quotes', candidate.recordId, quoteChanges);
     }
+    document.getElementById('priority-response-editor')?.classList.remove('open');
     input.value = '';
     await priorityLoadNoteEntries(true);
     await loadAiFollowUpPriorities(true);
@@ -4284,7 +4449,7 @@ async function priorityAddNoteEntry() {
     if (status) status.textContent = 'Save failed — please try again';
     showToast(error.message || 'Could not add note', 'error');
   } finally {
-    if (button) { button.disabled = false; button.textContent = 'Add Note'; }
+    if (button) { button.disabled = false; button.textContent = 'Save response'; }
   }
 }
 
@@ -4296,25 +4461,121 @@ function priorityOutcomeChanged() {
   if (outcome !== 'call_on_date') date.value = '';
 }
 
+async function priorityCopyContact(value) {
+  try { await navigator.clipboard.writeText(value); showToast('Contact detail copied'); }
+  catch { showToast('Clipboard access was blocked', 'error'); }
+}
+
+function priorityToggleCustomerResponse() {
+  document.getElementById('priority-response-editor')?.classList.toggle('open');
+}
+
+function priorityToggleInternalCommunications() {
+  const panel = document.getElementById('priority-internal-communications');
+  if (panel) panel.style.display = panel.style.display === 'none' ? '' : 'none';
+}
+
+async function priorityAddInternalCommunication() {
+  const candidate = _priorityCandidatesById[_prioritySelectedId];
+  const target = priorityNoteTarget(candidate);
+  const input = document.getElementById('priority-internal-note');
+  const body = input?.value.trim();
+  if (!target || !body) return showToast('Enter an internal communication first', 'error');
+  try {
+    await createRecordNote(target.recordType, target.recordId, body);
+    input.value = '';
+    await priorityLoadNoteEntries(true);
+    showToast('Internal communication added');
+  } catch (error) { showToast(error.message || 'Could not add communication', 'error'); }
+}
+
 function priorityCandidateDate(value) {
   if (!value) return '';
   const date = new Date(String(value).length === 10 ? `${value}T00:00:00` : value);
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' });
 }
 
+function priorityCandidateDateTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('en-AU', { dateStyle:'medium', timeStyle:'short' });
+}
+
+function priorityDateTimeInput(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = number => String(number).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function priorityToggleScheduleEditor(kind) {
+  document.getElementById(`priority-${kind}-editor`)?.classList.toggle('open');
+}
+
+async function priorityRefreshEditedQuote(candidateId, message) {
+  showToast(message);
+  await loadAiFollowUpPriorities(true);
+  if (_priorityCandidatesById[candidateId]) openPriorityItem(candidateId);
+}
+
+async function prioritySaveSchedule(kind) {
+  const candidate = _priorityCandidatesById[_prioritySelectedId];
+  const input = document.getElementById(`priority-${kind}-input`);
+  if (!candidate || candidate.kind !== 'pending_quote' || !input?.value) return showToast('Choose a date and time first', 'error');
+  const chosen = new Date(input.value);
+  if (Number.isNaN(chosen.getTime())) return showToast('Choose a valid date and time', 'error');
+  const candidateId = candidate.id;
+  try {
+    const changes = kind === 'automatic'
+      ? (candidate.followUpEnabled === false
+          ? { next_follow_up_at:null, follow_up_paused_until:chosen.toISOString(), manual_follow_up_at:null }
+          : { next_follow_up_at:chosen.toISOString(), follow_up_paused_until:null, manual_follow_up_at:null })
+      : { manual_follow_up_at:chosen.toISOString() };
+    await priorityPatchRecord('quotes', candidate.recordId, changes);
+    await priorityRefreshEditedQuote(candidateId, `${kind === 'automatic' ? 'Automatic message' : 'Manual follow-up'} updated`);
+  } catch (error) { showToast(error.message, 'error'); }
+}
+
+async function priorityResetManualSchedule() {
+  const candidate = _priorityCandidatesById[_prioritySelectedId];
+  if (!candidate) return;
+  try {
+    await priorityPatchRecord('quotes', candidate.recordId, { manual_follow_up_at:null });
+    await priorityRefreshEditedQuote(candidate.id, 'Manual follow-up returned to its calculated date');
+  } catch (error) { showToast(error.message, 'error'); }
+}
+
+async function priorityToggleAutomaticPause() {
+  const candidate = _priorityCandidatesById[_prioritySelectedId];
+  if (!candidate) return;
+  const analysis = (_priorityCachedAnalysis?.priorities || []).find(row => row.id === candidate.id) || {};
+  const enabled = candidate.followUpEnabled !== false;
+  const retained = candidate.nextFollowUpAt || analysis.automationAt || candidate.followUpPausedUntil || new Date().toISOString();
+  try {
+    await priorityPatchRecord('quotes', candidate.recordId, enabled
+      ? { follow_up_enabled:false, follow_up_paused_until:retained, next_follow_up_at:null }
+      : { follow_up_enabled:true, next_follow_up_at:candidate.followUpPausedUntil || new Date().toISOString(), follow_up_paused_until:null, manual_follow_up_at:null });
+    await priorityRefreshEditedQuote(candidate.id, `Automatic follow-up ${enabled ? 'paused' : 'resumed'}`);
+  } catch (error) { showToast(error.message, 'error'); }
+}
+
 async function fetchFollowUpPriorityCandidates() {
   const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` };
-  const [quoteResponse, jobResponse, noteResponse, deliveryResponse, responseResponse] = await Promise.all([
-    fetch(`${SUPABASE_URL}/rest/v1/quotes?status=in.(pending,draft)&deleted_at=is.null&select=id,client,date,total,status,items,notes,created_at,delivery_status,delivery_channel,sent_at,last_follow_up_at,next_follow_up_at,follow_up_enabled,follow_up_paused_until,follow_up_count&order=created_at.desc`, { headers }),
+  const [quoteResponse, jobResponse, noteResponse, deliveryResponse, responseResponse, clientResponse] = await Promise.all([
+    fetch(`${SUPABASE_URL}/rest/v1/quotes?status=in.(pending,draft)&deleted_at=is.null&select=id,client,client_id,date,total,status,items,notes,created_at,delivery_status,delivery_channel,sent_at,last_follow_up_at,next_follow_up_at,manual_follow_up_at,follow_up_enabled,follow_up_paused_until,follow_up_count&order=created_at.desc`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/jobs?status=eq.Active&select=id,client,service,revenue,items,notes,description,created_at,completion_date,google_calendar_event_id&order=created_at.asc`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/record_notes?deleted_at=is.null&record_type=in.(quote,job,calendar_event)&select=record_type,record_id,body,author_name,created_at,outcome_code,next_contact_date,action_result&order=created_at.desc`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/quote_follow_up_deliveries?select=id,quote_id,sequence_number,channel,status,sent_at,error,created_at&order=created_at.desc`, { headers }),
-    fetch(`${SUPABASE_URL}/rest/v1/quote_responses?select=id,quote_id,response_type,reason,notes,preferred_timeframe,preferred_dates,contact_again_at,created_at&order=created_at.desc`, { headers })
+    fetch(`${SUPABASE_URL}/rest/v1/quote_responses?select=id,quote_id,response_type,reason,notes,preferred_timeframe,preferred_dates,contact_again_at,created_at&order=created_at.desc`, { headers }),
+    fetch(`${SUPABASE_URL}/rest/v1/clients?select=id,name,phone,email`, { headers })
   ]);
-  if (!quoteResponse.ok || !jobResponse.ok || !noteResponse.ok || !deliveryResponse.ok || !responseResponse.ok) throw new Error('Could not load the complete follow-up data set.');
-  const [quotes, jobs, notes, deliveries, quoteResponses] = await Promise.all([
-    quoteResponse.json(), jobResponse.json(), noteResponse.json(), deliveryResponse.json(), responseResponse.json()
+  if (!quoteResponse.ok || !jobResponse.ok || !noteResponse.ok || !deliveryResponse.ok || !responseResponse.ok || !clientResponse.ok) throw new Error('Could not load the complete follow-up data set.');
+  const [quotes, jobs, notes, deliveries, quoteResponses, clients] = await Promise.all([
+    quoteResponse.json(), jobResponse.json(), noteResponse.json(), deliveryResponse.json(), responseResponse.json(), clientResponse.json()
   ]);
+  const clientsById = new Map(clients.map(client => [String(client.id), client]));
+  const clientsByName = new Map(clients.map(client => [String(client.name || '').trim().toLowerCase(), client]));
   let calendarEvents = [];
   try { calendarEvents = (await ujFetchCalendarEvents()).events || []; } catch (error) { console.warn('Standalone unscheduled calendar events were not included:', error); }
   const calendarEventsById = new Map(calendarEvents.map(event => [String(event.id), event]));
@@ -4332,6 +4593,7 @@ async function fetchFollowUpPriorityCandidates() {
 
   const quoteCandidates = quotes.map(quote => {
     const entries = entryPayload('quote', quote.id);
+    const client = clientsById.get(String(quote.client_id || '')) || clientsByName.get(String(quote.client || '').trim().toLowerCase()) || {};
     return {
       id:`quote:${quote.id}`, kind:quote.status === 'draft' ? 'draft_quote' : 'pending_quote', recordId:String(quote.id), clientName:quote.client || 'Unknown client',
       services:(quote.items || []).map(item => item.description || item.name).filter(name => name && name !== 'TOTAL'),
@@ -4342,6 +4604,8 @@ async function fetchFollowUpPriorityCandidates() {
       deliveryEntries:deliveriesByQuote[quote.id] || [], responseEntries:responsesByQuote[quote.id] || [],
       nextFollowUpAt:quote.next_follow_up_at, sentAt:quote.sent_at, deliveryStatus:quote.delivery_status, deliveryChannel:quote.delivery_channel,
       followUpEnabled:quote.follow_up_enabled !== false, followUpPausedUntil:quote.follow_up_paused_until,
+      manualFollowUpAt:quote.manual_follow_up_at,
+      phone:client.phone || '', email:client.email || '',
       lastFollowUpAt:quote.last_follow_up_at, followUpCount:Number(quote.follow_up_count) || 0
     };
   });
@@ -4419,24 +4683,28 @@ async function loadAiFollowUpPriorities(force = false) {
   const container = document.getElementById('priority-list');
   const button = document.getElementById('priority-refresh-btn');
   if (!container) return;
-  if (!force && _priorityCachedCandidates && _priorityCachedAnalysis) {
+  if (!force && _priorityCachedCandidates && _priorityCachedAnalysis && (_priorityPage === 'quotes' || _priorityJobsAnalysed)) {
     _priorityCandidatesById = Object.fromEntries(_priorityCachedCandidates.map(candidate => [candidate.id, candidate]));
     renderAiFollowUpPriorities(_priorityCachedCandidates, _priorityCachedAnalysis);
     return;
   }
   const requestId = ++_priorityRequestId;
-  container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">Building the follow-up centre…</div><div class="empty-state-desc">Reading CRM deliveries, customer responses, internal notes, drafts and jobs</div></div>';
+  container.innerHTML = _priorityPage === 'jobs'
+    ? '<div class="empty-state"><div class="empty-state-icon">✨</div><div class="empty-state-title">Analysing unscheduled jobs…</div><div class="empty-state-desc">AI is reading the internal communications to organise booking timing</div></div>'
+    : '<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">Loading pending quotes…</div><div class="empty-state-desc">Reading follow-up schedules and customer responses</div></div>';
   if (button) { button.disabled = true; button.textContent = 'Refreshing…'; }
   try {
-    const candidates = await fetchFollowUpPriorityCandidates();
+    const candidates = !force && _priorityCachedCandidates ? _priorityCachedCandidates : await fetchFollowUpPriorityCandidates();
     if (requestId !== _priorityRequestId) return;
     _priorityCandidatesById = Object.fromEntries(candidates.map(candidate => [candidate.id, candidate]));
-    const response = await fetch('/api/follow-up-priority', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ items:candidates, force }) });
+    const useAi = _priorityPage === 'jobs';
+    const response = await fetch('/api/follow-up-priority', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ items:candidates, force, useAi }) });
     const analysis = await response.json().catch(() => ({}));
     if (!response.ok || !Array.isArray(analysis.priorities)) throw new Error(analysis.error || 'Priority analysis failed.');
     if (requestId !== _priorityRequestId) return;
     _priorityCachedCandidates = candidates;
     _priorityCachedAnalysis = analysis;
+    _priorityJobsAnalysed = useAi;
     renderAiFollowUpPriorities(candidates, analysis);
   } catch (error) {
     console.error('AI follow-up priority load failed:', error);
@@ -5027,6 +5295,8 @@ function showToast(msg) {
 loadDashboardSettings();
 loadTodos().then(() => setTimeout(showTodoReminderIfNeeded, 400));
 initRep();
+document.getElementById('home-date').textContent = new Date().toLocaleDateString('en-AU', { weekday:'long', day:'numeric', month:'long' });
+loadHomeDashboard();
 document.getElementById('fu-date').valueAsDate = new Date();
 if (document.getElementById('fu-browse-date')) document.getElementById('fu-browse-date').value = localToday();
 // Set default perf dates

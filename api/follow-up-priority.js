@@ -29,6 +29,30 @@ function validDate(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+const CUSTOMER_WINDOWS = { Mon:[10,18], Tue:[10,18], Wed:[10,18], Thu:[10,18], Fri:[10,18], Sat:[10,16], Sun:[11,15] };
+function melbourneContactParts(value) {
+  return new Intl.DateTimeFormat('en-AU', { timeZone:'Australia/Melbourne', weekday:'short', hour:'2-digit', minute:'2-digit', hourCycle:'h23' })
+    .formatToParts(value).filter(part => part.type !== 'literal').reduce((result, part) => ({ ...result, [part.type]:part.value }), {});
+}
+function isCustomerWindow(value) {
+  const parts = melbourneContactParts(value), hours = CUSTOMER_WINDOWS[parts.weekday];
+  const minute = Number(parts.hour) * 60 + Number(parts.minute);
+  return Boolean(hours) && minute >= hours[0] * 60 && minute < hours[1] * 60;
+}
+function effectiveAutomationTimestamp(value, now = new Date()) {
+  const scheduled = validDate(value), current = validDate(now);
+  if (!scheduled || !current) return null;
+  const candidate = new Date(Math.max(scheduled.getTime(), current.getTime()));
+  candidate.setUTCSeconds(0, 0);
+  const remainder = candidate.getUTCMinutes() % 5;
+  if (remainder) candidate.setUTCMinutes(candidate.getUTCMinutes() + 5 - remainder);
+  for (let minute = 0; minute < 3 * 24 * 60; minute++) {
+    if (isCustomerWindow(candidate)) return candidate;
+    candidate.setUTCMinutes(candidate.getUTCMinutes() + 1);
+  }
+  return null;
+}
+
 function localIso(date) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone:'Australia/Melbourne', year:'numeric', month:'2-digit', day:'2-digit'
@@ -211,15 +235,10 @@ function businessDaysUntil(fromIso, toIso) {
   return count;
 }
 
-function addBusinessDaysTimestamp(value, amount) {
+function addCalendarDaysTimestamp(value, amount) {
   const date = validDate(value);
   if (!date) return '';
-  let remaining = amount;
-  while (remaining > 0) {
-    date.setUTCDate(date.getUTCDate() + 1);
-    const weekday = new Intl.DateTimeFormat('en-US', { timeZone:'Australia/Melbourne', weekday:'short' }).format(date);
-    if (weekday !== 'Sat' && weekday !== 'Sun') remaining--;
-  }
+  date.setUTCDate(date.getUTCDate() + amount);
   return date.toISOString();
 }
 
@@ -282,57 +301,59 @@ function pendingQuoteBaseline(item, now, signals) {
     outcomeCode:'', noteExcerpt:'', effectiveActivityAt:latestDeliveryAt?.toISOString() || '' };
 
   if (item.followUpEnabled === false) return { ...base, priority:'low', timingBand:'not_scheduled', reasonCode:'follow_up_disabled', recommendedDate:'',
-    reason:'Quote follow-ups are switched off.', recommendedAction:'No quote follow-up is scheduled.' };
+    automationStatus:'paused', manualStatus:'paused', reason:'Automatic and manual quote follow-ups are paused.', recommendedAction:'No quote follow-up will become due until the cycle is resumed.' };
 
   if (latestResponseAt && (!latestDeliveryAt || latestResponseAt > latestDeliveryAt)) {
     if (['call_request', 'correction'].includes(latestResponse.responseType)) return { ...base, priority:'urgent', timingBand:'this_week', reasonCode:`portal_${latestResponse.responseType}`, recommendedDate:today,
       reason:latestResponse.responseType === 'call_request' ? 'The customer requested a call through the quote portal.' : 'The customer requested a quote correction through the portal.',
       recommendedAction:latestResponse.responseType === 'call_request' ? 'Call the customer and record the outcome.' : 'Review the requested change, update the quote, and contact the customer.' };
     if (latestResponse.responseType === 'more_time') {
-      const scheduled = validDate(latestResponse.contactAgainAt || item.nextFollowUpAt);
+      const scheduled = effectiveAutomationTimestamp(latestResponse.contactAgainAt || item.nextFollowUpAt, now);
       const scheduledDay = scheduled ? localIso(scheduled) : '';
-      const manualReviewAt = scheduled ? addBusinessDaysTimestamp(scheduled, 4) : '';
+      const manualReviewAt = validDate(item.manualFollowUpAt)?.toISOString() || (scheduled ? addCalendarDaysTimestamp(scheduled, 4) : '');
       const manualReviewDate = manualReviewAt ? localIso(validDate(manualReviewAt)) : '';
       const timingBand = quoteTimingBand(today, manualReviewDate);
       return { ...base, priority:timingBand === 'this_week' ? 'urgent' : timingBand === 'next_week' ? 'high' : 'upcoming', timingBand, reasonCode:'customer_requested_more_time', recommendedDate:manualReviewDate,
-        automationDate:scheduledDay, automationStatus:'scheduled', manualReviewDate, manualReviewAt,
+        automationDate:scheduledDay, automationAt:scheduled?.toISOString() || '', automationStatus:'scheduled', manualReviewDate, manualReviewAt,
         reason:`The customer requested more time through the portal${latestResponse.reason ? `: ${clean(latestResponse.reason, 160)}` : ''}.`,
         recommendedAction:scheduled ? 'Let the CRM contact the customer on their selected date; create a personal task only after that message’s response window.' : 'Keep the quote paused until a contact date is confirmed.' };
     }
   }
 
   if (!latestDeliveryAt) {
-    const scheduled = validDate(item.nextFollowUpAt);
+    const scheduled = effectiveAutomationTimestamp(item.nextFollowUpAt, now);
     const automationDate = scheduled ? localIso(scheduled) : '';
     if (scheduled && item.deliveryStatus === 'sent' && validDate(item.sentAt)) {
-      const manualReviewAt = addBusinessDaysTimestamp(scheduled, 4);
+      const manualReviewAt = validDate(item.manualFollowUpAt)?.toISOString() || addCalendarDaysTimestamp(scheduled, 4);
       const manualReviewDate = localIso(validDate(manualReviewAt));
       const timingBand = quoteTimingBand(today, manualReviewDate);
       return { ...base, priority:timingBand === 'this_week' ? 'urgent' : timingBand === 'next_week' ? 'high' : 'upcoming', timingBand,
-        reasonCode:'automation_scheduled', recommendedDate:manualReviewDate, automationDate, automationStatus:'scheduled', manualReviewDate, manualReviewAt,
-        reason:`The CRM automation is scheduled for ${automationDate}; manual review is booked four business days later.`,
+        reasonCode:'automation_scheduled', recommendedDate:manualReviewDate, automationDate, automationAt:scheduled.toISOString(), automationStatus:'scheduled', manualReviewDate, manualReviewAt,
+        reason:`The CRM automation is scheduled for ${automationDate}; manual review is booked four calendar days later.`,
         recommendedAction:`Let the CRM message send on ${automationDate}, then manually follow up on ${manualReviewDate} if the quote is still pending.` };
     }
     return { ...base, priority:'low', timingBand:'not_scheduled', reasonCode:'awaiting_automation', recommendedDate:'', automationDate:'', automationStatus:'not_scheduled', manualReviewDate:'',
       reason:'No automated quote follow-up is currently scheduled.', recommendedAction:'Check the quote delivery state in the CRM.' };
   }
 
-  const manualDueAt = addBusinessDaysTimestamp(latestDeliveryAt, 4);
+  const manualDueAt = addCalendarDaysTimestamp(latestDeliveryAt, 4);
   const manualDueDate = localIso(validDate(manualDueAt));
-  const storedDate = validDate(item.nextFollowUpAt);
-  const lastFollowUpAt = validDate(item.lastFollowUpAt);
-  const nextAutomationScheduled = storedDate && lastFollowUpAt && lastFollowUpAt > latestDeliveryAt;
+  const storedDate = effectiveAutomationTimestamp(item.nextFollowUpAt, now);
+  // next_follow_up_at is the shared CRM/dashboard source of truth. A customer
+  // response may reschedule it without changing last_follow_up_at, so comparing
+  // those two audit timestamps can incorrectly hide the new schedule.
+  const nextAutomationScheduled = Boolean(storedDate && storedDate > latestDeliveryAt);
   const automationAt = nextAutomationScheduled ? storedDate.toISOString() : latestDeliveryAt.toISOString();
   const automationStatus = nextAutomationScheduled ? 'scheduled' : 'sent';
-  const manualReviewAt = nextAutomationScheduled ? addBusinessDaysTimestamp(storedDate, 4) : manualDueAt;
+  const manualReviewAt = validDate(item.manualFollowUpAt)?.toISOString() || (nextAutomationScheduled ? addCalendarDaysTimestamp(storedDate, 4) : manualDueAt);
   const nextDate = localIso(validDate(manualReviewAt));
   const timingBand = quoteTimingBand(today, nextDate);
   const priority = timingBand === 'this_week' ? 'urgent' : timingBand === 'next_week' ? 'high' : 'upcoming';
   const manualUnlocked = validDate(manualReviewAt) <= now;
   const sequence = Number(latestDelivery?.sequenceNumber) || deliveries.length;
   return { ...base, priority, timingBand, reasonCode:manualUnlocked ? 'manual_follow_up_due' : 'manual_follow_up_scheduled', recommendedDate:nextDate,
-    automationDate:localIso(validDate(automationAt)), automationStatus, manualReviewDate:nextDate, manualReviewAt,
-    reason:`The next personal follow-up is booked for ${nextDate}${nextDate === manualDueDate ? `, four business days after CRM message ${sequence}` : ''}.`,
+    automationDate:localIso(validDate(automationAt)), automationAt, automationStatus, manualReviewDate:nextDate, manualReviewAt,
+    reason:`The next personal follow-up is booked for ${nextDate}${nextDate === manualDueDate ? `, four calendar days after CRM message ${sequence}` : ''}.`,
     recommendedAction:manualUnlocked ? 'Follow up with the customer and record the structured outcome.' : `Follow up on ${nextDate}.` };
 }
 
@@ -527,6 +548,7 @@ module.exports = async function handler(req, res) {
     legacyNotes:clean(raw.legacyNotes, 2400), nextFollowUpAt:clean(raw.nextFollowUpAt, 80), lastFollowUpAt:clean(raw.lastFollowUpAt, 80),
     sentAt:clean(raw.sentAt, 80), deliveryStatus:clean(raw.deliveryStatus, 40), deliveryChannel:clean(raw.deliveryChannel, 30),
     followUpEnabled:raw.followUpEnabled !== false, followUpCount:Number(raw.followUpCount) || 0,
+    manualFollowUpAt:clean(raw.manualFollowUpAt, 80),
     deliveryEntries:Array.isArray(raw.deliveryEntries) ? raw.deliveryEntries.slice(0, 20).map(row => ({
       sentAt:clean(row.sentAt, 80), createdAt:clean(row.createdAt, 80), status:clean(row.status, 30),
       channel:clean(row.channel, 30), sequenceNumber:Number(row.sequenceNumber) || 0
@@ -539,12 +561,13 @@ module.exports = async function handler(req, res) {
       outcomeCode:clean(note.outcomeCode, 40), nextContactDate:clean(note.nextContactDate, 20) })) : []
   })).filter(item => item.id && item.clientName);
   const fallbacks = Object.fromEntries(items.map(item => [item.id, baseline(item, now)]));
+  const useAi = req.body?.useAi === true;
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!items.length || !apiKey) return res.status(200).json({ generatedAt:now.toISOString(), source:'note-aware rules', dailyQueueLimit:DAILY_QUEUE_LIMIT, priorities:assignDailyQueue(items.map(item => mergedResult(item, fallbacks[item.id]))) });
+  if (!items.length || !useAi || !apiKey) return res.status(200).json({ generatedAt:now.toISOString(), source:useAi ? 'note-aware rules' : 'workflow rules', dailyQueueLimit:DAILY_QUEUE_LIMIT, priorities:assignDailyQueue(items.map(item => mergedResult(item, fallbacks[item.id]))) });
 
-  // Pending-quote timing is entirely event-driven. AI is reserved for drafts
-  // and scheduling records where interpreting internal prose is useful.
-  const aiItems = items.filter(item => item.kind !== 'pending_quote');
+  // Quote views are entirely rule-driven. AI runs lazily only when the user
+  // opens the unscheduled-jobs view, where interpreting internal prose helps.
+  const aiItems = items.filter(item => item.kind === 'unscheduled_job');
   if (!aiItems.length) return res.status(200).json({ generatedAt:now.toISOString(), source:'workflow rules', dailyQueueLimit:DAILY_QUEUE_LIMIT,
     priorities:assignDailyQueue(items.map(item => mergedResult(item, fallbacks[item.id]))) });
   const batches = [];
@@ -580,4 +603,4 @@ module.exports = async function handler(req, res) {
   }
 };
 
-module.exports._test = { baseline, assignDailyQueue, addBusinessDays, noteSignals, mergedResult, deterministicTiming };
+module.exports._test = { baseline, assignDailyQueue, addBusinessDays, noteSignals, mergedResult, deterministicTiming, effectiveAutomationTimestamp };

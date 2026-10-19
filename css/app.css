@@ -145,6 +145,37 @@
     margin-top: 2px;
   }
 
+  /* HOME ACTION CENTRE */
+  .home-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+  .home-refresh { width: auto; white-space: nowrap; }
+  .home-caught-up { display: flex; align-items: center; gap: 14px; padding: 16px 18px; margin-bottom: 18px; border: 1px solid #b8dfbd; border-radius: 12px; background: linear-gradient(135deg, #f3fbf4, #e8f5e9); color: var(--green); }
+  .home-caught-up[hidden] { display: none; }
+  .home-caught-up-icon { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--green); color: #fff; font-size: 20px; font-weight: 800; }
+  .home-caught-up strong, .home-caught-up span { display: block; }
+  .home-caught-up strong { font-size: 15px; }
+  .home-caught-up span { margin-top: 2px; color: #4f6d52; font-size: 12px; }
+  .home-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .home-action-card { min-height: 210px; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); display: flex; flex-direction: column; transition: border-color .18s, box-shadow .18s, transform .18s; }
+  .home-action-card.is-action:hover, .home-action-card.is-urgent:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(20, 32, 20, .08); }
+  .home-action-card.is-urgent { border-color: #e7b8b8; box-shadow: inset 0 3px 0 #c62828; }
+  .home-action-card.is-action { border-color: #ead6aa; box-shadow: inset 0 3px 0 #e6a323; }
+  .home-action-card.is-complete { border-color: #c8e6c9; background: #fbfefb; box-shadow: inset 0 3px 0 var(--green-dim); }
+  .home-action-card.is-loading { opacity: .72; }
+  .home-card-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .home-card-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; background: var(--surface2); font-size: 17px; }
+  .home-card-state { padding: 4px 8px; border-radius: 999px; background: var(--surface2); color: var(--text3); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  .is-urgent .home-card-state { background: var(--red-bg); color: var(--red); }
+  .is-action .home-card-state { background: var(--amber-bg); color: var(--amber); }
+  .is-complete .home-card-state { background: var(--green-bg); color: var(--green); }
+  .home-card-label { margin-top: 15px; color: var(--text2); font-size: 13px; font-weight: 600; }
+  .home-card-count { margin-top: 3px; color: var(--text); font-size: 34px; line-height: 1.05; font-weight: 800; }
+  .is-complete .home-card-count { color: var(--green); }
+  .home-card-detail { margin-top: 7px; color: var(--text3); font-size: 12px; line-height: 1.45; }
+  .home-card-link { margin-top: auto; padding: 13px 0 0; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--green); font: inherit; font-size: 12px; font-weight: 700; text-align: left; cursor: pointer; display: flex; justify-content: space-between; }
+  .home-load-error { margin-top: 14px; padding: 12px 14px; border: 1px solid #efc1c7; border-radius: 9px; background: var(--red-bg); color: var(--red); font-size: 12px; }
+  @media (max-width: 1050px) { .home-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 640px) { .home-card-grid { grid-template-columns: 1fr; } .home-action-card { min-height: 190px; } .home-heading { align-items: center; } }
+
   /* SERVICE GRID */
   .service-grid {
     display: grid;
@@ -699,6 +730,36 @@
   .priority-lifecycle-step span { color: var(--text3); font-size: 11px; }
   .priority-lifecycle-step.is-complete { border-color: #86efac; background: #f0fdf4; }
   .priority-lifecycle-step.is-current { border-color: #f59e0b; background: #fffbeb; }
+  .priority-delivery-card { border: 1px solid var(--border); border-radius: 11px; margin: 14px 0; padding: 2px 15px; }
+  .priority-detail-meta { color: var(--text3); font-size: 12px; margin: 10px 0 14px; }
+  .priority-next-action { background: var(--green-bg); border: 1px solid var(--green-dim); border-radius: 11px; margin: 0 0 14px; padding: 15px; }
+  .priority-next-action h4, .priority-contact-card h4 { color: var(--text1); font-size: 11px; letter-spacing: .05em; margin: 0 0 8px; text-transform: uppercase; }
+  .priority-next-action p { color: var(--text2); font-size: 13px; line-height: 1.5; margin: 0 0 6px; }
+  .priority-next-action strong { color: var(--text1); font-size: 14px; }
+  .priority-contact-card { border: 1px solid var(--border); border-radius: 11px; margin-bottom: 14px; padding: 14px 15px; }
+  .priority-contact-card > div { align-items: center; display: grid; gap: 10px; grid-template-columns: 55px minmax(0,1fr) auto; padding: 7px 0; }
+  .priority-contact-card span { color: var(--text3); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+  .priority-contact-card a { color: var(--text1); font-size: 14px; font-weight: 750; overflow-wrap: anywhere; text-decoration: none; }
+  .priority-contact-card button { background: transparent; border: 0; color: var(--ss-green); cursor: pointer; font-size: 12px; font-weight: 800; }
+  .priority-delivery-card h4 { color: var(--text1); font-size: 11px; letter-spacing: .05em; margin: 12px 0 3px; text-transform: uppercase; }
+  .priority-schedule-row { align-items: center; border-bottom: 1px solid var(--border); display: grid; gap: 12px; grid-template-columns: minmax(120px,.8fr) minmax(180px,1.4fr) auto; padding: 13px 0; }
+  .priority-schedule-row:last-child { border-bottom: 0; }
+  .priority-schedule-row strong { color: var(--text1); font-size: 12px; }
+  .priority-schedule-row > span { color: var(--text3); font-size: 12px; }
+  .priority-schedule-actions { display: flex; gap: 3px; justify-content: flex-end; }
+  .priority-schedule-action { background: transparent; border: 0; color: var(--green); cursor: pointer; font-size: 12px; font-weight: 800; padding: 5px; }
+  .priority-schedule-editor { background: var(--surface2); border-radius: 8px; display: none; gap: 7px; grid-column: 1 / -1; padding: 10px; }
+  .priority-schedule-editor.open { display: flex; flex-wrap: wrap; }
+  .priority-schedule-editor input { flex: 1 1 220px; }
+  .priority-response-editor { align-items: center; background: rgba(10, 18, 13, .7); display: none; inset: 0; justify-content: center; padding: 18px; position: fixed; z-index: 1200; }
+  .priority-response-editor.open { display: flex; }
+  .priority-response-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 24px 70px rgba(0,0,0,.32); box-sizing: border-box; max-height: calc(100vh - 36px); overflow-y: auto; padding: 20px; width: min(560px, 100%); }
+  .priority-response-header { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
+  .priority-response-header button { background: transparent; border: 0; color: var(--text3); cursor: pointer; font-size: 26px; line-height: 1; padding: 0 2px 4px; }
+  .priority-response-editor h4 { margin: 0 0 5px; }
+  .priority-response-editor p { color: var(--text3); font-size: 12px; margin: 0 0 12px; }
+  .priority-response-editor .form-label { margin-top: 10px; }
+  .priority-response-editor textarea { box-sizing: border-box; resize: vertical; width: 100%; }
   .priority-manual-state { border: 1px solid var(--border); border-radius: 10px; display: grid; gap: 4px; margin: 12px 0; padding: 13px 14px; }
   .priority-manual-state strong { color: var(--text1); font-size: 13px; }
   .priority-manual-state span { color: var(--text3); font-size: 11px; line-height: 1.45; }
@@ -707,7 +768,11 @@
   .priority-manual-controls { border: 0; margin: 0; padding: 0; }
   .priority-manual-controls:disabled, .priority-manual-controls[disabled] { opacity: .48; }
 
-  @media (max-width: 560px) { .priority-outcome-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 560px) {
+    .priority-outcome-grid { grid-template-columns: 1fr; }
+    .priority-schedule-row { grid-template-columns: 1fr auto; }
+    .priority-schedule-row > span { grid-column: 1 / -1; grid-row: 2; }
+  }
 
   .badge {
     display: inline-flex;
