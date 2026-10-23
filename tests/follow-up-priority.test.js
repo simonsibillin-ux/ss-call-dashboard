@@ -39,6 +39,13 @@ test('a manual follow-up override supersedes the calculated date', () => {
   const result = _test.baseline(quote({ sentAt:'2026-09-25T01:00:00Z', deliveryStatus:'sent', nextFollowUpAt:'2026-09-28T01:00:00Z', manualFollowUpAt:'2026-10-09T03:00:00Z' }), now);
   assert.equal(result.manualReviewDate, '2026-10-09');
 });
+test('a manual override cannot render before a future automation', () => {
+  const result = _test.baseline(quote({ sentAt:'2026-10-01T00:00:00Z', deliveryStatus:'sent', nextFollowUpAt:'2026-10-21T00:00:00Z', manualFollowUpAt:'2026-10-19T00:00:00Z' }), new Date('2026-10-18T00:00:00Z'));
+  assert.equal(result.reasonCode, 'schedule_conflict');
+  assert.equal(result.automationDate, '2026-10-21');
+  assert.equal(result.manualReviewDate, '2026-10-25');
+  assert.ok(new Date(result.manualReviewAt) > new Date(result.automationAt));
+});
 test('weekends count toward the four-day manual follow-up delay', () => {
   const result = _test.baseline(quote({ deliveryEntries:[{ sentAt:'2026-10-16T22:05:00Z', status:'sent', sequenceNumber:1 }] }), new Date('2026-10-18T01:00:00Z'));
   assert.equal(result.manualReviewDate, '2026-10-21');

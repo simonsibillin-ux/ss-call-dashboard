@@ -310,11 +310,14 @@ function pendingQuoteBaseline(item, now, signals) {
     if (latestResponse.responseType === 'more_time') {
       const scheduled = effectiveAutomationTimestamp(latestResponse.contactAgainAt || item.nextFollowUpAt, now);
       const scheduledDay = scheduled ? localIso(scheduled) : '';
-      const manualReviewAt = validDate(item.manualFollowUpAt)?.toISOString() || (scheduled ? addCalendarDaysTimestamp(scheduled, 4) : '');
+      const customManualAt = validDate(item.manualFollowUpAt);
+      const calculatedManualAt = scheduled ? addCalendarDaysTimestamp(scheduled, 4) : '';
+      const scheduleConflict = Boolean(customManualAt && scheduled && customManualAt <= scheduled);
+      const manualReviewAt = scheduleConflict ? calculatedManualAt : customManualAt?.toISOString() || calculatedManualAt;
       const manualReviewDate = manualReviewAt ? localIso(validDate(manualReviewAt)) : '';
       const timingBand = quoteTimingBand(today, manualReviewDate);
       return { ...base, priority:timingBand === 'this_week' ? 'urgent' : timingBand === 'next_week' ? 'high' : 'upcoming', timingBand, reasonCode:'customer_requested_more_time', recommendedDate:manualReviewDate,
-        automationDate:scheduledDay, automationAt:scheduled?.toISOString() || '', automationStatus:'scheduled', manualReviewDate, manualReviewAt,
+        automationDate:scheduledDay, automationAt:scheduled?.toISOString() || '', automationStatus:'scheduled', manualReviewDate, manualReviewAt, scheduleConflict,
         reason:`The customer requested more time through the portal${latestResponse.reason ? `: ${clean(latestResponse.reason, 160)}` : ''}.`,
         recommendedAction:scheduled ? 'Let the CRM contact the customer on their selected date; create a personal task only after that message’s response window.' : 'Keep the quote paused until a contact date is confirmed.' };
     }
@@ -324,13 +327,15 @@ function pendingQuoteBaseline(item, now, signals) {
     const scheduled = effectiveAutomationTimestamp(item.nextFollowUpAt, now);
     const automationDate = scheduled ? localIso(scheduled) : '';
     if (scheduled && item.deliveryStatus === 'sent' && validDate(item.sentAt)) {
-      const manualReviewAt = validDate(item.manualFollowUpAt)?.toISOString() || addCalendarDaysTimestamp(scheduled, 4);
+      const customManualAt = validDate(item.manualFollowUpAt);
+      const scheduleConflict = Boolean(customManualAt && customManualAt <= scheduled);
+      const manualReviewAt = scheduleConflict ? addCalendarDaysTimestamp(scheduled, 4) : customManualAt?.toISOString() || addCalendarDaysTimestamp(scheduled, 4);
       const manualReviewDate = localIso(validDate(manualReviewAt));
       const timingBand = quoteTimingBand(today, manualReviewDate);
       return { ...base, priority:timingBand === 'this_week' ? 'urgent' : timingBand === 'next_week' ? 'high' : 'upcoming', timingBand,
-        reasonCode:'automation_scheduled', recommendedDate:manualReviewDate, automationDate, automationAt:scheduled.toISOString(), automationStatus:'scheduled', manualReviewDate, manualReviewAt,
+        reasonCode:scheduleConflict ? 'schedule_conflict' : 'automation_scheduled', recommendedDate:manualReviewDate, automationDate, automationAt:scheduled.toISOString(), automationStatus:'scheduled', manualReviewDate, manualReviewAt, scheduleConflict,
         reason:`The CRM automation is scheduled for ${automationDate}; manual review is booked four calendar days later.`,
-        recommendedAction:`Let the CRM message send on ${automationDate}, then manually follow up on ${manualReviewDate} if the quote is still pending.` };
+        recommendedAction:scheduleConflict ? `The saved manual date was before the automation. Review the corrected follow-up date of ${manualReviewDate}.` : `Let the CRM message send on ${automationDate}, then manually follow up on ${manualReviewDate} if the quote is still pending.` };
     }
     return { ...base, priority:'low', timingBand:'not_scheduled', reasonCode:'awaiting_automation', recommendedDate:'', automationDate:'', automationStatus:'not_scheduled', manualReviewDate:'',
       reason:'No automated quote follow-up is currently scheduled.', recommendedAction:'Check the quote delivery state in the CRM.' };
@@ -345,16 +350,19 @@ function pendingQuoteBaseline(item, now, signals) {
   const nextAutomationScheduled = Boolean(storedDate && storedDate > latestDeliveryAt);
   const automationAt = nextAutomationScheduled ? storedDate.toISOString() : latestDeliveryAt.toISOString();
   const automationStatus = nextAutomationScheduled ? 'scheduled' : 'sent';
-  const manualReviewAt = validDate(item.manualFollowUpAt)?.toISOString() || (nextAutomationScheduled ? addCalendarDaysTimestamp(storedDate, 4) : manualDueAt);
+  const customManualAt = validDate(item.manualFollowUpAt);
+  const scheduleConflict = Boolean(customManualAt && nextAutomationScheduled && customManualAt <= storedDate);
+  const calculatedManualAt = nextAutomationScheduled ? addCalendarDaysTimestamp(storedDate, 4) : manualDueAt;
+  const manualReviewAt = scheduleConflict ? calculatedManualAt : customManualAt?.toISOString() || calculatedManualAt;
   const nextDate = localIso(validDate(manualReviewAt));
   const timingBand = quoteTimingBand(today, nextDate);
   const priority = timingBand === 'this_week' ? 'urgent' : timingBand === 'next_week' ? 'high' : 'upcoming';
   const manualUnlocked = validDate(manualReviewAt) <= now;
   const sequence = Number(latestDelivery?.sequenceNumber) || deliveries.length;
-  return { ...base, priority, timingBand, reasonCode:manualUnlocked ? 'manual_follow_up_due' : 'manual_follow_up_scheduled', recommendedDate:nextDate,
+  return { ...base, priority:scheduleConflict ? 'review' : priority, timingBand, reasonCode:scheduleConflict ? 'schedule_conflict' : manualUnlocked ? 'manual_follow_up_due' : 'manual_follow_up_scheduled', recommendedDate:nextDate, scheduleConflict,
     automationDate:localIso(validDate(automationAt)), automationAt, automationStatus, manualReviewDate:nextDate, manualReviewAt,
     reason:`The next personal follow-up is booked for ${nextDate}${nextDate === manualDueDate ? `, four calendar days after CRM message ${sequence}` : ''}.`,
-    recommendedAction:manualUnlocked ? 'Follow up with the customer and record the structured outcome.' : `Follow up on ${nextDate}.` };
+    recommendedAction:scheduleConflict ? `The saved manual date was before the automation. Review the corrected follow-up date of ${nextDate}.` : manualUnlocked ? 'Follow up with the customer and record the structured outcome.' : `Follow up on ${nextDate}.` };
 }
 
 function baseline(item, now) {
