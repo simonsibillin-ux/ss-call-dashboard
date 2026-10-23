@@ -4219,6 +4219,7 @@ let _priorityCachedAnalysis = null;
 let _priorityJobsAnalysed = false;
 let _prioritySelectedId = null;
 let _priorityPage = 'quotes';
+let _priorityOutcomeMode = 'customer';
 
 function setPriorityPage(page) {
   _priorityPage = page === 'jobs' ? 'jobs' : 'quotes';
@@ -4265,12 +4266,12 @@ function openPriorityItem(candidateId) {
     ${isPendingQuote ? `<section class="priority-delivery-card" aria-label="Delivery and follow-up">
       <h4>Delivery &amp; follow-up</h4>
       <div class="priority-schedule-row"><strong>Quote sent</strong><span>${_escHtml(priorityCandidateDateTime(candidate.sentAt) || 'Recorded')}</span><div></div></div>
-      <div class="priority-schedule-row"><strong>Automatic message</strong><span>${_escHtml(candidate.followUpEnabled === false ? `Paused · ${priorityCandidateDateTime(candidate.followUpPausedUntil || candidate.nextFollowUpAt) || 'No retained date'}` : `${analysis.automationStatus === 'sent' ? 'Sent ' : ''}${priorityCandidateDateTime(analysis.automationAt || analysis.automationDate) || 'Not scheduled'}`)}</span><div class="priority-schedule-actions"><button class="priority-schedule-action" onclick="priorityToggleScheduleEditor('automatic')">Edit</button><button class="priority-schedule-action" onclick="priorityToggleAutomaticPause()">${candidate.followUpEnabled === false ? 'Resume' : 'Pause'}</button><button class="priority-schedule-action" onclick="priorityToggleCustomerResponse()">Customer response</button></div><div class="priority-schedule-editor" id="priority-automatic-editor"><input class="form-input" id="priority-automatic-input" type="datetime-local" value="${_escHtml(priorityDateTimeInput(analysis.automationAt || candidate.followUpPausedUntil || candidate.nextFollowUpAt))}"><button class="btn-primary" onclick="prioritySaveSchedule('automatic')" style="width:auto;">Save</button><button class="btn-secondary" onclick="priorityToggleScheduleEditor('automatic')" style="width:auto;">Cancel</button></div></div>
-      <div class="priority-schedule-row"><strong>Manual follow-up</strong><span>${_escHtml(candidate.followUpEnabled === false ? 'Paused with automatic message' : `${priorityCandidateDateTime(analysis.manualReviewAt) || 'Not scheduled'}${candidate.manualFollowUpAt ? ' · Custom' : ' · Calculated'}`)}</span><div class="priority-schedule-actions">${candidate.followUpEnabled === false ? '' : '<button class="priority-schedule-action" onclick="priorityToggleScheduleEditor(\'manual\')">Edit</button>'}</div>${candidate.followUpEnabled === false ? '' : `<div class="priority-schedule-editor" id="priority-manual-editor"><input class="form-input" id="priority-manual-input" type="datetime-local" value="${_escHtml(priorityDateTimeInput(analysis.manualReviewAt))}"><button class="btn-primary" onclick="prioritySaveSchedule('manual')" style="width:auto;">Save</button>${candidate.manualFollowUpAt ? `<button class="btn-secondary" onclick="priorityResetManualSchedule()" style="width:auto;">Use calculated</button>` : ''}<button class="btn-secondary" onclick="priorityToggleScheduleEditor('manual')" style="width:auto;">Cancel</button></div>`}</div>
-      <div class="priority-response-editor" id="priority-response-editor" onclick="if(event.target===this) priorityToggleCustomerResponse()"><div class="priority-response-card" role="dialog" aria-modal="true" aria-labelledby="priority-response-title"><div class="priority-response-header"><h4 id="priority-response-title">Customer response</h4><button type="button" aria-label="Close customer response" onclick="priorityToggleCustomerResponse()">×</button></div><p>Record what the customer said and reschedule the automatic message when needed.</p>
-        <label class="form-label" for="priority-contact-source">Where did the response come from?</label><select id="priority-contact-source" class="form-input"><option value="">Select source…</option><option value="sms_reply">SMS reply</option><option value="phone_call">Phone call</option><option value="email_reply">Email reply</option><option value="portal">Customer portal</option><option value="other">Other</option></select>
+      <div class="priority-schedule-row"><strong>Automatic message</strong><span>${_escHtml(candidate.followUpEnabled === false ? `Paused · ${priorityCandidateDateTime(candidate.followUpPausedUntil || candidate.nextFollowUpAt) || 'No retained date'}` : `${analysis.automationStatus === 'sent' ? 'Sent ' : ''}${priorityCandidateDateTime(analysis.automationAt || analysis.automationDate) || 'Not scheduled'}`)}</span><div class="priority-schedule-actions"><button class="priority-schedule-action" onclick="priorityToggleScheduleEditor('automatic')">Edit</button><button class="priority-schedule-action" onclick="priorityToggleAutomaticPause()">${candidate.followUpEnabled === false ? 'Resume' : 'Pause'}</button><button class="priority-schedule-action" onclick="priorityOpenOutcome('customer')">Customer response</button></div><div class="priority-schedule-editor" id="priority-automatic-editor"><input class="form-input" id="priority-automatic-input" type="datetime-local" value="${_escHtml(priorityDateTimeInput(analysis.automationAt || candidate.followUpPausedUntil || candidate.nextFollowUpAt))}"><button class="btn-primary" onclick="prioritySaveSchedule('automatic')" style="width:auto;">Save</button><button class="btn-secondary" onclick="priorityToggleScheduleEditor('automatic')" style="width:auto;">Cancel</button></div></div>
+      <div class="priority-schedule-row"><strong>Manual follow-up</strong><span>${_escHtml(candidate.followUpEnabled === false ? 'Paused with automatic message' : `${priorityCandidateDateTime(analysis.manualReviewAt) || 'Not scheduled'}${candidate.manualFollowUpAt ? ' · Custom' : ' · Calculated'}`)}</span><div class="priority-schedule-actions">${candidate.followUpEnabled === false ? '' : '<button class="priority-schedule-action" onclick="priorityToggleScheduleEditor(\'manual\')">Edit</button><button class="priority-schedule-action" onclick="priorityOpenOutcome(\'manual\')">Record action</button>'}</div>${candidate.followUpEnabled === false ? '' : `<div class="priority-schedule-editor" id="priority-manual-editor"><input class="form-input" id="priority-manual-input" type="datetime-local" value="${_escHtml(priorityDateTimeInput(analysis.manualReviewAt))}"><button class="btn-primary" onclick="prioritySaveSchedule('manual')" style="width:auto;">Save</button>${candidate.manualFollowUpAt ? `<button class="btn-secondary" onclick="priorityResetManualSchedule()" style="width:auto;">Use calculated</button>` : ''}<button class="btn-secondary" onclick="priorityToggleScheduleEditor('manual')" style="width:auto;">Cancel</button></div>`}</div>
+      <div class="priority-response-editor" id="priority-response-editor" onclick="if(event.target===this) priorityCloseOutcome()"><div class="priority-response-card" role="dialog" aria-modal="true" aria-labelledby="priority-response-title"><div class="priority-response-header"><h4 id="priority-response-title">Customer response</h4><button type="button" aria-label="Close" onclick="priorityCloseOutcome()">×</button></div><p id="priority-response-help">Record what the customer said and reschedule the automatic message when needed.</p>
+        <div id="priority-contact-source-field"><label class="form-label" for="priority-contact-source">Where did the response come from?</label><select id="priority-contact-source" class="form-input"><option value="">Select source…</option><option value="sms_reply">SMS reply</option><option value="phone_call">Phone call</option><option value="email_reply">Email reply</option><option value="portal">Customer portal</option><option value="other">Other</option></select></div>
         <label class="form-label" for="priority-outcome">Outcome</label><div class="priority-outcome-grid"><select id="priority-outcome" class="form-input" onchange="priorityOutcomeChanged()"><option value="">Select outcome…</option><option value="call_on_date">Needs more time</option><option value="ready_to_book">Ready to book</option><option value="customer_will_contact">Customer will contact us</option><option value="declined">Declined</option><option value="do_not_contact">Do not contact</option></select><input id="priority-next-contact-date" class="form-input" type="date" min="${localToday()}" aria-label="Next contact date" style="display:none;"></div>
-        <label class="form-label" for="priority-new-note">Reason / note</label><textarea id="priority-new-note" class="form-input" rows="3" placeholder="Customer asked to delay until the new year…"></textarea><div class="priority-note-actions"><span id="priority-response-status"></span><button id="priority-add-note-btn" class="btn-primary" onclick="priorityAddNoteEntry()" style="width:auto;">Save response</button><button class="btn-secondary" onclick="priorityToggleCustomerResponse()" style="width:auto;">Cancel</button></div>
+        <label class="form-label" for="priority-new-note">Reason / note</label><textarea id="priority-new-note" class="form-input" rows="3" placeholder="Add only useful context…"></textarea><div class="priority-note-actions"><span id="priority-response-status"></span><button id="priority-add-note-btn" class="btn-primary" onclick="priorityAddNoteEntry()" style="width:auto;">Save response</button><button class="btn-secondary" onclick="priorityCloseOutcome()" style="width:auto;">Cancel</button></div>
       </div></div>
     </section>` : ''}
     ${!isPendingQuote ? `<section class="priority-detail-section"><h4>AI perception</h4><p>${_escHtml(analysis.reason || 'No assessment is available yet.')}</p></section>` : ''}
@@ -4415,29 +4416,38 @@ async function priorityAddNoteEntry() {
   const contactSource = document.getElementById('priority-contact-source')?.value || '';
   const nextContactDate = document.getElementById('priority-next-contact-date')?.value || '';
   const body = input?.value.trim();
-  if (!contactSource) { showToast('Choose where the customer response came from', 'error'); return; }
+  const isManualAction = _priorityOutcomeMode === 'manual';
+  if (!isManualAction && !contactSource) { showToast('Choose where the customer response came from', 'error'); return; }
   if (!target || (!body && !outcomeCode)) { showToast('Choose an outcome or enter a note first', 'error'); return; }
-  const isInboundCustomerUpdate = Boolean(contactSource);
+  const isInboundCustomerUpdate = !isManualAction && Boolean(contactSource);
   if (candidate?.kind === 'pending_quote' && outcomeCode && !isInboundCustomerUpdate && (!analysis.manualReviewAt || Date.now() < new Date(analysis.manualReviewAt).getTime())) { showToast('Choose how the customer contacted us, or wait until the manual follow-up is due', 'error'); return; }
   if (outcomeCode === 'call_on_date' && !nextContactDate) { showToast('Choose the next contact date', 'error'); return; }
   if (button) { button.disabled = true; button.textContent = 'Adding…'; }
   if (status) status.textContent = 'Adding timestamped note…';
   try {
-    const outcomeLabels = { voicemail_left:'Voicemail left', no_answer:'No answer', ready_to_book:'Ready to book', call_on_date:'Spoke — needs more time', customer_will_contact:'Customer will contact us', declined:'Declined', do_not_contact:'Do not contact' };
+    const outcomeLabels = { voicemail_left:'Voicemail left', no_answer:'No answer', sms_sent:'SMS sent', email_sent:'Email sent', ready_to_book:'Ready to book', call_on_date:'Spoke — needs more time', customer_will_contact:'Customer will contact us', declined:'Declined', do_not_contact:'Do not contact' };
     const sourceLabels = { sms_reply:'SMS reply', phone_call:'Phone call', email_reply:'Email reply', portal:'Customer portal', other:'Other customer contact' };
-    const noteBody = [contactSource ? `[Customer update · ${sourceLabels[contactSource]}]` : '', body || outcomeLabels[outcomeCode]].filter(Boolean).join('\n');
-    await createRecordNote(target.recordType, target.recordId, noteBody, { outcomeCode, nextContactDate });
+    const unsuccessfulOutcomes = ['voicemail_left', 'no_answer', 'sms_sent', 'email_sent'];
+    const structuredOutcomes = (candidate.noteEntries || []).filter(note => note.outcomeCode);
+    const priorManualAttempts = structuredOutcomes.findIndex(note => !unsuccessfulOutcomes.includes(note.outcomeCode));
+    const consecutiveManualAttempts = priorManualAttempts < 0 ? structuredOutcomes.length : priorManualAttempts;
+    const attemptNumber = isManualAction && unsuccessfulOutcomes.includes(outcomeCode) ? consecutiveManualAttempts + 1 : 0;
+    const retryDays = attemptNumber === 1 ? 2 : attemptNumber === 2 ? 3 : attemptNumber >= 3 ? 10 : 0;
+    const resolvedNextDate = outcomeCode === 'call_on_date' ? nextContactDate : retryDays ? priorityBusinessDate(retryDays) : '';
+    const prefix = isManualAction ? `Manual follow-up · ${outcomeLabels[outcomeCode] || 'Action recorded'}` : `Customer update · ${sourceLabels[contactSource]}`;
+    const timing = resolvedNextDate ? `Next manual follow-up ${priorityCandidateDate(resolvedNextDate)}${attemptNumber >= 3 ? ' (review)' : ''}.` : '';
+    const noteBody = [`[${prefix}]`, timing, body].filter(Boolean).join('\n');
+    await createRecordNote(target.recordType, target.recordId, noteBody, { outcomeCode, nextContactDate:resolvedNextDate });
     if (candidate.kind === 'pending_quote' && outcomeCode) {
-      const retryOutcomes = new Set(['voicemail_left', 'no_answer']);
       const closeOutcomes = new Set(['ready_to_book', 'customer_will_contact', 'owner_handling', 'declined', 'do_not_contact']);
-      const nextDate = outcomeCode === 'call_on_date' ? nextContactDate : retryOutcomes.has(outcomeCode) ? priorityBusinessDate(3) : null;
+      const manualAt = resolvedNextDate ? new Date(`${resolvedNextDate}T10:00:00`).toISOString() : null;
       const quoteChanges = {
         ...(isInboundCustomerUpdate ? {} : {
           last_follow_up_at:new Date().toISOString(),
-          follow_up_count:(Number(candidate.followUpCount) || 0) + 1
+          follow_up_count:Number(candidate.followUpCount) || 0
         }),
-        next_follow_up_at:nextDate ? new Date(`${nextDate}T10:00:00`).toISOString() : null,
-        manual_follow_up_at:null,
+        next_follow_up_at:isInboundCustomerUpdate && outcomeCode === 'call_on_date' ? manualAt : null,
+        manual_follow_up_at:isManualAction ? manualAt : null,
         follow_up_enabled:!closeOutcomes.has(outcomeCode)
       };
       await priorityPatchRecord('quotes', candidate.recordId, quoteChanges);
@@ -4452,7 +4462,7 @@ async function priorityAddNoteEntry() {
     if (status) status.textContent = 'Save failed — please try again';
     showToast(error.message || 'Could not add note', 'error');
   } finally {
-    if (button) { button.disabled = false; button.textContent = 'Save response'; }
+    if (button) { button.disabled = false; button.textContent = _priorityOutcomeMode === 'manual' ? 'Save action' : 'Save response'; }
   }
 }
 
@@ -4469,8 +4479,25 @@ async function priorityCopyContact(value) {
   catch { showToast('Clipboard access was blocked', 'error'); }
 }
 
-function priorityToggleCustomerResponse() {
-  document.getElementById('priority-response-editor')?.classList.toggle('open');
+function priorityOpenOutcome(mode = 'customer') {
+  _priorityOutcomeMode = mode === 'manual' ? 'manual' : 'customer';
+  const isManual = _priorityOutcomeMode === 'manual';
+  const editor = document.getElementById('priority-response-editor');
+  const sourceField = document.getElementById('priority-contact-source-field');
+  const outcome = document.getElementById('priority-outcome');
+  document.getElementById('priority-response-title').textContent = isManual ? 'Record follow-up action' : 'Customer response';
+  document.getElementById('priority-response-help').textContent = isManual ? 'Choose what happened. The next manual follow-up date will be set automatically.' : 'Record what the customer said and reschedule contact when needed.';
+  if (sourceField) sourceField.style.display = isManual ? 'none' : '';
+  if (outcome) outcome.innerHTML = isManual
+    ? '<option value="">Select action…</option><option value="voicemail_left">Voicemail left</option><option value="no_answer">No answer</option><option value="sms_sent">SMS sent</option><option value="email_sent">Email sent</option><option value="call_on_date">Spoke — needs more time</option><option value="ready_to_book">Ready to book</option><option value="customer_will_contact">Customer will contact us</option><option value="declined">Declined</option><option value="do_not_contact">Do not contact</option>'
+    : '<option value="">Select outcome…</option><option value="call_on_date">Needs more time</option><option value="ready_to_book">Ready to book</option><option value="customer_will_contact">Customer will contact us</option><option value="declined">Declined</option><option value="do_not_contact">Do not contact</option>';
+  const save = document.getElementById('priority-add-note-btn');
+  if (save) save.textContent = isManual ? 'Save action' : 'Save response';
+  editor?.classList.add('open');
+}
+
+function priorityCloseOutcome() {
+  document.getElementById('priority-response-editor')?.classList.remove('open');
 }
 
 function priorityToggleInternalCommunications() {
@@ -4536,6 +4563,8 @@ async function prioritySaveSchedule(kind) {
           : { next_follow_up_at:chosen.toISOString(), follow_up_paused_until:null, manual_follow_up_at:null })
       : { manual_follow_up_at:chosen.toISOString() };
     await priorityPatchRecord('quotes', candidate.recordId, changes);
+    const target = priorityNoteTarget(candidate);
+    if (target) await createRecordNote(target.recordType, target.recordId, `[Follow-up schedule updated]\n${kind === 'automatic' ? 'Automatic message' : 'Manual follow-up'} moved to ${priorityCandidateDateTime(chosen)}.`);
     await priorityRefreshEditedQuote(candidateId, `${kind === 'automatic' ? 'Automatic message' : 'Manual follow-up'} updated`);
   } catch (error) { showToast(error.message, 'error'); }
 }
@@ -5376,7 +5405,7 @@ async function createRecordNote(recordType, recordId, body, metadata = {}) {
   const outcomeCode = String(metadata.outcomeCode || '').trim() || null;
   const nextContactDate = String(metadata.nextContactDate || '').trim() || null;
   const actionResult = ['declined', 'do_not_contact', 'customer_will_contact'].includes(outcomeCode) ? 'suppressed'
-    : ['spoke_thinking', 'call_on_date', 'owner_handling'].includes(outcomeCode) ? 'deferred'
+    : ['voicemail_left', 'no_answer', 'sms_sent', 'email_sent', 'spoke_thinking', 'call_on_date', 'owner_handling'].includes(outcomeCode) ? 'deferred'
     : outcomeCode ? 'completed' : null;
   const response = await fetch(`${SUPABASE_URL}/rest/v1/record_notes`, {
     method: 'POST',
