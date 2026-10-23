@@ -642,12 +642,6 @@
           <button id="priority-tab-quotes" class="priority-page-tab active" onclick="setPriorityPage('quotes')" role="tab">Pending Quotes <span id="priority-tab-quotes-count"></span></button>
           <button id="priority-tab-jobs" class="priority-page-tab" onclick="setPriorityPage('jobs')" role="tab">Unscheduled Jobs <span id="priority-tab-jobs-count"></span></button>
         </div>
-        <div class="priority-lane-tabs" id="priority-lane-tabs" role="tablist" aria-label="Quote follow-up status">
-          <button id="priority-lane-action" class="priority-lane-tab active" onclick="setPriorityLane('action')" role="tab">Needs action <span></span></button>
-          <button id="priority-lane-upcoming" class="priority-lane-tab" onclick="setPriorityLane('upcoming')" role="tab">Upcoming <span></span></button>
-          <button id="priority-lane-waiting" class="priority-lane-tab" onclick="setPriorityLane('waiting')" role="tab">Waiting <span></span></button>
-          <button id="priority-lane-all" class="priority-lane-tab" onclick="setPriorityLane('all')" role="tab">All <span></span></button>
-        </div>
         <div id="priority-status" style="display:none;"></div>
         <div id="priority-overview" style="display:none;"></div>
         <div id="priority-list"><div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">Building the follow-up centre…</div><div class="empty-state-desc">Reading CRM deliveries, customer responses, internal notes, drafts and jobs</div></div></div>
@@ -1357,7 +1351,7 @@ async function loadHomeDashboard(force = false) {
       homeRest('quote_responses?select=*&order=created_at.desc&limit=200'),
       homeRest('messages?select=*&order=created_at.desc&limit=200'),
       homeRest('jobs?select=*&status=eq.Active&order=created_at.asc'),
-      homeRest('record_notes?select=record_type,record_id,created_at,outcome_code,body&deleted_at=is.null&record_type=in.(quote,lead)&order=created_at.desc'),
+      homeRest('record_notes?select=record_type,record_id,created_at&deleted_at=is.null&record_type=eq.quote&order=created_at.desc'),
       homeRest('quote_follow_up_deliveries?select=quote_id,status,sent_at,created_at&status=eq.sent&order=created_at.desc')
     ]);
     const now = new Date();
@@ -1367,20 +1361,13 @@ async function loadHomeDashboard(force = false) {
     const activeLeads = bookings.filter(row => row.form_version && activeLeadStatuses.has(String(row.status || 'pending').toLowerCase()));
     // The current v2 intake remains in the CRM Intake column until it is moved on;
     // older website records use contact_attempted directly.
-    const leadNotes = new Set(notes.filter(row => row.record_type === 'lead' && (row.outcome_code || String(row.body || '').trim())).map(row => String(row.record_id)));
-    const intakeLeads = activeLeads.filter(row => ['pending', 'new'].includes(String(row.status || '').toLowerCase()));
-    const attemptedLeads = activeLeads.filter(row => String(row.status || '').toLowerCase() === 'contact_attempted');
-    const attemptedNeedingEvidence = attemptedLeads.filter(row => !leadNotes.has(String(row.id)));
-    const leadsNeedingAction = [...intakeLeads, ...attemptedNeedingEvidence];
-    const intake = intakeLeads.length;
-    const attempted = attemptedNeedingEvidence.length;
+    const intake = activeLeads.filter(row => ['pending', 'new'].includes(String(row.status || '').toLowerCase()) || String(row.form_version).toLowerCase() === 'website-quote-v2').length;
+    const attempted = activeLeads.length - intake;
     const quoteIds = new Set(quotes.map(row => String(row.id)));
     const deliveryByQuote = new Map();
     deliveries.forEach(row => { if (!deliveryByQuote.has(String(row.quote_id))) deliveryByQuote.set(String(row.quote_id), row); });
     const quoteManualDue = quotes.filter(quote => {
       if (quote.follow_up_enabled === false) return false;
-      const scheduledAutomation = quote.next_follow_up_at ? new Date(quote.next_follow_up_at) : null;
-      if (scheduledAutomation && !Number.isNaN(scheduledAutomation.getTime()) && scheduledAutomation > now) return false;
       let dueAt = quote.manual_follow_up_at ? new Date(quote.manual_follow_up_at) : null;
       if (!dueAt) {
         const delivery = deliveryByQuote.get(String(quote.id));
@@ -1391,7 +1378,7 @@ async function loadHomeDashboard(force = false) {
     }).length;
 
     const latestNoteByQuote = new Map();
-    notes.filter(row => row.record_type === 'quote').forEach(row => { if (!latestNoteByQuote.has(String(row.record_id))) latestNoteByQuote.set(String(row.record_id), new Date(row.created_at)); });
+    notes.forEach(row => { if (!latestNoteByQuote.has(String(row.record_id))) latestNoteByQuote.set(String(row.record_id), new Date(row.created_at)); });
     const actionableResponseTypes = new Set(['call_request', 'correction', 'more_time', 'ready_to_book']);
     const responseQuoteIds = new Set();
     responses.forEach(row => {
@@ -1409,12 +1396,12 @@ async function loadHomeDashboard(force = false) {
     const urgentJobs = unscheduled.filter(row => row.created_at && new Date(row.created_at) <= urgentBefore).length;
     const openTodos = getOpenTodos();
 
-    homeCard('leads', leadsNeedingAction.length, `${intake} awaiting first contact · ${attempted} attempted without a communication note`, { urgent:leadsNeedingAction.length > 0, completeText:'All leads have a recorded next step' });
+    homeCard('leads', activeLeads.length, `${intake} in intake · ${attempted} contact attempted`, { urgent:activeLeads.length > 0, completeText:'No new leads waiting' });
     homeCard('followups', quoteManualDue, `${quoteManualDue} quote follow-up${quoteManualDue === 1 ? '' : 's'} ready for a manual response`, { urgent:quoteManualDue > 0, completeText:'All manual follow-ups completed' });
     homeCard('responses', responseCount, `${responseQuoteIds.size} automation response${responseQuoteIds.size === 1 ? '' : 's'} · ${unreadThreads.size} unread message thread${unreadThreads.size === 1 ? '' : 's'}`, { urgent:responseCount > 0, completeText:'No customer responses waiting' });
     homeCard('unscheduled', unscheduled.length, `${urgentJobs} need immediate attention · ${Math.max(0, unscheduled.length - urgentJobs)} to book`, { urgent:urgentJobs > 0, completeText:'All active jobs are scheduled' });
     homeCard('todos', openTodos.length, `${openTodos.length} open team task${openTodos.length === 1 ? '' : 's'}`, { completeText:'Call task list complete' });
-    const totalAttention = leadsNeedingAction.length + quoteManualDue + responseCount + unscheduled.length + openTodos.length;
+    const totalAttention = activeLeads.length + quoteManualDue + responseCount + unscheduled.length + openTodos.length;
     const caughtUp = document.getElementById('home-caught-up');
     if (caughtUp) caughtUp.hidden = totalAttention !== 0;
     homeDashboardLoadedAt = Date.now();
@@ -4233,22 +4220,13 @@ let _priorityJobsAnalysed = false;
 let _prioritySelectedId = null;
 let _priorityPage = 'quotes';
 let _priorityOutcomeMode = 'customer';
-let _priorityLane = 'action';
 
 function setPriorityPage(page) {
   _priorityPage = page === 'jobs' ? 'jobs' : 'quotes';
   document.getElementById('priority-tab-quotes')?.classList.toggle('active', _priorityPage === 'quotes');
   document.getElementById('priority-tab-jobs')?.classList.toggle('active', _priorityPage === 'jobs');
-  const laneTabs = document.getElementById('priority-lane-tabs');
-  if (laneTabs) laneTabs.style.display = _priorityPage === 'quotes' ? '' : 'none';
   if (_priorityPage === 'jobs' && !_priorityJobsAnalysed) loadAiFollowUpPriorities();
   else if (_priorityCachedCandidates && _priorityCachedAnalysis) renderAiFollowUpPriorities(_priorityCachedCandidates, _priorityCachedAnalysis);
-}
-
-function setPriorityLane(lane) {
-  _priorityLane = ['action','upcoming','waiting','all'].includes(lane) ? lane : 'action';
-  ['action','upcoming','waiting','all'].forEach(key => document.getElementById(`priority-lane-${key}`)?.classList.toggle('active', key === _priorityLane));
-  if (_priorityCachedCandidates && _priorityCachedAnalysis) renderAiFollowUpPriorities(_priorityCachedCandidates, _priorityCachedAnalysis);
 }
 
 function priorityNavItem(label) {
@@ -4577,10 +4555,6 @@ async function prioritySaveSchedule(kind) {
   if (!candidate || candidate.kind !== 'pending_quote' || !input?.value) return showToast('Choose a date and time first', 'error');
   const chosen = new Date(input.value);
   if (Number.isNaN(chosen.getTime())) return showToast('Choose a valid date and time', 'error');
-  const analysis = (_priorityCachedAnalysis?.priorities || []).find(row => row.id === candidate.id) || {};
-  if (kind === 'manual' && analysis.automationStatus === 'scheduled' && analysis.automationAt && chosen <= new Date(analysis.automationAt)) {
-    return showToast('Manual follow-up must be after the scheduled automatic message', 'error');
-  }
   const candidateId = candidate.id;
   try {
     const changes = kind === 'automatic'
@@ -4704,6 +4678,7 @@ function renderAiFollowUpPriorities(candidates, analysis) {
   const rows = candidates.map(candidate => ({ ...candidate, ...(resultById.get(candidate.id) || {}) }));
   const quoteRows = rows.filter(row => row.kind === 'pending_quote');
   const jobRows = rows.filter(row => row.kind === 'unscheduled_job');
+  const quoteBands = [['this_week', '🔴 This week'], ['next_week', '🟡 Next week'], ['later', '🟢 Later'], ['not_scheduled', '⚪ Not currently scheduled']];
   const jobBands = [['this_month', '🔴 Book this month'], ['next_month', '🟡 Book next month'], ['later', '🟢 Later in the year']];
   const draftCount = rows.filter(row => row.kind === 'draft_quote').length;
   overview.innerHTML = '';
@@ -4716,38 +4691,14 @@ function renderAiFollowUpPriorities(candidates, analysis) {
     container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">✓</div><div class="empty-state-title">Nothing needs following up</div><div class="empty-state-desc">No pending quotes or unscheduled jobs were found.</div></div>';
     return;
   }
-  const today = localToday();
-  const quoteLane = row => {
-    if (row.kind === 'draft_quote') return ['urgent','high'].includes(row.priority) ? 'action' : row.recommendedDate && row.recommendedDate > today ? 'upcoming' : 'waiting';
-    if (row.scheduleConflict || ['schedule_conflict','portal_call_request','portal_correction','manual_follow_up_due','awaiting_automation'].includes(row.reasonCode)) return 'action';
-    if (row.automationStatus === 'scheduled' || row.followUpEnabled === false || row.timingBand === 'not_scheduled') return 'waiting';
-    if (row.manualReviewDate && row.manualReviewDate > today) return 'upcoming';
-    return row.manualReviewDate ? 'action' : 'waiting';
-  };
-  const laneRows = { action:[], upcoming:[], waiting:[] };
-  [...quoteRows, ...rows.filter(row => row.kind === 'draft_quote')].forEach(row => laneRows[quoteLane(row)].push(row));
-  ['action','upcoming','waiting','all'].forEach(key => {
-    const badge = document.querySelector(`#priority-lane-${key} span`);
-    if (badge) badge.textContent = key === 'all' ? quoteRows.length + draftCount : laneRows[key].length;
-  });
   const typeLabel = { pending_quote:'Pending quote', draft_quote:'Draft quote', unscheduled_job:'Unscheduled job' };
-  const workflowLabel = row => row.scheduleConflict ? 'Schedule conflict'
-    : row.reasonCode === 'manual_follow_up_due' ? 'Manual follow-up due'
-    : ['portal_call_request','portal_correction'].includes(row.reasonCode) ? 'Customer response'
-    : row.automationStatus === 'scheduled' ? 'Automation scheduled'
-    : row.reasonCode === 'manual_follow_up_scheduled' ? 'Upcoming manual follow-up'
-    : row.followUpEnabled === false ? 'Paused'
-    : row.reasonCode === 'awaiting_automation' ? 'Setup required'
-    : row.kind === 'draft_quote' ? 'Draft review' : 'Waiting';
   const cardHtml = (row, key) => `
     <div class="priority-card priority-card--${key}" onclick="openPriorityItem('${_escHtml(row.id)}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPriorityItem('${_escHtml(row.id)}')}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;"><div><div style="font-size:15px;font-weight:800;color:var(--text1);">${_escHtml(row.clientName)}</div><div style="font-size:12px;color:var(--ss-green);margin-top:3px;">${_escHtml(row.services.join(' + ') || typeLabel[row.kind])}</div></div><span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);white-space:nowrap;">${typeLabel[row.kind]}</span></div>
-      <div class="priority-card-meta"><strong>${_escHtml(workflowLabel(row))}</strong>${row.kind === 'pending_quote' ? `
+      <div class="priority-card-meta">${row.kind === 'pending_quote' ? `
         <span>${row.automationDate ? `Automation ${row.automationStatus === 'sent' ? 'sent' : 'scheduled'} ${_escHtml(priorityCandidateDate(row.automationDate))}` : 'Automation not scheduled'}</span>
         <span>${row.manualReviewDate ? `Manual follow-up ${_escHtml(priorityCandidateDate(row.manualReviewDate))}` : 'Manual follow-up not scheduled'}</span>` :
         `<span>${row.recommendedDate ? `Review ${_escHtml(priorityCandidateDate(row.recommendedDate))}` : row.kind === 'unscheduled_job' ? _escHtml(row.reason || 'Timing classified from internal communications') : 'No review scheduled'}</span>`}</div>
-      ${row.reason ? `<div class="priority-card-reason">${_escHtml(row.reason)}</div>` : ''}
-      ${row.recommendedAction ? `<div class="priority-card-action">${_escHtml(row.recommendedAction)}</div>` : ''}
     </div>`;
   const draftRows = rows.filter(row => row.kind === 'draft_quote').sort((a, b) => {
     const order = { urgent:0, high:1, upcoming:2, low:3 };
@@ -4769,15 +4720,7 @@ function renderAiFollowUpPriorities(candidates, analysis) {
       </div>`).join('');
   };
   const section = (title, help, bandRows, key) => `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">${title}</div><span class="priority-group-count">${bandRows.length}</span></div>${help ? `<div class="priority-queue-help">${help}</div>` : ''}${datedCards(bandRows, key)}</section>`;
-  const laneConfig = {
-    action:['Needs action', 'Only records that require a person now: due follow-ups, customer requests, delivery/setup issues and schedule conflicts.', 'urgent'],
-    upcoming:['Upcoming', 'Future human actions remain visible here and move into Needs action automatically on their due date.', 'upcoming'],
-    waiting:['Waiting', 'The system or customer currently has the next move. Nothing here counts as work due today.', 'waiting']
-  };
-  const sortedLane = lane => laneRows[lane].sort((a,b) => String(a.manualReviewDate || a.recommendedDate || '').localeCompare(String(b.manualReviewDate || b.recommendedDate || '')));
-  const quoteHtml = _priorityLane === 'all'
-    ? ['action','upcoming','waiting'].map(lane => { const [title, help, key] = laneConfig[lane]; return section(title, help, sortedLane(lane), key); }).join('')
-    : (() => { const [title, help, key] = laneConfig[_priorityLane]; return section(title, help, sortedLane(_priorityLane), key); })();
+  const quoteHtml = quoteBands.map(([key, label]) => section(label, '', quoteRows.filter(row => (row.timingBand || 'not_scheduled') === key).sort((a,b) => String(a.recommendedDate || '').localeCompare(String(b.recommendedDate || ''))), key === 'this_week' ? 'urgent' : key === 'next_week' ? 'high' : 'low')).join('') + draftHtml;
   const jobsHtml = jobBands.map(([key, label]) => section(label, '', jobRows.filter(row => (row.schedulingBand || 'later') === key).sort((a,b) => String(a.recommendedDate || '').localeCompare(String(b.recommendedDate || ''))), key === 'this_month' ? 'urgent' : key === 'next_month' ? 'high' : 'low')).join('');
   container.innerHTML = _priorityPage === 'jobs' ? jobsHtml : quoteHtml;
 }
