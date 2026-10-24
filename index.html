@@ -282,12 +282,22 @@
 }
 .todo-item {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  grid-template-columns: 28px minmax(0, 1fr) auto 28px;
   gap: 8px;
   align-items: start;
   min-height: 39px;
   padding: 8px 10px 7px 56px;
 }
+.todo-edit {
+  border: none;
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 5px;
+}
+.todo-edit:hover { color: var(--ss-green); }
 .todo-check {
   width: 18px;
   height: 18px;
@@ -321,6 +331,7 @@
   padding: 3px 0;
 }
 .todo-delete:hover { background: rgba(161, 92, 85, 0.12); }
+.home-todo-notepad { margin-top: 22px; }
 .todo-empty {
   padding: 22px 18px 22px 56px;
   color: #8c836a;
@@ -394,9 +405,6 @@
       <div class="nav-item" onclick="showPage('quotes')">
         New Quote
       </div>
-      <div class="nav-item" onclick="showPage('calendar')">
-        Call Calendar
-      </div>
       <div class="nav-item" onclick="showPage('followups')">
         Follow-ups
       </div>
@@ -440,9 +448,27 @@
           <article class="home-action-card is-loading" id="home-card-followups"><div class="home-card-top"><span class="home-card-icon">🔔</span><span class="home-card-state">Loading…</span></div><div class="home-card-label">Manual follow-ups</div><div class="home-card-count">—</div><div class="home-card-detail">Checking due and overdue follow-ups…</div><button class="home-card-link" onclick="openHomeSection('followups')">View follow-ups <span>→</span></button></article>
           <article class="home-action-card is-loading" id="home-card-responses"><div class="home-card-top"><span class="home-card-icon">💬</span><span class="home-card-state">Loading…</span></div><div class="home-card-label">Customer responses</div><div class="home-card-count">—</div><div class="home-card-detail">Checking automation replies and CRM messages…</div><button class="home-card-link" onclick="openHomeSection('followups')">Review responses <span>→</span></button></article>
           <article class="home-action-card is-loading" id="home-card-unscheduled"><div class="home-card-top"><span class="home-card-icon">🗓️</span><span class="home-card-state">Loading…</span></div><div class="home-card-label">Unscheduled jobs</div><div class="home-card-count">—</div><div class="home-card-detail">Checking active jobs that need booking…</div><button class="home-card-link" onclick="openHomeSection('unscheduled')">View unscheduled jobs <span>→</span></button></article>
-          <article class="home-action-card is-loading" id="home-card-todos"><div class="home-card-top"><span class="home-card-icon">✓</span><span class="home-card-state">Loading…</span></div><div class="home-card-label">Call tasks</div><div class="home-card-count">—</div><div class="home-card-detail">Checking the shared call task list…</div><button class="home-card-link" onclick="openHomeSection('calendar')">Open call tasks <span>→</span></button></article>
+          <article class="home-action-card is-loading" id="home-card-todos"><div class="home-card-top"><span class="home-card-icon">✓</span><span class="home-card-state">Loading…</span></div><div class="home-card-label">Call tasks</div><div class="home-card-count">—</div><div class="home-card-detail">Checking the shared call task list…</div><button class="home-card-link" onclick="scrollToHomeTodos()">Open call tasks <span>→</span></button></article>
         </div>
         <div class="home-load-error" id="home-load-error" hidden></div>
+        <div class="todo-notepad home-todo-notepad" id="home-todo-list">
+          <div class="todo-pad-header">
+            <div>
+              <div class="todo-pad-title">Team To-Do List</div>
+              <div style="font-size:12px;color:#7b735d;margin-top:2px;">Shared tasks for the team to action</div>
+            </div>
+            <div class="todo-pad-count" id="todo-count">0 open</div>
+          </div>
+          <div class="todo-add-row">
+            <input class="todo-input" id="todo-input" placeholder="Add a task..." onkeydown="if(event.key==='Enter'){addTodoItem()}">
+            <button class="btn-primary" onclick="addTodoItem()" style="width:auto;padding:9px 12px;">Add</button>
+          </div>
+          <div class="todo-list" id="todo-list"></div>
+          <div class="todo-pad-footer">
+            <button class="btn-secondary" onclick="clearCompletedTodos()" style="width:auto;font-size:12px;">Clear Done</button>
+            <button class="btn-secondary" onclick="clearAllTodos()" style="width:auto;font-size:12px;color:#a15c55;">Clear All</button>
+          </div>
+        </div>
       </div>
 
       <!-- ==================== NEW QUOTE PAGE ==================== -->
@@ -580,55 +606,6 @@
             </aside>
           </div>
           <div id="quote-output" style="display:none;"></div>
-        </div>
-      </div>
-
-      <!-- ==================== CALENDAR PAGE ==================== -->
-      <div class="page" id="page-calendar">
-        <div class="page-title">Call Calendar</div>
-        <div class="page-subtitle">Scheduled callbacks and follow-ups</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
-          <div style="display:flex;align-items:center;gap:8px;">
-            <button onclick="calPrev()" style="border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:14px;">◀</button>
-            <div id="cal-month-label" style="font-size:16px;font-weight:700;min-width:160px;text-align:center;"></div>
-            <button onclick="calNext()" style="border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:14px;">▶</button>
-          </div>
-          <div style="display:flex;gap:8px;">
-            <button class="btn-secondary" style="width:auto;" onclick="importCallList()">📥 Import Call List</button>
-            <button class="btn-primary" style="width:auto;" onclick="openAddFollowUp()">+ Add Follow-up</button>
-          </div>
-        </div>
-        <div class="calendar-layout">
-          <div>
-            <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:16px;">
-              <!-- Rendered by JS -->
-            </div>
-            <div id="cal-day-detail" style="display:none;">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-                <div id="cal-day-title" style="font-size:15px;font-weight:700;"></div>
-                <button onclick="document.getElementById('cal-day-detail').style.display='none'" style="border:none;background:none;cursor:pointer;font-size:18px;color:var(--text3);">✕</button>
-              </div>
-              <div id="cal-day-items"></div>
-            </div>
-          </div>
-          <div class="todo-notepad">
-            <div class="todo-pad-header">
-              <div>
-                <div class="todo-pad-title">Call To-Do List</div>
-                <div style="font-size:12px;color:#7b735d;margin-top:2px;">Notes for the team to action</div>
-              </div>
-              <div class="todo-pad-count" id="todo-count">0 open</div>
-            </div>
-            <div class="todo-add-row">
-              <input class="todo-input" id="todo-input" placeholder="Add a task..." onkeydown="if(event.key==='Enter'){addTodoItem()}">
-              <button class="btn-primary" onclick="addTodoItem()" style="width:auto;padding:9px 12px;">Add</button>
-            </div>
-            <div class="todo-list" id="todo-list"></div>
-            <div class="todo-pad-footer">
-              <button class="btn-secondary" onclick="clearCompletedTodos()" style="width:auto;font-size:12px;">Clear Done</button>
-              <button class="btn-secondary" onclick="clearAllTodos()" style="width:auto;font-size:12px;color:#a15c55;">Clear All</button>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -867,7 +844,7 @@
     <ul class="todo-reminder-list" id="todo-reminder-list"></ul>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeTodoReminder()">Dismiss</button>
-      <button class="btn-primary" onclick="closeTodoReminder(); showPageFromTodoReminder();">Open Call Calendar</button>
+      <button class="btn-primary" onclick="showPageFromTodoReminder();">Open Team To-Dos</button>
     </div>
   </div>
 </div>
@@ -1210,28 +1187,41 @@ async function loadPerformance() {
     if (from) url += `&created_at=gte.${from}T00:00:00`;
     if (to) url += `&created_at=lte.${to}T23:59:59`;
 
-    const res = await fetch(url, {
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-    });
-    const quotes = await res.json();
-
-    // Also load reps for display
-    const repsRes = await fetch(`${SUPABASE_URL}/rest/v1/call_reps?select=id,name`, {
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-    });
-    const reps = await repsRes.json();
+    const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` };
+    const [res, repsRes, notesRes] = await Promise.all([
+      fetch(url, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/call_reps?select=id,name`, { headers }),
+      fetch(`${SUPABASE_URL}/rest/v1/record_notes?record_type=eq.quote&deleted_at=is.null&select=record_id,body,created_at&order=created_at.asc`, { headers })
+    ]);
+    if (!res.ok || !repsRes.ok || !notesRes.ok) throw new Error('Performance data could not be loaded.');
+    const [quotes, reps, quoteNotes] = await Promise.all([res.json(), repsRes.json(), notesRes.json()]);
     const repMap = {};
     (reps || []).forEach(r => repMap[r.id] = r.name);
+
+    const attributionByQuote = new Map();
+    const readAttribution = value => {
+      const text = String(value || '');
+      const repId = (text.match(/RepID:([^\s.]+)/i) || [])[1] || '';
+      const repName = (text.match(/Rep:\s*([^.|\n]+)/i) || [])[1]?.trim() || '';
+      return repId || repName ? { repId, repName } : null;
+    };
+    (quoteNotes || []).forEach(note => {
+      const attribution = readAttribution(note.body);
+      if (attribution && !attributionByQuote.has(String(note.record_id))) attributionByQuote.set(String(note.record_id), attribution);
+    });
 
     // Group by rep
     const byRep = {};
     (quotes || []).forEach(q => {
-      const repId = q.notes ? (q.notes.match(/RepID:([^\s.]+)/) || [])[1] : null;
-      const repName = repId ? (repMap[repId] || repId) : 'Unknown';
-      if (!byRep[repName]) byRep[repName] = { quotes: 0, value: 0, approved: 0 };
+      const attribution = attributionByQuote.get(String(q.id)) || readAttribution(q.notes) || {};
+      const repName = attribution.repId ? (repMap[attribution.repId] || attribution.repName || attribution.repId) : attribution.repName || 'Unattributed';
+      if (!byRep[repName]) byRep[repName] = { quotes:0, value:0, approved:0, approvedValue:0, pending:0, rejected:0 };
       byRep[repName].quotes++;
       byRep[repName].value += parseFloat(q.total || 0);
-      if (q.status === 'approved') byRep[repName].approved++;
+      const status = String(q.status || '').toLowerCase();
+      if (status === 'approved') { byRep[repName].approved++; byRep[repName].approvedValue += parseFloat(q.total || 0); }
+      else if (status === 'pending') byRep[repName].pending++;
+      else if (status === 'rejected') byRep[repName].rejected++;
     });
 
     if (Object.keys(byRep).length === 0) {
@@ -1241,13 +1231,20 @@ async function loadPerformance() {
 
     const totalQuotes = quotes.length;
     const totalValue = quotes.reduce((s, q) => s + parseFloat(q.total || 0), 0);
-    const totalApproved = quotes.filter(q => q.status === 'approved').length;
+    const approvedQuotes = quotes.filter(q => String(q.status || '').toLowerCase() === 'approved');
+    const totalApproved = approvedQuotes.length;
+    const approvedValue = approvedQuotes.reduce((sum, quote) => sum + Number(quote.total || 0), 0);
+    const conversion = totalQuotes ? Math.round(totalApproved / totalQuotes * 100) : 0;
+    const attributedQuotes = quotes.filter(q => attributionByQuote.has(String(q.id)) || readAttribution(q.notes)).length;
 
     let html = `
-      <div class="stats-row" style="grid-template-columns:repeat(3,1fr);">
+      <div class="stats-row performance-summary">
         <div class="stat-card"><div class="stat-label">Total Quotes</div><div class="stat-value">${totalQuotes}</div></div>
-        <div class="stat-card"><div class="stat-label">Total Value</div><div class="stat-value">$${totalValue.toFixed(0)}</div></div>
+        <div class="stat-card"><div class="stat-label">Quoted Value</div><div class="stat-value">$${totalValue.toFixed(0)}</div></div>
         <div class="stat-card"><div class="stat-label">Approved</div><div class="stat-value">${totalApproved}</div></div>
+        <div class="stat-card"><div class="stat-label">Approved Value</div><div class="stat-value">$${approvedValue.toFixed(0)}</div></div>
+        <div class="stat-card"><div class="stat-label">Conversion</div><div class="stat-value">${conversion}%</div></div>
+        <div class="stat-card"><div class="stat-label">Rep Attribution</div><div class="stat-value">${totalQuotes ? Math.round(attributedQuotes / totalQuotes * 100) : 0}%</div></div>
       </div>
       <div class="card" style="margin-top:16px;">
         <div class="card-title" style="margin-bottom:12px;">By Rep</div>
@@ -1258,16 +1255,20 @@ async function loadPerformance() {
               <th style="text-align:right;padding:8px 4px;color:var(--text3);font-weight:600;">Quotes</th>
               <th style="text-align:right;padding:8px 4px;color:var(--text3);font-weight:600;">Value</th>
               <th style="text-align:right;padding:8px 4px;color:var(--text3);font-weight:600;">Approved</th>
+              <th style="text-align:right;padding:8px 4px;color:var(--text3);font-weight:600;">Approved value</th>
+              <th style="text-align:right;padding:8px 4px;color:var(--text3);font-weight:600;">Pending</th>
               <th style="text-align:right;padding:8px 4px;color:var(--text3);font-weight:600;">Conv%</th>
             </tr>
           </thead>
           <tbody>
             ${Object.entries(byRep).sort((a,b) => b[1].value - a[1].value).map(([name, data]) => `
               <tr style="border-bottom:1px solid var(--border);">
-                <td style="padding:10px 4px;font-weight:600;">${name}</td>
+                <td style="padding:10px 4px;font-weight:600;">${_escHtml(name)}</td>
                 <td style="padding:10px 4px;text-align:right;">${data.quotes}</td>
                 <td style="padding:10px 4px;text-align:right;color:var(--ss-green);font-weight:700;">$${data.value.toFixed(0)}</td>
                 <td style="padding:10px 4px;text-align:right;">${data.approved}</td>
+                <td style="padding:10px 4px;text-align:right;font-weight:700;">$${data.approvedValue.toFixed(0)}</td>
+                <td style="padding:10px 4px;text-align:right;">${data.pending}</td>
                 <td style="padding:10px 4px;text-align:right;">${data.quotes > 0 ? Math.round(data.approved/data.quotes*100) : 0}%</td>
               </tr>
             `).join('')}
@@ -1277,7 +1278,8 @@ async function loadPerformance() {
 
     el.innerHTML = html;
   } catch(e) {
-    el.innerHTML = '<div class="alert alert-danger">Error loading data. Check connection.</div>';
+    console.error('Performance report failed:', e);
+    el.innerHTML = `<div class="alert alert-danger">${_escHtml(e.message || 'Error loading data. Check connection.')}</div>`;
   }
 }
 
@@ -1293,13 +1295,7 @@ function showPage(page, navItem) {
     activeNav.classList.add('active');
     if (window.innerWidth <= 900) activeNav.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
   }
-  if (page === 'home') loadHomeDashboard();
-  if (page === 'calendar') {
-    const bd = document.getElementById('fu-browse-date');
-    if (bd && !bd.value) bd.value = localToday();
-    renderCalendar();
-    renderTodoList();
-  }
+  if (page === 'home') { loadHomeDashboard(); renderTodoList(); }
   if (page === 'followups') loadAiFollowUpPriorities();
   if (page === 'pendingquotes') {
     loadPendingQuotesTab();
@@ -1314,6 +1310,11 @@ function showPage(page, navItem) {
 function openHomeSection(page) {
   const navItem = [...document.querySelectorAll('.nav-item')].find(item => item.getAttribute('onclick')?.includes(`showPage('${page}')`));
   showPage(page, navItem || null);
+}
+
+function scrollToHomeTodos() {
+  showPage('home', document.querySelector(".nav-item[onclick=\"showPage('home')\"]"));
+  requestAnimationFrame(() => document.getElementById('home-todo-list')?.scrollIntoView({ behavior:'smooth', block:'start' }));
 }
 
 function openCrmPage(path) {
@@ -1373,12 +1374,17 @@ async function loadHomeDashboard(force = false) {
     const deliveryByQuote = new Map();
     deliveries.forEach(row => { if (!deliveryByQuote.has(String(row.quote_id))) deliveryByQuote.set(String(row.quote_id), row); });
     const quoteManualDue = quotes.filter(quote => {
+      if (String(quote.status || '').toLowerCase() !== 'pending') return false;
       if (quote.follow_up_enabled === false) return false;
       let dueAt = quote.manual_follow_up_at ? new Date(quote.manual_follow_up_at) : null;
       if (!dueAt) {
         const delivery = deliveryByQuote.get(String(quote.id));
         const sentAt = delivery && new Date(delivery.sent_at || delivery.created_at);
-        if (sentAt && !Number.isNaN(sentAt.getTime())) { dueAt = new Date(sentAt); dueAt.setDate(dueAt.getDate() + 4); }
+        const scheduledAt = quote.next_follow_up_at ? new Date(quote.next_follow_up_at) : null;
+        const hasDelivery = sentAt && !Number.isNaN(sentAt.getTime());
+        const hasScheduledAutomation = scheduledAt && !Number.isNaN(scheduledAt.getTime()) && (!hasDelivery || scheduledAt > sentAt);
+        const followUpAnchor = hasScheduledAutomation ? scheduledAt : hasDelivery ? sentAt : null;
+        if (followUpAnchor) { dueAt = new Date(followUpAnchor); dueAt.setDate(dueAt.getDate() + 4); }
       }
       return dueAt && !Number.isNaN(dueAt.getTime()) && dueAt <= now;
     }).length;
@@ -1467,10 +1473,7 @@ function applyContentOverridesToServices() {
     if (Array.isArray(inclusions)) svc.inclusions = inclusions.filter(Boolean);
     const stepScripts = dashboardSettings.content.serviceStepScripts?.[serviceKey];
     if (Array.isArray(stepScripts)) {
-      (svc.steps || []).forEach(step => {
-        const match = stepScripts.find(s => s.id === step.id);
-        if (match && match.script !== undefined) step.script = match.script;
-      });
+      svc.steps = stepScripts.map(step => ({ id:step.id, label:step.label || 'Question', script:step.script || '' }));
     }
   });
 }
@@ -1594,13 +1597,13 @@ function renderScriptsPage() {
     <div class="card">
       <div class="card-title" style="margin-bottom:10px;">${_escHtml(svc.name)} — What's Included</div>
       ${isOwner
-        ? `<textarea class="form-input" style="min-height:110px;" onblur="updateServiceInclusions('${serviceKey}', this.value)">${_escHtml((svc.inclusions || []).join('\n'))}</textarea>`
-        : `<div class="question-script" style="margin:0;">${(svc.inclusions || []).map(i => `<div>${_escHtml(i)}</div>`).join('')}</div>`}
+        ? `<div style="font-size:11px;color:var(--text3);margin-bottom:7px;">One inclusion per line. These lines are used in quote summaries and quote emails.</div><textarea class="form-input" style="min-height:110px;" onblur="updateServiceInclusions('${serviceKey}', this.value)">${_escHtml((svc.inclusions || []).join('\n'))}</textarea><ul class="script-inclusion-list">${(svc.inclusions || []).map(i => `<li>${_escHtml(i)}</li>`).join('')}</ul>`
+        : `<ul class="script-inclusion-list">${(svc.inclusions || []).map(i => `<li>${_escHtml(i)}</li>`).join('')}</ul>`}
     </div>
     <div class="card">
-      <div class="card-title" style="margin-bottom:10px;">${_escHtml(svc.name)} — Question Scripts</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;"><div class="card-title">${_escHtml(svc.name)} — Question Scripts</div>${isOwner ? `<button class="btn-secondary" style="width:auto;" onclick="addServiceQuestion('${serviceKey}')">Add question</button>` : ''}</div>
       ${(svc.steps || []).map(step => isOwner
-        ? `<label class="form-label">${_escHtml(step.label)}</label><textarea class="form-input" style="min-height:70px;margin-bottom:10px;" onblur="updateServiceStepScript('${serviceKey}', '${step.id}', this.value)">${_escHtml(step.script || '')}</textarea>`
+        ? `<div class="script-question-editor"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;"><label class="form-label">${_escHtml(step.label)}</label><button class="script-remove-question" onclick="removeServiceQuestion('${serviceKey}', '${step.id}')">Remove</button></div><textarea class="form-input" style="min-height:70px;" onblur="updateServiceStepScript('${serviceKey}', '${step.id}', this.value)">${_escHtml(step.script || '')}</textarea></div>`
         : `<div style="font-size:12px;font-weight:800;color:var(--text2);margin-top:8px;">${_escHtml(step.label)}</div><div class="question-script" style="margin:4px 0 0;">${_escHtml(step.script || step.label)}</div>`).join('')}
     </div>`).join('');
   page.innerHTML = `
@@ -1641,6 +1644,27 @@ function updateServiceStepScript(serviceKey, stepId, value) {
   const match = existing.find(step => step.id === stepId);
   if (match) match.script = value;
   dashboardSettings.content.serviceStepScripts[serviceKey] = existing;
+  applyContentOverridesToServices();
+  saveDashboardSettings();
+}
+
+function addServiceQuestion(serviceKey) {
+  if (!isOwner || !SERVICES[serviceKey]) return;
+  const label = prompt('Question label');
+  if (!label?.trim()) return;
+  const script = prompt('Question script shown to the rep', label.trim());
+  if (script === null) return;
+  const existing = dashboardSettings.content.serviceStepScripts[serviceKey] || (SERVICES[serviceKey].steps || []).map(step => ({ id:step.id, label:step.label, script:step.script || '' }));
+  existing.push({ id:`custom-${Date.now()}`, label:label.trim(), script:String(script).trim() });
+  dashboardSettings.content.serviceStepScripts[serviceKey] = existing;
+  applyContentOverridesToServices();
+  saveDashboardSettings();
+}
+
+function removeServiceQuestion(serviceKey, stepId) {
+  if (!isOwner || !confirm('Remove this question from the service script?')) return;
+  const existing = dashboardSettings.content.serviceStepScripts[serviceKey] || (SERVICES[serviceKey]?.steps || []);
+  dashboardSettings.content.serviceStepScripts[serviceKey] = existing.filter(step => step.id !== stepId);
   applyContentOverridesToServices();
   saveDashboardSettings();
 }
@@ -3095,7 +3119,7 @@ async function _doAcceptQuote(total) {
       body: JSON.stringify({ id: jobId, client: clientInfo.name, client_id: clientId, quote_id: quoteId, service: combinedLabel, description: `Phone-quoted job. Address: ${clientInfo.address || clientInfo.suburb}.`, status: 'Active', revenue: total, items: lineItems, hours: 0, completion_date: null, notes: (window._chatPdfCustomizations || []).filter(Boolean).join(' | '), ...quoteAttributionPayload('quote_inherited'), created_at: new Date().toISOString() })
     });
     if (!jobRes.ok) throw new Error(`Job creation failed: ${await jobRes.text()}`);
-    await createRecordNote('quote', quoteId, `Accepted on call via Call Dashboard. Service: ${combinedLabel}. Address: ${clientInfo.address || clientInfo.suburb}. Source: ${clientInfo.source || 'phone-call'}. Travel: $${clientInfo.travelCost.toFixed(2)}. Rep: ${currentRep ? currentRep.name : 'unknown'}.`);
+    await createRecordNote('quote', quoteId, `Accepted on call via Call Dashboard. Service: ${combinedLabel}. Address: ${clientInfo.address || clientInfo.suburb}. Source: ${clientInfo.source || 'phone-call'}. Travel: $${clientInfo.travelCost.toFixed(2)}. RepID:${currentRep ? currentRep.id : 'unknown'} Rep:${currentRep ? currentRep.name : 'unknown'}.`);
     await copyRecordNotes('quote', quoteId, 'job', jobId);
     await createRecordNote('job', jobId, `Booked via Call Dashboard. Rep: ${currentRep ? currentRep.name : 'unknown'}. Quote: ${quoteId}.`);
 
@@ -3441,13 +3465,18 @@ function detectQuoteEmailService(item) {
 }
 
 function quoteEmailInclusions(item, key) {
-  const inclusions = [...(QUOTE_EMAIL_SERVICE_CONTENT[key]?.inclusions || [])];
+  const managed = Array.isArray(item?.inclusions) && item.inclusions.length
+    ? item.inclusions
+    : Array.isArray(SERVICES[key]?.inclusions) && SERVICES[key].inclusions.length
+      ? SERVICES[key].inclusions
+      : QUOTE_EMAIL_SERVICE_CONTENT[key]?.inclusions || [];
+  const inclusions = [...managed];
   const source = `${item?.name || item?.description || ''} ${(item?.inclusions || []).join(' ')}`.toLowerCase();
   if (key === 'pressure-washing' && /biocide/.test(source)) inclusions.push('Post-clean biocide treatment to help inhibit moss, algae and lichen regrowth');
   if (key === 'window-cleaning' && /flyscreen/.test(source)) inclusions.push('Cleaning of the quoted flyscreens');
   if (key === 'window-cleaning' && /track/.test(source)) inclusions.push('Deep cleaning of the quoted window tracks');
   if (key === 'gutter-cleaning' && /shed|bungalow|granny|additional structure/.test(source)) inclusions.push('Cleaning of the additional structures listed in the quote');
-  return inclusions;
+  return [...new Set(inclusions)];
 }
 
 function buildConsistentQuoteEmail({ name, address, serviceLabel, items, total, availability }) {
@@ -4062,10 +4091,22 @@ function renderTodoList() {
   list.innerHTML = todoItems.map(item => `
     <div class="todo-item ${item.done ? 'done' : ''}">
       <input class="todo-check" type="checkbox" ${item.done ? 'checked' : ''} onchange="toggleTodoItem('${item.id}', this.checked)">
-      <div class="todo-text" contenteditable="true" spellcheck="true" onblur="updateTodoText('${item.id}', this.textContent)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">${_escHtml(item.text)}</div>
+      <div class="todo-text" id="todo-text-${_escHtml(item.id)}" contenteditable="true" spellcheck="true" onblur="updateTodoText('${item.id}', this.textContent)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">${_escHtml(item.text)}</div>
+      <button class="todo-edit" title="Edit to-do" onclick="editTodoItem('${item.id}')">Edit</button>
       <button class="todo-delete" title="Delete to-do" onclick="deleteTodoItem('${item.id}')">x</button>
     </div>
   `).join('');
+}
+
+function editTodoItem(id) {
+  const text = document.getElementById(`todo-text-${id}`);
+  if (!text) return;
+  text.focus();
+  const selection = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(text);
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 function showTodoReminderIfNeeded() {
@@ -4086,7 +4127,8 @@ function closeTodoReminder() {
 }
 
 function showPageFromTodoReminder() {
-  showPage('calendar', document.querySelector(".nav-item[onclick=\"showPage('calendar')\"]"));
+  closeTodoReminder();
+  scrollToHomeTodos();
 }
 
 // ============================================================
@@ -5424,8 +5466,8 @@ const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 document.getElementById('perf-from').value = firstOfMonth.toISOString().split('T')[0];
 document.getElementById('perf-to').value = today.toISOString().split('T')[0];
 todoSyncTimer = setInterval(() => {
-  const calendarOpen = document.getElementById('page-calendar')?.classList.contains('active');
-  if (calendarOpen) loadTodos();
+  const homeOpen = document.getElementById('page-home')?.classList.contains('active');
+  if (homeOpen) loadTodos();
 }, 15000);
 
 // ============================================================
@@ -5656,8 +5698,8 @@ function ujRenderSelectedInclusions() {
         <div style="font-size:13px;font-weight:800;color:var(--text1);">${_escHtml(service?.name || serviceKey)}</div>
         <button onclick="ujRemoveInclusion('${_escHtml(serviceKey)}')" style="border:none;background:#fee2e2;color:#991b1b;border-radius:7px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer;">Remove</button>
       </div>
-      ${inclusions.length ? inclusions.map(line => `<div style="font-size:13px;color:var(--text2);line-height:1.6;padding:1px 0;">✓ ${_escHtml(line)}</div>`).join('') : '<div style="font-size:12px;color:var(--text3);">No inclusion list configured for this service.</div>'}
-      ${disclaimers.length ? `<div style="margin-top:9px;padding-top:8px;border-top:1px solid #fde68a;"><div style="font-size:11px;font-weight:800;color:#92400e;margin-bottom:4px;">NOTES &amp; DISCLAIMERS</div>${disclaimers.map(line => `<div style="font-size:12px;color:#78350f;line-height:1.55;">⚠️ ${_escHtml(line)}</div>`).join('')}</div>` : ''}
+      ${inclusions.length ? `<ul style="margin:0;padding-left:18px;">${inclusions.map(line => `<li style="font-size:13px;color:var(--text2);line-height:1.6;">${_escHtml(line)}</li>`).join('')}</ul>` : '<div style="font-size:12px;color:var(--text3);">No inclusion list configured for this service.</div>'}
+      ${disclaimers.length ? `<div style="margin-top:9px;padding-top:8px;border-top:1px solid var(--border);"><div style="font-size:11px;font-weight:800;color:var(--text2);margin-bottom:4px;">NOTES &amp; DISCLAIMERS</div>${disclaimers.map(line => `<div style="font-size:12px;color:var(--text2);line-height:1.55;">${_escHtml(line)}</div>`).join('')}</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -5768,13 +5810,9 @@ function renderUnscheduledList(calendarState) {
   container.innerHTML = connectionMessage + items.map(item => {
     const title = item.client?.name || item.job?.client || item.event?.summary || 'Unscheduled event';
     const services = ujServiceNames(item).join(' + ');
-    const badge = item.type === 'linked' ? 'Linked Job + Event' : item.type === 'job' ? 'CRM Job' : 'Calendar Event';
-    const phone = item.client?.phone || '';
     return `<div onclick="ujOpenDetail('${_escHtml(item.key)}')" style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;cursor:pointer;">
-      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
-        <div><div style="font-size:15px;font-weight:800;color:var(--text1);">${_escHtml(title)}</div><div style="font-size:12px;color:var(--text2);margin-top:4px;">${_escHtml(services)}</div>${phone ? `<div style="font-size:12px;color:var(--text3);margin-top:4px;">📞 ${_escHtml(phone)}</div>` : ''}</div>
-        <span style="font-size:10px;background:${item.type === 'event' ? '#eef2ff' : '#f0fdf4'};color:${item.type === 'event' ? '#3730a3' : '#166534'};padding:4px 8px;border-radius:10px;font-weight:800;white-space:nowrap;">${badge}</span>
-      </div>
+      <div style="font-size:15px;font-weight:800;color:var(--text);">${_escHtml(title)}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:4px;">${_escHtml(services)}</div>
     </div>`;
   }).join('');
 }
@@ -5802,18 +5840,20 @@ function ujOpenDetail(key) {
   detail.style.display = 'block';
   detail.innerHTML = `
     <button onclick="ujBackToList()" style="background:none;border:none;color:var(--ss-green);font-size:14px;font-weight:700;cursor:pointer;padding:0;margin-bottom:16px;">← Back to Unscheduled Jobs</button>
+    <section class="priority-contact-card">
+      <h4>Contact details</h4>
+      ${client?.phone ? `<div><span>Phone</span><a href="tel:${_escHtml(String(client.phone).replace(/[^0-9+]/g, ''))}">${_escHtml(client.phone)}</a><button type="button" onclick="priorityCopyContact(decodeURIComponent('${encodeURIComponent(client.phone)}'))">Copy</button></div>` : ''}
+      ${client?.email ? `<div><span>Email</span><a href="mailto:${_escHtml(client.email)}">${_escHtml(client.email)}</a><button type="button" onclick="priorityCopyContact(decodeURIComponent('${encodeURIComponent(client.email)}'))">Copy</button></div>` : ''}
+      ${client && (client.address || client.suburb) ? `<div><span>Address</span><strong>${_escHtml([client.address, client.suburb].filter(Boolean).join(', '))}</strong><button type="button" onclick="priorityCopyContact(decodeURIComponent('${encodeURIComponent([client.address, client.suburb].filter(Boolean).join(', '))}'))">Copy</button></div>` : ''}
+      ${!client || (!client.phone && !client.email && !client.address && !client.suburb) ? '<p>No contact details are recorded.</p>' : ''}
+    </section>
     <div class="card" style="margin-bottom:16px;">
-      <div class="card-title" style="margin-bottom:10px;">👤 Client</div>
-      <div style="font-size:17px;font-weight:800;margin-bottom:8px;">${_escHtml(title)}</div>
-      ${client ? `<div style="display:flex;gap:10px;flex-wrap:wrap;">${client.phone ? `<a href="tel:${_escHtml(client.phone)}" style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 14px;text-decoration:none;color:var(--ss-green);font-weight:700;">📞 ${_escHtml(client.phone)}</a>` : ''}${client.email ? `<span style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 14px;color:#1d4ed8;">✉️ ${_escHtml(client.email)}</span>` : ''}</div><div style="font-size:12px;color:var(--text3);margin-top:8px;">📍 ${_escHtml([client.address, client.suburb].filter(Boolean).join(', ') || 'No address on file')}</div>` : `<div class="alert alert-info" style="margin:0;">No client info detected — refer to CRM client log.</div>`}
-    </div>
-    <div class="card" style="margin-bottom:16px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><div class="card-title">🔧 ${job ? `Job #${_escHtml(job.id)}` : 'Calendar Event'}</div><span style="font-size:11px;color:#92400e;background:#fef3c7;padding:3px 8px;border-radius:8px;font-weight:700;">Unscheduled</span></div>
+      <div class="card-title">${job ? `Job #${_escHtml(job.id)}` : 'Calendar Event'}</div>
       <div style="font-size:13px;color:var(--text2);margin-top:10px;">${services.map(_escHtml).join(' + ')}</div>
-      ${job ? `<div style="font-size:18px;font-weight:800;color:var(--ss-green);margin-top:8px;">$${total.toFixed(2)}</div>` : ''}
+      ${job ? `<div style="font-size:18px;font-weight:800;color:var(--text);margin-top:8px;">$${total.toFixed(2)}</div>` : ''}
     </div>
     <details class="detail-accordion">
-      <summary>✅ Inclusions, Notes &amp; Disclaimers</summary>
+      <summary>Inclusions, Notes &amp; Disclaimers</summary>
       <div class="detail-accordion-content">
         <div style="font-size:12px;color:var(--text3);margin-bottom:10px;">Choose the relevant service manually. Add as many different service inclusion lists as needed.</div>
         <div style="display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;">
@@ -5824,7 +5864,7 @@ function ujOpenDetail(key) {
       </div>
     </details>
     <details class="detail-accordion detail-accordion--green">
-      <summary>✨ AI Closing Script</summary>
+      <summary>AI Closing Script</summary>
       <div class="detail-accordion-content">
         <div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><button onclick="generateAiClosingScript('uj-closing-script')" style="border:1px solid #86efac;background:#fff;color:var(--ss-green);border-radius:7px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer;">Regenerate</button></div>
         <div style="font-size:12px;color:var(--text3);margin-bottom:9px;">Generated from the client, job, service and notes below. You can edit it while speaking.</div>
@@ -5832,7 +5872,7 @@ function ujOpenDetail(key) {
       </div>
     </details>
     <details class="detail-accordion">
-      <summary>🗒 Internal Communications</summary>
+      <summary>Internal Communications</summary>
       <div class="detail-accordion-content">
         <div id="uj-note-timeline"><div style="font-size:12px;color:var(--text3);padding-bottom:10px;">Loading note history…</div></div>
         <label class="form-label" for="uj-new-note">New note entry</label>
@@ -5843,11 +5883,9 @@ function ujOpenDetail(key) {
         </div>
       </div>
     </details>
-    <div style="display:flex;flex-direction:column;gap:10px;padding-bottom:40px;">
-      <button onclick="ujBookSelected()" class="btn-primary" style="padding:15px;font-size:15px;">📅 Book ${job ? 'the Job' : 'the Event'}</button>
-      <button onclick="ujFollowUpLater()" style="background:#fef3c7;color:#92400e;border:1px solid #f59e0b;border-radius:12px;padding:14px;font-weight:700;cursor:pointer;">🔔 Follow Up Later</button>
-      <button onclick="ujLeaveUnscheduled()" style="background:#fff;color:var(--text1);border:1px solid var(--border);border-radius:12px;padding:14px;font-weight:700;cursor:pointer;">🗒 Leave Unscheduled</button>
-      <button onclick="ujDeclineSelected()" style="background:#c62828;color:#fff;border:none;border-radius:12px;padding:14px;font-weight:700;cursor:pointer;">✗ Customer Declined</button>
+    <div class="quote-actions pq-action-row">
+      <button onclick="ujBookSelected()" class="btn-primary">Book ${job ? 'the Job' : 'the Event'}</button>
+      <button onclick="ujDeclineSelected()" class="btn-secondary pq-action-danger">Customer Declined</button>
     </div>`;
   ujRenderSelectedInclusions();
   const detectedServiceKeys = services.map(name => {
@@ -6495,6 +6533,7 @@ async function _pqDoAccept(q, address, clientEmail, clientId, clientPhone) {
       await copyRecordNotes('quote', q.id, 'job', jobId);
       // The copied rows remain internal; do not mirror them into jobs.notes.
       await createRecordNote('job', jobId, `Job created from accepted quote ${q.id}.`);
+      await createRecordNote('quote', q.id, `Accepted via Call Dashboard. RepID:${currentRep?.id || 'unknown'} Rep:${currentRep?.name || 'unknown'}.`);
     } catch (noteError) {
       console.error('Quote note history transfer failed:', noteError);
       showToast('Job created, but note history needs checking', 'error');
