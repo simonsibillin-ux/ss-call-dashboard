@@ -651,7 +651,8 @@
   .priority-sub-tabs { display: flex; flex-wrap: wrap; gap: 7px; margin: -10px 0 22px; }
   .priority-sub-tab { background: #fff; border: 1px solid var(--border); border-radius: 999px; color: var(--text2); cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; padding: 8px 12px; }
   .priority-sub-tab:hover { border-color: var(--border2); color: var(--text1); }
-  .priority-sub-tab.active { background: var(--text1); border-color: var(--text1); color: #fff; }
+  .priority-sub-tab.active { background: var(--text); border-color: var(--text); color: #fff; }
+  .priority-sub-tab.active:hover { background: var(--text); border-color: var(--text); color: #fff; }
   .priority-sub-tab span { font-size: 10px; margin-left: 4px; opacity: .75; }
 
   .priority-stat {
@@ -698,6 +699,7 @@
   .priority-card-action { background: #f0fdf4; border-radius: 7px; color: #166534; font-size: 12px; font-weight: 700; line-height: 1.45; margin-top: 9px; padding: 8px 10px; }
   .priority-card-service { color: var(--text2); font-size: 12px; margin-top: 4px; }
   .priority-card-meta { color: var(--text3); display: flex; flex-wrap: wrap; font-size: 11px; gap: 5px 12px; margin-top: 7px; }
+  .priority-card-meta:empty { display: none; }
 
   #priority-detail-modal { align-items: stretch; background: var(--surface2); padding: 0; }
   #priority-detail-modal .priority-detail-modal { border: 0; border-radius: 0; box-sizing: border-box; height: 100dvh; margin: 0; max-height: none; max-width: none; overflow-y: auto; padding: 28px max(28px, calc((100vw - 1100px) / 2)); width: 100% !important; }
@@ -750,7 +752,12 @@
   .priority-contact-card > div { align-items: center; display: grid; gap: 10px; grid-template-columns: 55px minmax(0,1fr) auto; padding: 7px 0; }
   .priority-contact-card span { color: var(--text3); font-size: 11px; font-weight: 800; text-transform: uppercase; }
   .priority-contact-card a { color: var(--text1); font-size: 14px; font-weight: 750; overflow-wrap: anywhere; text-decoration: none; }
+  .priority-contact-card strong { color: var(--text); font-size: 13px; font-weight: 650; overflow-wrap: anywhere; }
   .priority-contact-card button { background: transparent; border: 0; color: var(--ss-green); cursor: pointer; font-size: 12px; font-weight: 800; }
+  .pq-action-row { align-items: stretch; flex-wrap: wrap; padding-bottom: 32px; }
+  .pq-action-row > button { flex: 1 1 190px; min-height: 42px; }
+  .pq-action-row .pq-action-danger { background: var(--surface); border-color: #e3a9a9; color: var(--red); }
+  .pq-action-row .pq-action-danger:hover { background: var(--red-bg); border-color: var(--red); color: var(--red); }
   .priority-delivery-card h4 { color: var(--text1); font-size: 11px; letter-spacing: .05em; margin: 12px 0 3px; text-transform: uppercase; }
   .priority-schedule-row { align-items: center; border-bottom: 1px solid var(--border); display: grid; gap: 12px; grid-template-columns: minmax(120px,.8fr) minmax(180px,1.4fr) auto; padding: 13px 0; }
   .priority-schedule-row:last-child { border-bottom: 0; }
@@ -1720,6 +1727,8 @@
     .quote-total-value { font-size: 19px; }
     .quote-actions { flex-direction: column; }
     .quote-actions > button, .quote-actions > a { width: 100% !important; flex: none; }
+    .quote-actions.pq-action-row { flex-direction: row; }
+    .quote-actions.pq-action-row > button { flex: 1 1 180px; width: auto !important; }
     .quote-start-actions { align-items: stretch; flex-direction: column; }
     .quote-start-actions .btn-primary { width: 100% !important; }
     .modal { padding: 18px; border-radius: 12px; }

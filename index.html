@@ -389,33 +389,33 @@
     <div class="sidebar">
       <div class="sidebar-section">Navigation</div>
       <div class="nav-item active" onclick="showPage('home')">
-        <span class="nav-icon">⌂</span> Home
+        Home
       </div>
       <div class="nav-item" onclick="showPage('quotes')">
-        <span class="nav-icon">📋</span> New Quote
+        New Quote
       </div>
       <div class="nav-item" onclick="showPage('calendar')">
-        <span class="nav-icon">📅</span> Call Calendar
+        Call Calendar
       </div>
       <div class="nav-item" onclick="showPage('followups')">
-        <span class="nav-icon">🔔</span> Follow-ups
+        Follow-ups
       </div>
       <div class="nav-item" onclick="showPage('pendingquotes'); loadPendingQuotesTab();">
-        <span class="nav-icon">📝</span> Pending Quotes
+        Pending Quotes
       </div>
       <div class="nav-item" onclick="showPage('unscheduled')">
-        <span class="nav-icon">🗓️</span> Unscheduled Jobs
+        Unscheduled Jobs
       </div>
       <div class="sidebar-section">Reference</div>
       <div class="nav-item" onclick="showPage('pricing')">
-        <span class="nav-icon">💲</span> Price Sheet
+        Price Sheet
       </div>
       <div class="nav-item" onclick="showPage('scripts')">
-        <span class="nav-icon">💬</span> Scripts
+        Scripts
       </div>
       <div class="sidebar-section">Admin</div>
       <div class="nav-item" onclick="showPage('performance')" id="nav-performance" style="display:none;">
-        <span class="nav-icon">📊</span> Performance
+        Performance
       </div>
     </div>
 
@@ -635,7 +635,7 @@
       <!-- ==================== FOLLOW-UPS PAGE ==================== -->
       <div class="page" id="page-followups">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;">
-          <div><div class="page-title">Follow-ups</div><div class="page-subtitle">Quote follow-ups and upcoming work in one clear workspace</div></div>
+          <div class="page-title">Follow-ups</div>
           <button id="priority-refresh-btn" class="btn-secondary" onclick="loadAiFollowUpPriorities(true)" style="width:auto;">Refresh</button>
         </div>
         <div class="priority-page-tabs" role="tablist" aria-label="Follow-up pages">
@@ -647,7 +647,6 @@
           <button class="priority-sub-tab" data-priority-quote-view="upcoming" onclick="setPriorityQuoteView('upcoming')" role="tab">Upcoming <span id="priority-sub-upcoming-count"></span></button>
           <button class="priority-sub-tab" data-priority-quote-view="not_scheduled" onclick="setPriorityQuoteView('not_scheduled')" role="tab">Not currently scheduled <span id="priority-sub-not-scheduled-count"></span></button>
           <button class="priority-sub-tab" data-priority-quote-view="draft" onclick="setPriorityQuoteView('draft')" role="tab">Drafts <span id="priority-sub-draft-count"></span></button>
-          <button class="priority-sub-tab" data-priority-quote-view="draft_review" onclick="setPriorityQuoteView('draft_review')" role="tab">Draft review <span id="priority-sub-draft-review-count"></span></button>
         </div>
         <div id="priority-status" style="display:none;"></div>
         <div id="priority-overview" style="display:none;"></div>
@@ -2085,14 +2084,14 @@ function serviceNotesAndDisclaimers(serviceKey, result = {}) {
   return [...new Set(candidates.map(value => String(value || '').trim()).filter(Boolean))];
 }
 
-function notesAndDisclaimersHtml(items) {
+function notesAndDisclaimersHtml(items, showTitle = true) {
   const sections = (items || []).map(item => {
     const notes = serviceNotesAndDisclaimers(item.serviceKey, item.result || item);
     if (!notes.length) return '';
     return `<div style="margin-top:8px;"><div style="font-size:12px;font-weight:800;color:#92400e;margin-bottom:4px;">${_escHtml(item.name || SERVICES[item.serviceKey]?.name || 'Service')}</div>${notes.map(note => `<div style="font-size:12px;line-height:1.55;padding:2px 0;color:#78350f;">⚠️ ${_escHtml(note)}</div>`).join('')}</div>`;
   }).filter(Boolean);
   if (!sections.length) return '';
-  return `<div class="quote-disclaimer" style="margin-top:12px;"><div style="font-size:12px;font-weight:800;margin-bottom:5px;">Notes &amp; disclaimers — explain to the client</div>${sections.join('')}</div>`;
+  return `<div class="quote-disclaimer" style="margin-top:12px;">${showTitle ? '<div style="font-size:12px;font-weight:800;margin-bottom:5px;">Notes &amp; disclaimers - explain to the client</div>' : ''}${sections.join('')}</div>`;
 }
 
 async function generateAiClosingScript(elementId, context) {
@@ -4241,7 +4240,7 @@ function setPriorityPage(page) {
 }
 
 function setPriorityQuoteView(view) {
-  const allowed = ['due', 'upcoming', 'not_scheduled', 'draft', 'draft_review'];
+  const allowed = ['due', 'upcoming', 'not_scheduled', 'draft'];
   _priorityQuoteView = allowed.includes(view) ? view : 'due';
   document.querySelectorAll('[data-priority-quote-view]').forEach(button => {
     button.classList.toggle('active', button.dataset.priorityQuoteView === _priorityQuoteView);
@@ -4281,12 +4280,13 @@ function openPriorityItem(candidateId) {
   const needsContactNow = isPendingQuote && (manualUnlocked || ['portal_call_request', 'portal_correction'].includes(analysis.reasonCode));
   title.textContent = candidate.clientName || 'Follow-up details';
   service.textContent = (candidate.services || []).join(' + ') || priorityRecordLabel(candidate);
-  document.querySelectorAll('#priority-detail-modal .priority-detail-header .btn-secondary, #priority-detail-modal .priority-detail-footer .btn-secondary').forEach(button => button.onclick = closePriorityDetail);
+  const headerBackButton = document.querySelector('#priority-detail-modal .priority-detail-header .btn-secondary');
+  if (headerBackButton) headerBackButton.style.display = 'none';
+  document.querySelectorAll('#priority-detail-modal .priority-detail-footer .btn-secondary').forEach(button => button.onclick = closePriorityDetail);
   document.querySelector('#priority-detail-modal .priority-detail-footer')?.style.removeProperty('display');
   body.innerHTML = `
-    <div class="priority-detail-badges"><span class="badge">${_escHtml(priorityRecordLabel(candidate))}</span><span class="priority-detail-level priority-detail-level--${_escHtml(analysis.priority || 'low')}">${_escHtml(analysis.priority || 'Unranked')} priority</span></div>
     ${isPendingQuote ? `<section class="priority-next-action"><h4>Next action</h4><strong>${_escHtml(needsContactNow ? 'Follow up with the customer and record the structured outcome.' : analysis.manualReviewAt ? `Wait until the manual follow-up is due on ${priorityCandidateDateTime(analysis.manualReviewAt)}.` : 'Review the delivery status and schedule the next follow-up.')}</strong></section>
-    <section class="priority-contact-card"><h4>Contact details</h4>${candidate.phone ? `<div><span>Phone</span><a href="tel:${_escHtml(String(candidate.phone).replace(/[^0-9+]/g, ''))}">${_escHtml(candidate.phone)}</a><button type="button" onclick="priorityCopyContact(decodeURIComponent('${encodeURIComponent(candidate.phone)}'))">Copy</button></div>` : ''}${candidate.email ? `<div><span>Email</span><a href="mailto:${_escHtml(candidate.email)}">${_escHtml(candidate.email)}</a><button type="button" onclick="priorityCopyContact(decodeURIComponent('${encodeURIComponent(candidate.email)}'))">Copy</button></div>` : ''}${!candidate.phone && !candidate.email ? '<p>No phone number or email address is recorded.</p>' : ''}</section>` : `<div class="priority-detail-grid"><div><span>Review by</span><strong>${_escHtml(priorityCandidateDate(analysis.recommendedDate) || 'No review scheduled')}</strong></div></div>`}
+    <section class="priority-contact-card"><h4>Contact details</h4>${candidate.phone ? `<div><span>Phone</span><a href="tel:${_escHtml(String(candidate.phone).replace(/[^0-9+]/g, ''))}">${_escHtml(candidate.phone)}</a><button type="button" onclick="priorityCopyContact(decodeURIComponent('${encodeURIComponent(candidate.phone)}'))">Copy</button></div>` : ''}${candidate.email ? `<div><span>Email</span><a href="mailto:${_escHtml(candidate.email)}">${_escHtml(candidate.email)}</a><button type="button" onclick="priorityCopyContact(decodeURIComponent('${encodeURIComponent(candidate.email)}'))">Copy</button></div>` : ''}${candidate.address ? `<div><span>Address</span><strong>${_escHtml(candidate.address)}</strong><button type="button" onclick="priorityCopyContact(decodeURIComponent('${encodeURIComponent(candidate.address)}'))">Copy</button></div>` : ''}${!candidate.phone && !candidate.email && !candidate.address ? '<p>No contact details are recorded.</p>' : ''}</section>` : `<div class="priority-detail-grid"><div><span>Review by</span><strong>${_escHtml(priorityCandidateDate(analysis.recommendedDate) || 'No review scheduled')}</strong></div></div>`}
     ${isPendingQuote ? `<section class="priority-delivery-card" aria-label="Delivery and follow-up">
       <h4>Delivery &amp; follow-up</h4>
       <div class="priority-schedule-row"><strong>Quote sent</strong><span>${_escHtml(priorityCandidateDateTime(candidate.sentAt) || 'Recorded')}</span><div></div></div>
@@ -4298,10 +4298,10 @@ function openPriorityItem(candidateId) {
         <label class="form-label" for="priority-new-note">Reason / note</label><textarea id="priority-new-note" class="form-input" rows="3" placeholder="Add only useful context…"></textarea><div class="priority-note-actions"><span id="priority-response-status"></span><button id="priority-add-note-btn" class="btn-primary" onclick="priorityAddNoteEntry()" style="width:auto;">Save response</button><button class="btn-secondary" onclick="priorityCloseOutcome()" style="width:auto;">Cancel</button></div>
       </div></div>
     </section>` : ''}
-    ${!isPendingQuote ? `<section class="priority-detail-section"><h4>AI perception</h4><p>${_escHtml(analysis.reason || 'No assessment is available yet.')}</p></section>` : ''}
+    ${candidate.kind === 'unscheduled_job' ? `<section class="priority-detail-section"><h4>Timing context</h4><p>${_escHtml(analysis.reason || 'No assessment is available yet.')}</p></section>` : ''}
     ${analysis.priorityConflict ? `<div class="alert alert-danger" style="margin:0 0 14px;"><strong>Priority check needed:</strong> ${_escHtml(analysis.priorityConflictMessage || 'The AI timing assessment does not match the assigned priority. Review the latest note before contacting the customer.')}</div>` : ''}
-    ${!isPendingQuote ? `<section class="priority-detail-section priority-detail-recommendation"><h4>Recommended next step</h4><p>${_escHtml(analysis.recommendedAction || 'Review the record and contact the customer.')}</p></section>` : ''}
-    ${analysis.priority === 'review' ? `<section class="priority-detail-section"><h4>Review options</h4><div style="display:flex;gap:7px;flex-wrap:wrap;"><button class="btn-secondary" onclick="priorityPrepareReview('resume')" style="width:auto;">Resume in 10 business days</button><button class="btn-secondary" onclick="priorityPrepareReview('schedule')" style="width:auto;">Choose a date</button><button class="btn-secondary" onclick="priorityPrepareReview('customer')" style="width:auto;">Wait for customer</button><button class="btn-secondary" onclick="priorityPrepareReview('owner')" style="width:auto;">Simon handling</button><button class="btn-secondary" onclick="priorityPrepareReview('close')" style="width:auto;color:#a33;">Close — no response</button></div></section>` : ''}
+    ${candidate.kind === 'unscheduled_job' ? `<section class="priority-detail-section priority-detail-recommendation"><h4>Recommended next step</h4><p>${_escHtml(analysis.recommendedAction || 'Review the record and contact the customer.')}</p></section>` : ''}
+    ${candidate.kind === 'unscheduled_job' && analysis.priority === 'review' ? `<section class="priority-detail-section"><h4>Review options</h4><div style="display:flex;gap:7px;flex-wrap:wrap;"><button class="btn-secondary" onclick="priorityPrepareReview('resume')" style="width:auto;">Resume in 10 business days</button><button class="btn-secondary" onclick="priorityPrepareReview('schedule')" style="width:auto;">Choose a date</button><button class="btn-secondary" onclick="priorityPrepareReview('customer')" style="width:auto;">Wait for customer</button><button class="btn-secondary" onclick="priorityPrepareReview('owner')" style="width:auto;">Simon handling</button><button class="btn-secondary" onclick="priorityPrepareReview('close')" style="width:auto;color:#a33;">Close - no response</button></div></section>` : ''}
     <div class="priority-detail-section"><button class="btn-secondary" onclick="priorityToggleInternalCommunications()" style="width:auto;">Internal communications</button><div id="priority-internal-communications" style="display:none;margin-top:12px;"><div id="priority-note-timeline"><div class="priority-no-notes">Loading note history…</div></div><label class="form-label" for="priority-internal-note">New internal communication</label><textarea id="priority-internal-note" class="form-input" rows="3" placeholder="Add an internal note…"></textarea><div class="priority-note-actions"><span id="priority-note-status"></span><button class="btn-primary" onclick="priorityAddInternalCommunication()" style="width:auto;">Add communication</button></div></div></div>`;
   openButton.textContent = isPendingQuote ? 'View pending quote' : `View ${priorityRecordLabel(candidate)}`;
   openButton.onclick = () => openPriorityRecord(candidateId);
@@ -4347,7 +4347,11 @@ function priorityShowEmbeddedRecord(sourceId, candidate, label) {
   if (!source || !body || !modal) return;
   _priorityRecordOpen = true;
   body.replaceChildren(...Array.from(source.childNodes));
-  body.querySelectorAll('[onclick*="pqBackToList"], [onclick*="ujBackToList"]').forEach(button => button.setAttribute('onclick', 'priorityBackToSummary()'));
+  body.querySelectorAll('[onclick*="pqBackToList"], [onclick*="ujBackToList"]').forEach(button => {
+    const parent = button.parentElement;
+    if (parent && parent.childElementCount === 1 && !parent.id) parent.remove();
+    else button.remove();
+  });
   const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) walker.currentNode.nodeValue = walker.currentNode.nodeValue.replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '').replace(/\s{2,}/g, ' ');
   document.getElementById('priority-detail-title').textContent = candidate.clientName || label;
@@ -4355,6 +4359,7 @@ function priorityShowEmbeddedRecord(sourceId, candidate, label) {
   document.querySelectorAll('#priority-detail-modal .priority-detail-header .btn-secondary').forEach(button => {
     button.textContent = 'Back to follow-up';
     button.onclick = priorityBackToSummary;
+    button.style.display = '';
   });
   const footer = document.querySelector('#priority-detail-modal .priority-detail-footer');
   if (footer) footer.style.display = 'none';
@@ -4653,7 +4658,7 @@ async function fetchFollowUpPriorityCandidates() {
     fetch(`${SUPABASE_URL}/rest/v1/record_notes?deleted_at=is.null&record_type=in.(quote,job,calendar_event)&select=record_type,record_id,body,author_name,created_at,outcome_code,next_contact_date,action_result&order=created_at.desc`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/quote_follow_up_deliveries?select=id,quote_id,sequence_number,channel,status,sent_at,error,created_at&order=created_at.desc`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/quote_responses?select=id,quote_id,response_type,reason,notes,preferred_timeframe,preferred_dates,contact_again_at,created_at&order=created_at.desc`, { headers }),
-    fetch(`${SUPABASE_URL}/rest/v1/clients?select=id,name,phone,email`, { headers })
+    fetch(`${SUPABASE_URL}/rest/v1/clients?select=id,name,phone,email,address,suburb`, { headers })
   ]);
   if (!quoteResponse.ok || !jobResponse.ok || !noteResponse.ok || !deliveryResponse.ok || !responseResponse.ok || !clientResponse.ok) throw new Error('Could not load the complete follow-up data set.');
   const [quotes, jobs, notes, deliveries, quoteResponses, clients] = await Promise.all([
@@ -4690,7 +4695,7 @@ async function fetchFollowUpPriorityCandidates() {
       nextFollowUpAt:quote.next_follow_up_at, sentAt:quote.sent_at, deliveryStatus:quote.delivery_status, deliveryChannel:quote.delivery_channel,
       followUpEnabled:quote.follow_up_enabled !== false, followUpPausedUntil:quote.follow_up_paused_until,
       manualFollowUpAt:quote.manual_follow_up_at,
-      phone:client.phone || '', email:client.email || '',
+      phone:client.phone || '', email:client.email || '', address:[client.address, client.suburb].filter(Boolean).join(', '),
       lastFollowUpAt:quote.last_follow_up_at, followUpCount:Number(quote.follow_up_count) || 0
     };
   });
@@ -4744,14 +4749,11 @@ function renderAiFollowUpPriorities(candidates, analysis) {
   const upcomingRows = quoteRows.filter(row => row.timingBand !== 'not_scheduled' && !dueRows.includes(row));
   const notScheduledRows = quoteRows.filter(row => row.timingBand === 'not_scheduled');
   const draftRows = rows.filter(row => row.kind === 'draft_quote');
-  const plainDraftRows = draftRows.filter(row => row.reasonCode === 'draft_no_action');
-  const draftReviewRows = draftRows.filter(row => row.reasonCode !== 'draft_no_action');
   const setSubCount = (id, value) => { const element = document.getElementById(id); if (element) element.textContent = value; };
   setSubCount('priority-sub-due-count', dueRows.length);
   setSubCount('priority-sub-upcoming-count', upcomingRows.length);
   setSubCount('priority-sub-not-scheduled-count', notScheduledRows.length);
-  setSubCount('priority-sub-draft-count', plainDraftRows.length);
-  setSubCount('priority-sub-draft-review-count', draftReviewRows.length);
+  setSubCount('priority-sub-draft-count', draftRows.length);
   if (!rows.length) {
     container.innerHTML = '<div class="empty-state"><div class="empty-state-title">Nothing needs following up</div><div class="empty-state-desc">No pending quotes or unscheduled jobs were found.</div></div>';
     return;
@@ -4763,7 +4765,7 @@ function renderAiFollowUpPriorities(candidates, analysis) {
       <div class="priority-card-meta">${row.kind === 'pending_quote' ? `
         ${row.automationDate && row.automationStatus === 'sent' && !dueRows.includes(row) ? `<span>An automated text was sent on ${_escHtml(priorityCandidateDate(row.automationDate))}.</span>` : ''}
         <span>${row.manualReviewDate ? `Manual follow-up ${dueRows.includes(row) ? 'was due' : 'is due'} on ${_escHtml(priorityCandidateDate(row.manualReviewDate))}.` : 'Manual follow-up is not currently scheduled.'}</span>` :
-        `<span>${row.recommendedDate ? `Review ${_escHtml(priorityCandidateDate(row.recommendedDate))}` : row.kind === 'unscheduled_job' ? _escHtml(row.reason || 'Timing classified from internal communications') : 'No review scheduled'}</span>`}</div>
+        row.kind === 'unscheduled_job' ? `<span>${row.recommendedDate ? `Review ${_escHtml(priorityCandidateDate(row.recommendedDate))}` : _escHtml(row.reason || 'Timing classified from internal communications')}</span>` : ''}</div>
     </div>`;
   draftRows.sort((a, b) => {
     const order = { urgent:0, high:1, upcoming:2, low:3 };
@@ -4788,8 +4790,7 @@ function renderAiFollowUpPriorities(candidates, analysis) {
     due: ['Due for manual contact', 'Contact these customers and record the structured outcome.', dueRows, 'urgent'],
     upcoming: ['Upcoming', 'The automation has run or is scheduled. Wait until the manual follow-up date shown.', upcomingRows, 'upcoming'],
     not_scheduled: ['Not currently scheduled', 'These pending quotes do not currently have a manual follow-up date.', notScheduledRows, 'low'],
-    draft: ['Drafts', 'Draft quotes without a contact or completion commitment in their internal notes.', plainDraftRows, 'low'],
-    draft_review: ['Draft review', 'Draft quotes with missing information, promised contact, or another action to complete.', draftReviewRows, 'review']
+    draft: ['Drafts', 'All draft quotes, including those with internal notes or missing information.', draftRows, 'low']
   };
   const [quoteTitle, quoteHelp, selectedQuoteRows, quoteKey] = quoteViews[_priorityQuoteView] || quoteViews.due;
   const quoteHtml = section(quoteTitle, quoteHelp, selectedQuoteRows.sort((a,b) => String(a.recommendedDate || a.manualReviewDate || '').localeCompare(String(b.recommendedDate || b.manualReviewDate || ''))), quoteKey);
@@ -6157,7 +6158,7 @@ async function pqOpenDetail(quoteId) {
   });
   const pendingInclusions = pendingServices.flatMap(entry => entry.service?.inclusions || []);
   const pendingDisclaimers = pendingServices.flatMap(entry => serviceNotesAndDisclaimers(entry.serviceKey));
-  const pendingDisclaimerHtml = notesAndDisclaimersHtml(pendingServices.map(entry => ({serviceKey:entry.serviceKey,name:entry.name,result:{}})));
+  const pendingDisclaimerHtml = notesAndDisclaimersHtml(pendingServices.map(entry => ({serviceKey:entry.serviceKey,name:entry.name,result:{}})), false);
 
   // Closing script
   const locationLabel = (client && (client.suburb || client.address))
@@ -6176,20 +6177,18 @@ async function pqOpenDetail(quoteId) {
     </div>
 
     <!-- Client Contact -->
-    <div class="card" style="margin-bottom:16px;">
-      <div class="card-title" style="margin-bottom:12px;">👤 Client</div>
-      <div style="font-size:17px;font-weight:700;color:var(--text1);margin-bottom:6px;">${q.client || '—'}</div>
-      <div style="display:flex;flex-wrap:wrap;gap:10px;">
-        ${client && client.phone ? `<a href="tel:${client.phone}" style="display:inline-flex;align-items:center;gap:6px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;color:var(--ss-green);text-decoration:none;">📞 ${client.phone}</a>` : '<span style="font-size:13px;color:var(--text3);">No phone on file</span>'}
-        ${client && client.email ? `<span style="display:inline-flex;align-items:center;gap:6px;background:#f0f4ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 14px;font-size:13px;color:#1a56cc;">✉️ ${client.email}</span>` : ''}
-      </div>
-      ${client && (client.address || client.suburb) ? `<div style="font-size:12px;color:var(--text3);margin-top:8px;">📍 ${[client.address, client.suburb].filter(Boolean).join(', ')}</div>` : ''}
-    </div>
+    <section class="priority-contact-card">
+      <h4>Contact details</h4>
+      ${client && client.phone ? `<div><span>Phone</span><a href="tel:${_escHtml(String(client.phone).replace(/[^0-9+]/g, ''))}">${_escHtml(client.phone)}</a><button type="button" onclick="priorityCopyContact(decodeURIComponent('${encodeURIComponent(client.phone)}'))">Copy</button></div>` : ''}
+      ${client && client.email ? `<div><span>Email</span><a href="mailto:${_escHtml(client.email)}">${_escHtml(client.email)}</a><button type="button" onclick="priorityCopyContact(decodeURIComponent('${encodeURIComponent(client.email)}'))">Copy</button></div>` : ''}
+      ${client && (client.address || client.suburb) ? `<div><span>Address</span><strong>${_escHtml([client.address, client.suburb].filter(Boolean).join(', '))}</strong><button type="button" onclick="priorityCopyContact(decodeURIComponent('${encodeURIComponent([client.address, client.suburb].filter(Boolean).join(', '))}'))">Copy</button></div>` : ''}
+      ${!client || (!client.phone && !client.email && !client.address && !client.suburb) ? '<p>No contact details are recorded.</p>' : ''}
+    </section>
 
     <!-- Quote Summary -->
     <div class="card" style="margin-bottom:16px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <div class="card-title">📄 Quote #${q.id}</div>
+        <div class="card-title">Quote #${q.id}</div>
         <div style="font-size:11px;color:var(--text3);">${dateStr}</div>
       </div>
       ${lineItemsHtml}
@@ -6201,7 +6200,7 @@ async function pqOpenDetail(quoteId) {
 
     <!-- What's Included -->
     <details class="detail-accordion">
-      <summary>✅ What's Included</summary>
+      <summary>What's Included</summary>
       <div class="detail-accordion-content" style="font-size:13px;color:var(--text2);line-height:1.7;">
         ${serviceNames.map(sn => {
           // Fuzzy keyword match — handles typos, custom descriptions, and scope suffixes
@@ -6246,11 +6245,11 @@ async function pqOpenDetail(quoteId) {
       </div>
     </details>
 
-    ${pendingDisclaimerHtml ? `<details class="detail-accordion"><summary>⚠️ Notes &amp; Disclaimers — Explain to Client</summary><div class="detail-accordion-content">${pendingDisclaimerHtml}</div></details>` : ''}
+    ${pendingDisclaimerHtml ? `<details class="detail-accordion"><summary>Notes &amp; Disclaimers - Explain to Client</summary><div class="detail-accordion-content">${pendingDisclaimerHtml}</div></details>` : ''}
 
     <!-- Closing Script -->
     <details class="detail-accordion detail-accordion--green">
-      <summary>✨ AI Closing Script</summary>
+      <summary>AI Closing Script</summary>
       <div class="detail-accordion-content">
         <div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><button onclick="generateAiClosingScript('pq-closing-script')" style="border:1px solid #86efac;background:#fff;color:var(--ss-green);border-radius:7px;padding:5px 8px;font-size:11px;font-weight:700;cursor:pointer;">Regenerate</button></div>
         <div class="question-script" id="pq-closing-script" style="margin:0;font-size:13px;">Generating a personalised closing script…</div>
@@ -6260,7 +6259,7 @@ async function pqOpenDetail(quoteId) {
 
     <!-- Notes -->
     <details class="detail-accordion">
-      <summary>🗒 Internal Communications</summary>
+      <summary>Internal Communications</summary>
       <div class="detail-accordion-content">
         <div id="pq-note-timeline"><div style="font-size:12px;color:var(--text3);padding-bottom:10px;">Loading note history…</div></div>
         <label class="form-label" for="pq-new-note">New note entry</label>
@@ -6273,11 +6272,10 @@ async function pqOpenDetail(quoteId) {
     </details>
 
     <!-- Action Buttons -->
-    <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;padding-bottom:40px;">
-      <button onclick="pqAcceptAndBook()" style="width:100%;background:var(--ss-green);color:#fff;border:none;border-radius:12px;padding:16px;font-size:15px;font-weight:800;cursor:pointer;">✅ Quote Accepted — Book the Job</button>
-      <button onclick="pqRejectQuote()" style="width:100%;background:#c62828;color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:700;cursor:pointer;">✗ Reject Quote</button>
-      <button onclick="pqEmailQuote()" style="width:100%;background:#0078d4;color:#fff;border:none;border-radius:12px;padding:14px;font-size:14px;font-weight:700;cursor:pointer;">📧 Resend Quote Email + PDF</button>
-      <button onclick="pqAddFollowUp()" style="width:100%;background:#fff;border:1px solid var(--border);color:var(--text1);border-radius:12px;padding:14px;font-size:14px;font-weight:600;cursor:pointer;">🔔 Add Follow-up</button>
+    <div class="quote-actions pq-action-row">
+      <button class="btn-primary" onclick="pqAcceptAndBook()">Quote Accepted - Book Job</button>
+      <button class="btn-secondary pq-action-danger" onclick="pqRejectQuote()">Reject Quote</button>
+      <button class="btn-secondary" onclick="pqEmailQuote()">Resend Quote Email + PDF</button>
     </div>
   `;
   generateAiClosingScript('pq-closing-script', {
