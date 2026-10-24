@@ -648,6 +648,11 @@
   .priority-page-tab { background: transparent; border: 0; border-bottom: 3px solid transparent; color: var(--text3); cursor: pointer; font: inherit; font-size: 13px; font-weight: 800; margin-bottom: -1px; padding: 11px 14px; }
   .priority-page-tab.active { border-bottom-color: var(--ss-green); color: var(--text1); }
   .priority-page-tab span { background: var(--surface2); border-radius: 999px; color: var(--text3); font-size: 10px; margin-left: 5px; padding: 3px 7px; }
+  .priority-sub-tabs { display: flex; flex-wrap: wrap; gap: 7px; margin: -10px 0 22px; }
+  .priority-sub-tab { background: #fff; border: 1px solid var(--border); border-radius: 999px; color: var(--text2); cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; padding: 8px 12px; }
+  .priority-sub-tab:hover { border-color: var(--border2); color: var(--text1); }
+  .priority-sub-tab.active { background: var(--text1); border-color: var(--text1); color: #fff; }
+  .priority-sub-tab span { font-size: 10px; margin-left: 4px; opacity: .75; }
 
   .priority-stat {
     background: #fff;
@@ -691,12 +696,13 @@
 
   .priority-card-reason { color: var(--text2); font-size: 12px; line-height: 1.5; margin-top: 8px; }
   .priority-card-action { background: #f0fdf4; border-radius: 7px; color: #166534; font-size: 12px; font-weight: 700; line-height: 1.45; margin-top: 9px; padding: 8px 10px; }
+  .priority-card-service { color: var(--text2); font-size: 12px; margin-top: 4px; }
   .priority-card-meta { color: var(--text3); display: flex; flex-wrap: wrap; font-size: 11px; gap: 5px 12px; margin-top: 7px; }
 
   #priority-detail-modal { align-items: stretch; background: var(--surface2); padding: 0; }
   #priority-detail-modal .priority-detail-modal { border: 0; border-radius: 0; box-sizing: border-box; height: 100dvh; margin: 0; max-height: none; max-width: none; overflow-y: auto; padding: 28px max(28px, calc((100vw - 1100px) / 2)); width: 100% !important; }
   .priority-detail-header { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; }
-  .priority-detail-service { color: var(--ss-green); font-size: 13px; font-weight: 700; margin-top: 4px; }
+  .priority-detail-service { color: var(--text2); font-size: 13px; font-weight: 700; margin-top: 4px; }
   .priority-detail-close { background: transparent; border: 0; color: var(--text3); cursor: pointer; font-size: 28px; line-height: 1; padding: 0 2px; }
   .priority-detail-badges { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 14px; }
   .priority-detail-level { border-radius: 999px; font-size: 10px; font-weight: 800; padding: 4px 9px; text-transform: capitalize; }
