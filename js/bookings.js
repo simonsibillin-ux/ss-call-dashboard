@@ -1,6 +1,7 @@
 /* Booking operations use the same authenticated staff session as the dashboard. */
 let bookingData={visits:[],recurring:[],jobs:[],clients:[],events:[],notes:[]};
 let bookingDialogReturnFocus=null, bookingBodyOverflow='';
+let bookingCategory='month';
 let bookingView='recurring', bookingQueue='needs', bookingMonth=BookingRules.today().slice(0,7), bookingSelected=null, bookingLoading=0, bookingBusy=false;
 const bookingEscape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const bookingArg=value=>bookingEscape(JSON.stringify(String(value)));
@@ -82,10 +83,12 @@ function renderBookingWorkspace() {
   const root=document.getElementById('page-unscheduled');
   const all=bookingData.visits.filter(bookingRelevant), legacy=bookingLegacyEvents(), day=BookingRules.today();
   const records=all.filter(v=>bookingView==='new'?v.work_type==='new':bookingView==='recurring'?v.work_type==='recurring':true);
-  const inMonth=v=>bookingMonth==='overdue'?v.due_month&&v.due_month<day.slice(0,7)+'-01'&&v.status!=='confirmed':!v.due_month||v.due_month.slice(0,7)===bookingMonth;
-  const monthRecords=records.filter(inMonth), confirmed=monthRecords.filter(v=>v.status==='confirmed').length;
+  const monthRecords=records.filter(v=>BookingRules.category(v,day)==='month'&&(bookingMonth==='overdue'?v.due_month<day.slice(0,7)+'-01':v.due_month.slice(0,7)===bookingMonth));
+  const confirmed=monthRecords.filter(v=>v.status==='confirmed').length;
+  const needs=monthRecords.length-confirmed;
+  const holdCount=records.filter(v=>BookingRules.category(v,day)==='hold').length;
+  const unscheduledCount=records.filter(v=>BookingRules.category(v,day)==='unscheduled').length;
   const legacyMonth=legacy.filter(e=>(e.start?.date||e.start?.dateTime||'').slice(0,7)===bookingMonth);
-  const needs=monthRecords.filter(v=>!['confirmed','skipped','stopped'].includes(v.status)).length;
   const tab=(value,label,count)=>`<button class="priority-page-tab ${bookingView===value?'active':''}" onclick="bookingView='${value}';bookingQueue='needs';renderBookingWorkspace()">${label}${count===undefined?'':` <span>${count}</span>`}</button>`;
   root.innerHTML=`<div class="booking-heading"><div class="page-title">Bookings</div><button class="btn-secondary" onclick="loadBookingWorkspace()">Refresh</button></div>
     <div class="priority-page-tabs">${tab('recurring','Recurring bookings')}${tab('new','Unscheduled jobs')}${tab('legacy','Calendar review',legacy.length)}</div>
@@ -97,9 +100,12 @@ function renderBookingWorkspace() {
     return;
   }
   const current=day.slice(0,7), next=BookingRules.addDays(current+'-01',32).slice(0,7);
-  content.innerHTML=`<div class="booking-toolbar"><button class="btn-secondary ${bookingMonth===current?'selected':''}" onclick="bookingMonth='${current}';renderBookingWorkspace()">This month</button><button class="btn-secondary ${bookingMonth===next?'selected':''}" onclick="bookingMonth='${next}';renderBookingWorkspace()">Next month</button><button class="btn-secondary ${bookingMonth==='overdue'?'selected':''}" onclick="bookingMonth='overdue';renderBookingWorkspace()">Overdue <span>${records.filter(v=>v.due_month&&v.due_month<current+'-01'&&!['confirmed','skipped','stopped'].includes(v.status)).length}</span></button><input type="month" aria-label="Service month" class="form-input" value="${bookingMonth==='overdue'?'':bookingMonth}" onchange="bookingMonth=this.value;renderBookingWorkspace()"><input type="search" id="booking-search" aria-label="Search bookings" class="form-input" placeholder="Search customer, service or suburb" oninput="bookingRenderCards()"></div>
-    <div class="booking-summary">${bookingMonth==='overdue'?'Overdue':bookingMonthLabel(bookingMonth)} <span>${needs} need booking \u00b7 ${confirmed} confirmed</span></div>
-    <div class="priority-sub-tabs">${[['needs','Needs booking'],['confirmed','Confirmed'],['hold','On hold'],['setup','Needs setup']].map(([key,label])=>`<button class="priority-sub-tab ${bookingQueue===key?'active':''}" onclick="bookingQueue='${key}';renderBookingWorkspace()">${label}</button>`).join('')}</div>${bookingView==='recurring'&&legacyMonth.length?`<button class="booking-review-link" onclick="bookingView='legacy';renderBookingWorkspace()">${legacyMonth.length} calendar series for this month need CRM review <span aria-hidden="true">&rarr;</span></button>`:''}<div id="booking-cards"></div>`;
+  const monthButton=(month,label,count='')=>`<button class="btn-secondary ${bookingCategory==='month'&&bookingMonth===month?'selected':''}" onclick="bookingCategory='month';bookingMonth='${month}';renderBookingWorkspace()">${label}${count!==''?` <span>${count}</span>`:''}</button>`;
+  content.innerHTML=`<div class="booking-toolbar">${monthButton(current,'This month')}${monthButton(next,'Next month')}${monthButton('overdue','Overdue',records.filter(v=>BookingRules.inView(v,'month','overdue','needs',day)).length)}<span class="booking-category-divider" aria-hidden="true"></span><button class="btn-secondary ${bookingCategory==='hold'?'selected':''}" onclick="bookingCategory='hold';renderBookingWorkspace()">On hold <span>${holdCount}</span></button><button class="btn-secondary ${bookingCategory==='unscheduled'?'selected':''}" onclick="bookingCategory='unscheduled';renderBookingWorkspace()">Not scheduled <span>${unscheduledCount}</span></button></div>
+    <div class="booking-toolbar booking-search-toolbar">${bookingCategory==='month'?`<input type="month" aria-label="Service month" class="form-input" value="${bookingMonth==='overdue'?'':bookingMonth}" onchange="if(this.value){bookingMonth=this.value;renderBookingWorkspace()}">`:''}<input type="search" id="booking-search" aria-label="Search bookings" class="form-input" placeholder="Search customer, service or suburb" oninput="bookingRenderCards()"></div>
+    <div class="booking-summary">${bookingCategory==='hold'?`On hold <span>${holdCount} ${holdCount===1?'record':'records'}</span>`:bookingCategory==='unscheduled'?`Not scheduled <span>${unscheduledCount} ${unscheduledCount===1?'record':'records'}</span>`:`${bookingMonth==='overdue'?'Overdue':bookingMonthLabel(bookingMonth)} <span>${needs} need booking &middot; ${confirmed} confirmed</span>`}</div>
+    ${bookingCategory==='month'?`<div class="priority-sub-tabs">${[['needs','Needs booking'],['confirmed','Confirmed']].map(([key,label])=>`<button class="priority-sub-tab ${bookingQueue===key?'active':''}" onclick="bookingQueue='${key}';renderBookingWorkspace()">${label}</button>`).join('')}</div>`:''}${bookingCategory==='month'&&bookingView==='recurring'&&legacyMonth.length?`<button class="booking-review-link" onclick="bookingView='legacy';renderBookingWorkspace()">${legacyMonth.length} calendar series for this month need CRM review <span aria-hidden="true">&rarr;</span></button>`:''}<div id="booking-cards"></div>`;
+
   bookingRenderCards();
 }
 function bookingRenderCards() {
@@ -107,21 +113,10 @@ function bookingRenderCards() {
   const query=(document.getElementById('booking-search')?.value||'').toLowerCase(),day=BookingRules.today();
   let records=bookingData.visits.filter(bookingRelevant).filter(v=>bookingView==='new'?v.work_type==='new':v.work_type==='recurring');
   records=records.filter(v=>[bookingTitle(v),bookingService(v),bookingClient(v)?.suburb].join(' ').toLowerCase().includes(query));
-  // Urgent work and missing setup remain visible across month filters.
-  records=records.filter(v=>{
-    const q=BookingRules.queue(v,day);
-    if(bookingQueue==='setup')return q==='setup';
-    if(bookingQueue==='hold')return q==='hold';
-    if(bookingQueue==='confirmed')return v.status==='confirmed'&&(bookingMonth==='overdue'?v.due_month<day.slice(0,7)+'-01':v.due_month?.slice(0,7)===bookingMonth);
-    return !['hold','setup','confirmed'].includes(q)&&(q==='immediate'||(bookingMonth==='overdue'?v.due_month<day.slice(0,7)+'-01':v.due_month?.slice(0,7)===bookingMonth));
-  }).sort(BookingRules.sort);
-  const sections=bookingQueue==='needs'?[['immediate','Immediate action'],['due','Due / overdue'],['upcoming','Upcoming']]:[[bookingQueue,bookingQueue==='confirmed'?'Confirmed':bookingQueue==='hold'?'On hold':'Needs setup']];
-  holder.innerHTML=sections.map(([key,label])=>{
-    const rows=bookingQueue==='needs'?records.filter(v=>BookingRules.queue(v,day)===key):records;
-    if(!rows.length)return '';
-    return `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">${label}</div><span class="priority-group-count">${rows.length}</span></div><div class="booking-cards">${rows.map(bookingCard).join('')}</div></section>`;
-  }).join('')||'<div class="empty-state">No bookings in this view.</div>';
+  records=records.filter(v=>BookingRules.inView(v,bookingCategory,bookingMonth,bookingQueue,day)).sort(BookingRules.sort);
+  holder.innerHTML=records.length?`<div class="booking-cards">${records.map(bookingCard).join('')}</div>`:'<div class="empty-state">No bookings in this view.</div>';
 }
+
 function bookingLocation(v) {
   const c=bookingClient(v);
   return c?.suburb||c?.address||'Location not recorded';

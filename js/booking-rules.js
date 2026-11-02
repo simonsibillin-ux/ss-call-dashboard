@@ -22,7 +22,18 @@
     if(v.due_month>day.slice(0,7)+'-01'&&!v.next_contact_date) return 'upcoming';
     return 'due';
   }
+  function category(v,day=today()) {
+    if(queue(v,day)==='hold')return 'hold';
+    if(!v.due_month||v.work_type==='legacy')return 'unscheduled';
+    return 'month';
+  }
+  function inView(v,view,month,status='needs',day=today()) {
+    if(category(v,day)!==view)return false;
+    if(view!=='month')return true;
+    if(month==='overdue' ? v.due_month>=day.slice(0,7)+'-01' : v.due_month.slice(0,7)!==month)return false;
+    return status==='confirmed'?v.status==='confirmed':v.status!=='confirmed';
+  }
   function sort(a,b) { return Number(Boolean(b.high_priority))-Number(Boolean(a.high_priority))||Number(b.work_type==='recurring')-Number(a.work_type==='recurring')||String(a.next_contact_date||a.due_month||'9999').localeCompare(String(b.next_contact_date||b.due_month||'9999'))||String(a.id).localeCompare(String(b.id)); }
-  const api={attempts,labels,today,addDays,businessDate,outcome,queue,sort};
+  const api={attempts,labels,today,addDays,businessDate,outcome,queue,category,inView,sort};
   if(typeof module!=='undefined') module.exports=api; else root.BookingRules=api;
 })(typeof window==='undefined'?globalThis:window);
