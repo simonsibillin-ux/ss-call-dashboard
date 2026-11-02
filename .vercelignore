@@ -1,0 +1,9 @@
+.env*
+.git/
+backups/
+tests/
+supabase/
+ss-exterior-crm/
+index_backup_pre_phase4.html
+index_broken_phase4.html
+README.md

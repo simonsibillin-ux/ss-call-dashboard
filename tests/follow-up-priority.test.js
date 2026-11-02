@@ -90,3 +90,19 @@ test('daily queue helper remains bounded for legacy callers', () => {
   const rows = _test.assignDailyQueue(Array.from({ length:13 }, (_, index) => ({ id:String(index), priority:index < 2 ? 'urgent' : 'high', recommendedDate:'2026-09-26', opportunityScore:13-index })));
   assert.equal(rows.filter(row => row.inDailyQueue).length, 10);
 });
+test('manual date survives failed delivery and paused automation',()=>{
+ const result=_test.baseline(quote({deliveryStatus:'failed',followUpEnabled:false,manualFollowUpAt:'2026-09-28T00:00:00Z'}),now);
+ assert.equal(result.manualReviewDate,'2026-09-28');assert.equal(result.reasonCode,'manual_follow_up_scheduled');
+});
+test('unhandled call request bypasses paused automation and newer deliveries',()=>{
+ const result=_test.baseline(quote({followUpEnabled:false,deliveryEntries:[{sentAt:'2026-09-26T01:00:00Z',status:'sent'}],responseEntries:[{createdAt:'2026-09-25T01:00:00Z',responseType:'call_request'}]}),now);
+ assert.equal(result.reasonCode,'portal_call_request');
+});
+test('explicitly handled call request does not reappear',()=>{
+ const result=_test.baseline(quote({followUpEnabled:false,responseEntries:[{createdAt:'2026-09-25T01:00:00Z',responseType:'call_request',handledAt:'2026-09-26T01:00:00Z'}]}),now);
+ assert.equal(result.reasonCode,'follow_up_disabled');
+});
+test('ready to book is immediate; customer waiting remains unscheduled',()=>{
+ assert.equal(_test.baseline(quote({followUpEnabled:false,manualFollowUpState:'ready_to_book'}),now).reasonCode,'ready_to_book');
+ assert.equal(_test.baseline(quote({manualFollowUpState:'waiting'}),now).reasonCode,'manual_waiting');
+});

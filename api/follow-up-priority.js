@@ -4,7 +4,7 @@ const BATCH_SIZE = 12;
 const DAILY_QUEUE_LIMIT = 10;
 const rateLimit = new Map();
 
-const CONTACT_ATTEMPT_OUTCOMES = new Set(['voicemail_left', 'sms_sent', 'email_sent', 'no_answer']);
+const CONTACT_ATTEMPT_OUTCOMES = new Set(['voicemail_left', 'sms_sent', 'email_sent', 'messenger_sent', 'no_answer']);
 const OUTCOME_LABELS = {
   voicemail_left:'the voicemail', sms_sent:'the SMS', email_sent:'the email', no_answer:'the unanswered call',
   spoke_thinking:'the customer is still deciding', ready_to_book:'the customer is ready to book',
@@ -300,11 +300,23 @@ function pendingQuoteBaseline(item, now, signals) {
   const base = { score:45 + valueScore, opportunityScore:45 + valueScore, attemptCount:Number(item.followUpCount) || 0,
     outcomeCode:'', noteExcerpt:'', effectiveActivityAt:latestDeliveryAt?.toISOString() || '' };
 
-  if (item.followUpEnabled === false) return { ...base, priority:'low', timingBand:'not_scheduled', reasonCode:'follow_up_disabled', recommendedDate:'',
-    automationStatus:'paused', manualStatus:'paused', reason:'Automatic and manual quote follow-ups are paused.', recommendedAction:'No quote follow-up will become due until the cycle is resumed.' };
+  const unresolved = responses.find(row => !row.handledAt && ['call_request','correction'].includes(row.responseType));
+  if (unresolved) return { ...base, priority:'urgent', timingBand:'this_week', reasonCode:`portal_${unresolved.responseType}`, recommendedDate:today,
+    reason:unresolved.responseType === 'call_request' ? 'Customer requested a call.' : 'Customer requested a quote correction.',
+    recommendedAction:unresolved.responseType === 'call_request' ? 'Call the customer.' : 'Review the requested correction.' };
+  if (item.manualFollowUpState === 'ready_to_book') return {...base,priority:'urgent',timingBand:'this_week',reasonCode:'ready_to_book',recommendedDate:today,recommendedAction:'Arrange the booking.'};
+  if (['waiting','owner','stopped'].includes(item.manualFollowUpState)) return {...base,priority:'low',timingBand:'not_scheduled',reasonCode:`manual_${item.manualFollowUpState}`,recommendedDate:'',manualStatus:item.manualFollowUpState};
+  const explicitManual = validDate(item.manualFollowUpAt);
+  if (explicitManual) {
+    const manualReviewAt=explicitManual.toISOString(), manualReviewDate=localIso(explicitManual), timingBand=quoteTimingBand(today,manualReviewDate);
+    return {...base,priority:explicitManual<=now?'urgent':'upcoming',timingBand,reasonCode:explicitManual<=now?'manual_follow_up_due':'manual_follow_up_scheduled',recommendedDate:manualReviewDate,manualReviewAt,manualReviewDate,
+      automationStatus:item.followUpEnabled===false||item.manualOnly?'paused':'scheduled',automationAt:item.followUpEnabled!==false&&!item.manualOnly?item.nextFollowUpAt||'':'',recommendedAction:'Follow up on the recorded date.'};
+  }
+  if (item.followUpEnabled === false || item.manualOnly) return { ...base, priority:'low', timingBand:'not_scheduled', reasonCode:'follow_up_disabled', recommendedDate:'',
+    automationStatus:'paused', manualStatus:'paused', reason:'No manual follow-up is scheduled.', recommendedAction:'Record contact or choose a manual date.' };
 
   if (latestResponseAt && (!latestDeliveryAt || latestResponseAt > latestDeliveryAt)) {
-    if (['call_request', 'correction'].includes(latestResponse.responseType)) return { ...base, priority:'urgent', timingBand:'this_week', reasonCode:`portal_${latestResponse.responseType}`, recommendedDate:today,
+    if (!latestResponse.handledAt && ['call_request', 'correction'].includes(latestResponse.responseType)) return { ...base, priority:'urgent', timingBand:'this_week', reasonCode:`portal_${latestResponse.responseType}`, recommendedDate:today,
       reason:latestResponse.responseType === 'call_request' ? 'The customer requested a call through the quote portal.' : 'The customer requested a quote correction through the portal.',
       recommendedAction:latestResponse.responseType === 'call_request' ? 'Call the customer and record the outcome.' : 'Review the requested change, update the quote, and contact the customer.' };
     if (latestResponse.responseType === 'more_time') {
@@ -547,60 +559,22 @@ module.exports = async function handler(req, res) {
     total:Number(raw.total) || 0, createdAt:clean(raw.createdAt, 80), recordDate:clean(raw.recordDate, 80), latestActivityAt:clean(raw.latestActivityAt, 80),
     legacyNotes:clean(raw.legacyNotes, 2400), nextFollowUpAt:clean(raw.nextFollowUpAt, 80), lastFollowUpAt:clean(raw.lastFollowUpAt, 80),
     sentAt:clean(raw.sentAt, 80), deliveryStatus:clean(raw.deliveryStatus, 40), deliveryChannel:clean(raw.deliveryChannel, 30),
-    followUpEnabled:raw.followUpEnabled !== false, followUpCount:Number(raw.followUpCount) || 0,
+    manualOnly:raw.manualOnly === true, manualFollowUpState:clean(raw.manualFollowUpState,40), followUpEnabled:raw.followUpEnabled !== false, followUpCount:Number(raw.followUpCount) || 0,
     manualFollowUpAt:clean(raw.manualFollowUpAt, 80),
     deliveryEntries:Array.isArray(raw.deliveryEntries) ? raw.deliveryEntries.slice(0, 20).map(row => ({
       sentAt:clean(row.sentAt, 80), createdAt:clean(row.createdAt, 80), status:clean(row.status, 30),
       channel:clean(row.channel, 30), sequenceNumber:Number(row.sequenceNumber) || 0
     })) : [],
     responseEntries:Array.isArray(raw.responseEntries) ? raw.responseEntries.slice(0, 20).map(row => ({
-      responseType:clean(row.response_type || row.responseType, 40), reason:clean(row.reason, 240),
+      handledAt:clean(row.handled_at || row.handledAt,80), responseType:clean(row.response_type || row.responseType, 40), reason:clean(row.reason, 240),
       contactAgainAt:clean(row.contact_again_at || row.contactAgainAt, 80), createdAt:clean(row.created_at || row.createdAt, 80)
     })) : [],
     noteEntries:Array.isArray(raw.noteEntries) ? raw.noteEntries.slice(0, 20).map(note => ({ at:clean(note.at, 80), body:clean(note.body, 900), author:clean(note.author, 100),
       outcomeCode:clean(note.outcomeCode, 40), nextContactDate:clean(note.nextContactDate, 20) })) : []
   })).filter(item => item.id && item.clientName);
   const fallbacks = Object.fromEntries(items.map(item => [item.id, baseline(item, now)]));
-  const useAi = req.body?.useAi === true;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!items.length || !useAi || !apiKey) return res.status(200).json({ generatedAt:now.toISOString(), source:useAi ? 'note-aware rules' : 'workflow rules', dailyQueueLimit:DAILY_QUEUE_LIMIT, priorities:assignDailyQueue(items.map(item => mergedResult(item, fallbacks[item.id]))) });
-
-  // Quote views are entirely rule-driven. AI runs lazily only when the user
-  // opens the unscheduled-jobs view, where interpreting internal prose helps.
-  const aiItems = items.filter(item => item.kind === 'unscheduled_job');
-  if (!aiItems.length) return res.status(200).json({ generatedAt:now.toISOString(), source:'workflow rules', dailyQueueLimit:DAILY_QUEUE_LIMIT,
-    priorities:assignDailyQueue(items.map(item => mergedResult(item, fallbacks[item.id]))) });
-  const batches = [];
-  for (let index = 0; index < aiItems.length; index += BATCH_SIZE) batches.push(aiItems.slice(index, index + BATCH_SIZE));
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const settled = await Promise.allSettled(batches.map(batch => analyseBatch(batch, fallbacks, apiKey, now, controller.signal)));
-    const retryIndexes = settled.map((result, index) => result.status === 'rejected' ? index : -1).filter(index => index >= 0);
-    if (retryIndexes.length && !controller.signal.aborted) {
-      const retries = await Promise.allSettled(retryIndexes.map(index => analyseBatch(batches[index], fallbacks, apiKey, now, controller.signal)));
-      retries.forEach((result, retryIndex) => { if (result.status === 'fulfilled') settled[retryIndexes[retryIndex]] = result; });
-    }
-    const aiById = new Map();
-    let successfulBatches = 0;
-    settled.forEach(result => {
-      if (result.status === 'fulfilled') { successfulBatches++; result.value.forEach(row => aiById.set(String(row.id), row)); }
-    });
-    const source = successfulBatches === batches.length ? 'ai' : successfulBatches ? 'hybrid' : 'note-aware rules';
-    const failedCount = batches.length - successfulBatches;
-    const warning = failedCount ? `${failedCount} AI batch${failedCount === 1 ? '' : 'es'} used note-aware fallback.` : undefined;
-    const priorities = assignDailyQueue(items.map(item => mergedResult(item, fallbacks[item.id], aiById.get(item.id))));
-    const priorityCounts = priorities.reduce((counts, row) => ({ ...counts, [row.priority]:(counts[row.priority] || 0) + 1 }), {});
-    const reasonCounts = priorities.reduce((counts, row) => ({ ...counts, [row.reasonCode]:(counts[row.reasonCode] || 0) + 1 }), {});
-    const priorityConflicts = priorities.filter(row => row.priorityConflict).length;
-    console.log(JSON.stringify({ level:'info', route:'/api/follow-up-priority', items:items.length, batches:batches.length, successfulBatches, source, priorityCounts, reasonCounts, priorityConflicts, ms:Date.now() - startedAt }));
-    return res.status(200).json({ generatedAt:now.toISOString(), source, warning, dailyQueueLimit:DAILY_QUEUE_LIMIT, priorities });
-  } catch (error) {
-    console.error(JSON.stringify({ level:'error', route:'/api/follow-up-priority', error:error.message, items:items.length, ms:Date.now() - startedAt }));
-    return res.status(200).json({ generatedAt:now.toISOString(), source:'note-aware rules', warning:'AI analysis was unavailable; note-aware priorities are shown.', dailyQueueLimit:DAILY_QUEUE_LIMIT, priorities:assignDailyQueue(items.map(item => mergedResult(item, fallbacks[item.id]))) });
-  } finally {
-    clearTimeout(timeout);
-  }
+  return res.status(200).json({ generatedAt:now.toISOString(), source:'workflow rules', dailyQueueLimit:DAILY_QUEUE_LIMIT,
+    priorities:assignDailyQueue(items.map(item=>mergedResult(item,fallbacks[item.id]))) });
 };
 
 module.exports._test = { baseline, assignDailyQueue, addBusinessDays, noteSignals, mergedResult, deterministicTiming, effectiveAutomationTimestamp };
