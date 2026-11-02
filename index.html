@@ -904,52 +904,18 @@
   <div class="modal" style="width:380px;">
     <div id="rep-login-view">
       <div class="modal-title">Welcome Back</div>
-      <div class="modal-subtitle">Enter your PIN to start taking calls</div>
+      <div class="modal-subtitle">Sign in with your SS Exterior Services staff account</div>
       <div class="form-group">
-        <label class="form-label">Your PIN</label>
-        <input class="form-input" id="rep-pin-input" type="password" maxlength="4" placeholder="4-digit PIN" onkeydown="if(event.key==='Enter')loginWithPin()">
+        <label class="form-label">Email</label>
+        <input class="form-input" id="staff-email-input" type="email" autocomplete="username" placeholder="you@example.com">
       </div>
-      <div id="pin-error" class="alert alert-danger" style="display:none;margin-top:8px;">Incorrect PIN. Try again.</div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input class="form-input" id="staff-password-input" type="password" autocomplete="current-password" placeholder="Password" onkeydown="if(event.key==='Enter')loginWithStaffAccount()">
+      </div>
+      <div id="staff-login-error" class="alert alert-danger" style="display:none;margin-top:8px;"></div>
       <div class="modal-actions">
-        <button class="btn-primary" onclick="loginWithPin()">Login</button>
-        <button class="btn-secondary" onclick="showRegisterView()">New Rep? Register</button>
-      </div>
-      <div style="margin-top:12px;text-align:center;">
-        <span style="font-size:12px;color:var(--text3);cursor:pointer;" onclick="showOwnerLogin()">Owner login →</span>
-      </div>
-    </div>
-    <div id="rep-register-view" style="display:none;">
-      <div class="modal-title">Register as Rep</div>
-      <div class="modal-subtitle">Set up your profile to start taking calls</div>
-      <div class="form-group">
-        <label class="form-label">Your Name</label>
-        <input class="form-input" id="reg-name-input" placeholder="e.g. Sarah">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Choose a 4-digit PIN</label>
-        <input class="form-input" id="reg-pin-input" type="password" maxlength="4" placeholder="e.g. 1234">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Confirm PIN</label>
-        <input class="form-input" id="reg-pin-confirm" type="password" maxlength="4" placeholder="Repeat PIN">
-      </div>
-      <div id="reg-error" class="alert alert-danger" style="display:none;margin-top:8px;"></div>
-      <div class="modal-actions">
-        <button class="btn-primary" onclick="registerRep()">Create Profile</button>
-        <button class="btn-secondary" onclick="showLoginView()">Back to Login</button>
-      </div>
-    </div>
-    <div id="owner-login-view" style="display:none;">
-      <div class="modal-title">Owner Access</div>
-      <div class="modal-subtitle">Enter your owner PIN to view performance data</div>
-      <div class="form-group">
-        <label class="form-label">Owner PIN</label>
-        <input class="form-input" id="owner-pin-input" type="password" maxlength="6" placeholder="Owner PIN">
-      </div>
-      <div id="owner-error" class="alert alert-danger" style="display:none;margin-top:8px;">Incorrect PIN.</div>
-      <div class="modal-actions">
-        <button class="btn-primary" onclick="loginAsOwner()">Login as Owner</button>
-        <button class="btn-secondary" onclick="showLoginView()">Back</button>
+        <button class="btn-primary" id="staff-login-button" onclick="loginWithStaffAccount()">Sign In</button>
       </div>
     </div>
   </div>
@@ -989,7 +955,15 @@ function calculateQuoteTotals(items, travelCost = clientInfo.travelCost) {
   return { serviceSubtotal, travel, runningSubtotal, minimum, minimumAdjustment, total: runningSubtotal + minimumAdjustment };
 }
 let followUps = [];
-let currentRep = null; // { id, name, pin }
+let currentRep = null; // { id, name }
+let supabaseSession = null;
+let authRefreshTimer = null;
+let dashboardDataStarted = false;
+const AUTH_STORAGE_KEY = 'ss_call_dashboard_auth';
+
+function supabaseBearerToken() {
+  return supabaseSession?.access_token || SUPABASE_KEY;
+}
 
 function currentCallRepId() {
   const id = String(currentRep?.id || '');
@@ -1045,145 +1019,125 @@ let todoSyncTimer = null;
 // ============================================================
 // REP AUTH
 // ============================================================
-function initRep() {
-  // Try restore session from localStorage
-  const saved = localStorage.getItem('ss_rep_session');
-  if (saved) {
-    try {
-      const data = JSON.parse(saved);
-      if (data && data.id && data.name) {
-        currentRep = { id: data.id, name: data.name, ...(data.pin ? { pin: data.pin } : {}) };
-        isOwner = data.id === 'OWNER' || data.isOwner === true;
-        updateRepDisplay();
-        loadFollowUps();
-        document.getElementById('nav-performance').style.display = isOwner ? 'flex' : 'none';
-        renderPricingPage();
-        renderScriptsPage();
-        return;
-      }
-    } catch(e) {}
-    localStorage.removeItem('ss_rep_session');
+function persistSupabaseSession(session) {
+  supabaseSession = session;
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+  scheduleAuthRefresh();
+}
+
+function clearSupabaseSession() {
+  supabaseSession = null;
+  clearTimeout(authRefreshTimer);
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+  localStorage.removeItem('ss_rep_session');
+}
+
+function scheduleAuthRefresh() {
+  clearTimeout(authRefreshTimer);
+  if (!supabaseSession?.refresh_token) return;
+  const expiresAtMs = Number(supabaseSession.expires_at || 0) * 1000;
+  const delay = Math.max(30000, expiresAtMs - Date.now() - 120000);
+  authRefreshTimer = setTimeout(() => refreshSupabaseSession().catch(() => signOutStaff()), delay);
+}
+
+async function refreshSupabaseSession() {
+  if (!supabaseSession?.refresh_token) throw new Error('No refresh token');
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    method: 'POST',
+    headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: supabaseSession.refresh_token })
+  });
+  if (!response.ok) throw new Error('Session refresh failed');
+  persistSupabaseSession(await response.json());
+}
+
+async function loadStaffIdentity() {
+  const userResponse = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` }
+  });
+  if (!userResponse.ok) throw new Error('Session is no longer valid');
+  const user = await userResponse.json();
+  const profileResponse = await fetch(`${SUPABASE_URL}/rest/v1/staff_profiles?auth_user_id=eq.${encodeURIComponent(user.id)}&status=eq.active&select=display_name,role,call_rep_id&limit=1`, {
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` }
+  });
+  if (!profileResponse.ok) throw new Error('Staff profile could not be loaded');
+  const profile = (await profileResponse.json())[0];
+  if (!profile) throw new Error('No active staff profile is linked to this account');
+
+  if (profile.role === 'admin') {
+    currentRep = { id: 'OWNER', name: `${profile.display_name || 'Simon'} (Owner)` };
+    isOwner = true;
+  } else {
+    if (!profile.call_rep_id) throw new Error('This account is not linked to a Call Dashboard representative');
+    const repResponse = await fetch(`${SUPABASE_URL}/rest/v1/call_reps?id=eq.${encodeURIComponent(profile.call_rep_id)}&active=eq.true&select=id,name&limit=1`, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` }
+    });
+    if (!repResponse.ok) throw new Error('Linked representative could not be loaded');
+    const rep = (await repResponse.json())[0];
+    if (!rep) throw new Error('The linked representative is inactive or missing');
+    currentRep = rep;
+    isOwner = false;
   }
-  showRepModal();
+
+  localStorage.setItem('ss_rep_session', JSON.stringify({ id: currentRep.id, name: currentRep.name, isOwner }));
+  updateRepDisplay();
+  document.getElementById('nav-performance').style.display = isOwner ? 'flex' : 'none';
+  document.getElementById('rep-modal').classList.remove('open');
+  await startDashboardData();
+}
+
+async function initRep() {
+  localStorage.removeItem('ss_rep_session');
+  try {
+    const saved = JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) || 'null');
+    if (!saved?.access_token || !saved?.refresh_token) throw new Error('No saved session');
+    supabaseSession = saved;
+    if ((Number(saved.expires_at || 0) * 1000) < Date.now() + 60000) await refreshSupabaseSession();
+    else scheduleAuthRefresh();
+    await loadStaffIdentity();
+  } catch (error) {
+    clearSupabaseSession();
+    showRepModal();
+  }
 }
 
 function showRepModal() {
-  showLoginView();
+  const error = document.getElementById('staff-login-error');
+  error.style.display = 'none';
+  document.getElementById('staff-password-input').value = '';
   document.getElementById('rep-modal').classList.add('open');
 }
 
-function showLoginView() {
-  document.getElementById('rep-login-view').style.display = 'block';
-  document.getElementById('rep-register-view').style.display = 'none';
-  document.getElementById('owner-login-view').style.display = 'none';
-  document.getElementById('pin-error').style.display = 'none';
-  document.getElementById('rep-pin-input').value = '';
-}
-
-function showRegisterView() {
-  document.getElementById('rep-login-view').style.display = 'none';
-  document.getElementById('rep-register-view').style.display = 'block';
-  document.getElementById('owner-login-view').style.display = 'none';
-  document.getElementById('reg-error').style.display = 'none';
-  document.getElementById('reg-name-input').value = '';
-  document.getElementById('reg-pin-input').value = '';
-  document.getElementById('reg-pin-confirm').value = '';
-}
-
-function showOwnerLogin() {
-  document.getElementById('rep-login-view').style.display = 'none';
-  document.getElementById('rep-register-view').style.display = 'none';
-  document.getElementById('owner-login-view').style.display = 'block';
-  document.getElementById('owner-error').style.display = 'none';
-  document.getElementById('owner-pin-input').value = '';
-}
-
-async function loginWithPin() {
-  const pin = document.getElementById('rep-pin-input').value.trim();
-  if (!pin) return;
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/call_reps?pin=eq.${pin}&active=eq.true&select=id,name,pin`, {
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-    });
-    const reps = await res.json();
-    if (reps && reps.length > 0) {
-      currentRep = reps[0];
-      isOwner = false;
-      localStorage.setItem('ss_rep_session', JSON.stringify(currentRep));
-      document.getElementById('rep-modal').classList.remove('open');
-      updateRepDisplay();
-      loadFollowUps();
-      document.getElementById('nav-performance').style.display = 'none';
-      renderPricingPage();
-      renderScriptsPage();
-    } else {
-      document.getElementById('pin-error').style.display = 'block';
-    }
-  } catch(e) {
-    document.getElementById('pin-error').style.display = 'block';
+async function loginWithStaffAccount() {
+  const email = document.getElementById('staff-email-input').value.trim();
+  const password = document.getElementById('staff-password-input').value;
+  const error = document.getElementById('staff-login-error');
+  const button = document.getElementById('staff-login-button');
+  error.style.display = 'none';
+  if (!email || !password) {
+    error.textContent = 'Enter both your email and password.';
+    error.style.display = 'block';
+    return;
   }
-}
-
-async function registerRep() {
-  const name = document.getElementById('reg-name-input').value.trim();
-  const pin = document.getElementById('reg-pin-input').value.trim();
-  const confirm = document.getElementById('reg-pin-confirm').value.trim();
-  const errEl = document.getElementById('reg-error');
-  errEl.style.display = 'none';
-  if (!name) { errEl.textContent = 'Please enter your name.'; errEl.style.display = 'block'; return; }
-  if (pin.length !== 4 || !/^\d+$/.test(pin)) { errEl.textContent = 'PIN must be exactly 4 digits.'; errEl.style.display = 'block'; return; }
-  if (pin !== confirm) { errEl.textContent = 'PINs do not match.'; errEl.style.display = 'block'; return; }
+  button.disabled = true;
+  button.textContent = 'Signing in…';
   try {
-    // Check PIN not already taken
-    const check = await fetch(`${SUPABASE_URL}/rest/v1/call_reps?pin=eq.${pin}&select=id`, {
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-    });
-    const existing = await check.json();
-    if (existing && existing.length > 0) { errEl.textContent = 'That PIN is already taken. Choose another.'; errEl.style.display = 'block'; return; }
-    const id = 'REP-' + Date.now();
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/call_reps`, {
+    const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
       method: 'POST',
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=representation'
-      },
-      body: JSON.stringify({ id, name, pin, active: true })
+      headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
     });
-    if (res.ok) {
-      currentRep = { id, name, pin };
-      isOwner = false;
-      localStorage.setItem('ss_rep_session', JSON.stringify(currentRep));
-      document.getElementById('rep-modal').classList.remove('open');
-      updateRepDisplay();
-      loadFollowUps();
-      showToast('Profile created! Welcome, ' + name);
-      renderPricingPage();
-      renderScriptsPage();
-    } else {
-      errEl.textContent = 'Error creating profile. Try again.'; errEl.style.display = 'block';
-    }
-  } catch(e) {
-    errEl.textContent = 'Network error. Try again.'; errEl.style.display = 'block';
-  }
-}
-
-function loginAsOwner() {
-  const pin = document.getElementById('owner-pin-input').value.trim();
-  if (pin === OWNER_PIN) {
-    currentRep = { id: 'OWNER', name: 'Simon (Owner)', pin: OWNER_PIN };
-    isOwner = true;
-    // Persist the owner identity without retaining the owner PIN in browser storage.
-    localStorage.setItem('ss_rep_session', JSON.stringify({ id: 'OWNER', name: 'Simon (Owner)', isOwner: true }));
-    document.getElementById('rep-modal').classList.remove('open');
-    updateRepDisplay();
-    loadFollowUps();
-    document.getElementById('nav-performance').style.display = 'flex';
-    renderPricingPage();
-    renderScriptsPage();
-  } else {
-    document.getElementById('owner-error').style.display = 'block';
+    const result = await response.json();
+    if (!response.ok) throw new Error(result?.error_description || result?.msg || 'Sign-in failed');
+    persistSupabaseSession(result);
+    await loadStaffIdentity();
+  } catch (loginError) {
+    clearSupabaseSession();
+    error.textContent = loginError.message || 'Unable to sign in. Check your details and try again.';
+    error.style.display = 'block';
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Sign In';
   }
 }
 
@@ -1191,14 +1145,22 @@ function updateRepDisplay() {
   document.getElementById('rep-display').textContent = currentRep ? currentRep.name : 'Not set';
 }
 
-function changeRep() {
-  localStorage.removeItem('ss_rep_session');
+async function signOutStaff() {
+  if (supabaseSession?.access_token) {
+    await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseSession.access_token}` }
+    }).catch(() => {});
+  }
+  clearSupabaseSession();
   currentRep = null;
   isOwner = false;
   document.getElementById('nav-performance').style.display = 'none';
-  renderPricingPage();
-  renderScriptsPage();
-  showRepModal();
+  window.location.reload();
+}
+
+function changeRep() {
+  signOutStaff();
 }
 
 // ============================================================
@@ -1215,7 +1177,7 @@ async function loadPerformance() {
     if (from) url += `&created_at=gte.${from}T00:00:00`;
     if (to) url += `&created_at=lte.${to}T23:59:59`;
 
-    const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` };
+    const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` };
     const [res, repsRes, notesRes] = await Promise.all([
       fetch(url, { headers }),
       fetch(`${SUPABASE_URL}/rest/v1/call_reps?select=id,name`, { headers }),
@@ -1366,7 +1328,7 @@ function homeCard(id, count, detail, options = {}) {
 }
 
 function homeRest(path) {
-  return fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers:{ 'apikey':SUPABASE_KEY, 'Authorization':`Bearer ${SUPABASE_KEY}` } })
+  return fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers:{ 'apikey':SUPABASE_KEY, 'Authorization':`Bearer ${supabaseBearerToken()}` } })
     .then(async response => {
       if (!response.ok) throw new Error(await response.text() || `Request failed (${response.status})`);
       return response.json();
@@ -1516,7 +1478,7 @@ async function loadDashboardSettings() {
   } catch(e) {}
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/app_settings?key=eq.${SETTINGS_ROW_KEY}&select=value&limit=1`, {
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` }
     });
     if (res.ok) {
       const rows = await res.json();
@@ -1541,7 +1503,7 @@ async function saveDashboardSettings() {
       method: 'POST',
       headers: {
         'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Authorization': `Bearer ${supabaseBearerToken()}`,
         'Content-Type': 'application/json',
         'Prefer': 'resolution=merge-duplicates'
       },
@@ -1768,7 +1730,7 @@ async function loadCampaignOptions() {
   if (_campaignOptionsLoaded || _campaignOptionsLoading) return;
   _campaignOptionsLoading = true;
   try {
-    const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` };
+    const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` };
     const [clientsRes, bookingsRes] = await Promise.all([
       fetch(`${SUPABASE_URL}/rest/v1/clients?campaign_name=not.is.null&select=campaign_name,campaign_id`, { headers }),
       fetch(`${SUPABASE_URL}/rest/v1/bookings?campaign_name=not.is.null&select=campaign_name,campaign_id`, { headers })
@@ -1797,7 +1759,7 @@ async function loadClientAttributionDefault() {
   const phone = String(clientInfo.phone || '').trim();
   if (!phone || clientInfo.source) return;
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/clients?phone=eq.${encodeURIComponent(phone)}&select=source,campaign_name,campaign_id&limit=1`, { headers:{ 'apikey':SUPABASE_KEY, 'Authorization':`Bearer ${SUPABASE_KEY}` } });
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/clients?phone=eq.${encodeURIComponent(phone)}&select=source,campaign_name,campaign_id&limit=1`, { headers:{ 'apikey':SUPABASE_KEY, 'Authorization':`Bearer ${supabaseBearerToken()}` } });
     const rows = res.ok ? await res.json() : [];
     if (!rows[0]) return;
     const source = uiAttributionSource(rows[0].source);
@@ -2295,7 +2257,7 @@ async function ensureClientProfile() {
     campaign_name: clientInfo.campaignName || null,
     campaign_id: clientInfo.campaignId || null
   };
-  const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' };
+  const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json' };
   const existingRes = await fetch(
     `${SUPABASE_URL}/rest/v1/clients?phone=eq.${encodeURIComponent(phone)}&select=id&limit=1`,
     { headers }
@@ -2364,7 +2326,7 @@ async function saveQuoteToCRMWithOverride(total, serviceName, quoteItems, custom
       method: 'POST',
       headers: {
         'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Authorization': `Bearer ${supabaseBearerToken()}`,
         'Content-Type': 'application/json',
         'Prefer': 'return=representation'
       },
@@ -2863,7 +2825,7 @@ async function supabase(table, method, data) {
     method: method,
     headers: {
       'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Authorization': `Bearer ${supabaseBearerToken()}`,
       'Content-Type': 'application/json',
       'Prefer': 'return=representation'
     }
@@ -2906,7 +2868,7 @@ async function saveQuoteToCRM(total) {
       method: 'POST',
       headers: {
         'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Authorization': `Bearer ${supabaseBearerToken()}`,
         'Content-Type': 'application/json',
         'Prefer': 'return=representation'
       },
@@ -3095,7 +3057,7 @@ async function _doAcceptQuote(total) {
     // Save quote as accepted
     const acceptedQuoteRes = await fetch(`${SUPABASE_URL}/rest/v1/quotes`, {
       method: 'POST',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
       body: JSON.stringify({ id: quoteId, client: clientInfo.name, client_id: clientId, date: localToday(), total, status: 'approved', follow_up_enabled: false, follow_up_paused_until: null, next_follow_up_at: null, items: lineItems, notes: (window._chatPdfCustomizations || []).filter(Boolean).join(' | '), ...quoteCreatorAttribution(), ...quoteAcceptanceAttribution(), ...quoteAttributionPayload(), created_at: new Date().toISOString() })
     });
     if (!acceptedQuoteRes.ok) throw new Error(`Accepted quote save failed: ${await acceptedQuoteRes.text()}`);
@@ -3103,7 +3065,7 @@ async function _doAcceptQuote(total) {
     // Create job
     const jobRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs`, {
       method: 'POST',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
       body: JSON.stringify({ id: jobId, client: clientInfo.name, client_id: clientId, quote_id: quoteId, service: combinedLabel, description: `Phone-quoted job. Address: ${clientInfo.address || clientInfo.suburb}.`, status: 'Active', revenue: total, items: lineItems, hours: 0, completion_date: null, notes: (window._chatPdfCustomizations || []).filter(Boolean).join(' | '), ...jobBookingAttribution(), ...quoteAttributionPayload('quote_inherited'), created_at: new Date().toISOString() })
     });
     if (!jobRes.ok) throw new Error(`Job creation failed: ${await jobRes.text()}`);
@@ -3250,7 +3212,7 @@ async function loadCalBooking(total, jobId) {
           const filter = chunk.map(p => `phone.eq.${encodeURIComponent(p)}`).join(',');
           const res = await fetch(
             `${SUPABASE_URL}/rest/v1/clients?select=name,phone,suburb,address&or=(${filter})`,
-            { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+            { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` } }
           );
           if (res.ok) {
             const rows = await res.json();
@@ -3282,7 +3244,7 @@ async function loadCalBooking(total, jobId) {
           const filter = chunk.map(n => `name.ilike.*${encodeURIComponent(n)}*`).join(',');
           const res = await fetch(
             `${SUPABASE_URL}/rest/v1/clients?select=name,suburb,address&or=(${filter})`,
-            { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+            { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` } }
           );
           if (res.ok) {
             const rows = await res.json() || [];
@@ -3395,7 +3357,7 @@ async function confirmCalBooking(dateStr, label, total, jobId) {
     try {
       const jobUpdateRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}`, {
         method: 'PATCH',
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
         body: JSON.stringify({ completion_date: dateStr, google_calendar_event_id: calendarEventId })
       });
       const updatedJobs = await jobUpdateRes.json().catch(() => []);
@@ -3843,7 +3805,7 @@ async function saveFollowUp() {
       method: 'POST',
       headers: {
         'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Authorization': `Bearer ${supabaseBearerToken()}`,
         'Content-Type': 'application/json',
         'Prefer': 'return=representation'
       },
@@ -3867,7 +3829,7 @@ async function loadFollowUps() {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/call_followups?select=*&order=call_date.asc,call_time.asc`, {
       headers: {
         'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`
+        'Authorization': `Bearer ${supabaseBearerToken()}`
       }
     });
     if (res.ok) {
@@ -3889,7 +3851,7 @@ async function loadFollowUps() {
 async function loadTodos() {
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/app_todos?select=*&order=created_at.desc`, {
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` }
     });
     if (!res.ok) throw new Error(await res.text());
     const rows = await res.json();
@@ -3939,7 +3901,7 @@ async function addTodoItem() {
       method: 'POST',
       headers: {
         'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Authorization': `Bearer ${supabaseBearerToken()}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
@@ -3975,7 +3937,7 @@ async function updateTodoText(id, text) {
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/app_todos?id=eq.${encodeURIComponent(id)}`, {
       method: 'PATCH',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: item.text, updated_at: item.updatedAt })
     });
     if (!res.ok) throw new Error(await res.text());
@@ -3995,7 +3957,7 @@ async function toggleTodoItem(id, checked) {
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/app_todos?id=eq.${encodeURIComponent(id)}`, {
       method: 'PATCH',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ done: item.done, updated_at: item.updatedAt })
     });
     if (!res.ok) throw new Error(await res.text());
@@ -4012,7 +3974,7 @@ async function deleteTodoItem(id) {
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/app_todos?id=eq.${encodeURIComponent(id)}`, {
       method: 'DELETE',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` }
     });
     if (!res.ok) throw new Error(await res.text());
   } catch(e) {
@@ -4031,7 +3993,7 @@ async function clearCompletedTodos() {
     try {
       await fetch(`${SUPABASE_URL}/rest/v1/app_todos?id=eq.${encodeURIComponent(id)}`, {
         method: 'DELETE',
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` }
       });
     } catch(e) {
       console.error(e);
@@ -4050,7 +4012,7 @@ async function clearAllTodos() {
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/app_todos?id=not.is.null`, {
       method: 'DELETE',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` }
     });
     if (!res.ok) throw new Error(await res.text());
   } catch(e) {
@@ -4433,7 +4395,7 @@ function priorityPrepareReview(action) {
 async function priorityPatchRecord(table, recordId, changes) {
   const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${encodeURIComponent(recordId)}`, {
     method:'PATCH',
-    headers:{ 'apikey':SUPABASE_KEY, 'Authorization':`Bearer ${SUPABASE_KEY}`, 'Content-Type':'application/json', 'Prefer':'return=representation' },
+    headers:{ 'apikey':SUPABASE_KEY, 'Authorization':`Bearer ${supabaseBearerToken()}`, 'Content-Type':'application/json', 'Prefer':'return=representation' },
     body:JSON.stringify(changes)
   });
   const rows = await response.json().catch(() => []);
@@ -4681,7 +4643,7 @@ async function priorityToggleAutomaticPause() {
 }
 
 async function fetchFollowUpPriorityCandidates() {
-  const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` };
+  const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` };
   const [quoteResponse, jobResponse, noteResponse, deliveryResponse, responseResponse, clientResponse] = await Promise.all([
     fetch(`${SUPABASE_URL}/rest/v1/quotes?status=in.(pending,draft)&deleted_at=is.null&select=id,client,client_id,date,total,status,items,notes,created_at,delivery_status,delivery_channel,sent_at,last_follow_up_at,next_follow_up_at,manual_follow_up_at,follow_up_enabled,follow_up_paused_until,follow_up_count&order=created_at.desc`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/jobs?status=eq.Active&select=id,client,service,revenue,items,notes,description,created_at,completion_date,google_calendar_event_id&order=created_at.asc`, { headers }),
@@ -5090,7 +5052,7 @@ async function importCallList() {
       method: 'POST',
       headers: {
         'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Authorization': `Bearer ${supabaseBearerToken()}`,
         'Content-Type': 'application/json',
         'Prefer': 'return=representation'
       },
@@ -5115,7 +5077,7 @@ function toggleFollowUp(id, currentStatus) {
     // Unmark as done — just toggle back with no friction
     fetch(`${SUPABASE_URL}/rest/v1/call_followups?id=eq.${id}`, {
       method: 'PATCH',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'pending' })
     }).then(() => loadFollowUps()).catch(console.error);
     return;
@@ -5198,7 +5160,7 @@ async function completeFollowUp(id, outcome, outcomeLabel) {
 
     await fetch(`${SUPABASE_URL}/rest/v1/call_followups?id=eq.${id}`, {
       method: 'PATCH',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'done', notes: updatedNotes })
     });
     showToast(`Follow-up marked done: ${outcomeLabel}`);
@@ -5222,7 +5184,7 @@ async function confirmReschedule(id) {
     const noteAppend = fu ? ` | Rescheduled from ${fu.call_date} on ${new Date().toISOString().split('T')[0]}` : '';
     await fetch(`${SUPABASE_URL}/rest/v1/call_followups?id=eq.${id}`, {
       method: 'PATCH',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ call_date: newDate, status: 'pending', notes: (fu ? (fu.notes || '') : '') + noteAppend })
     });
     showToast('Follow-up rescheduled to ' + newDate);
@@ -5259,7 +5221,7 @@ function openEditFollowUp(id) {
       try {
         await fetch(`${SUPABASE_URL}/rest/v1/call_followups?id=eq.${id}`, {
           method: 'PATCH',
-          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
           body: JSON.stringify(updated)
         });
         showToast('Follow-up updated');
@@ -5327,7 +5289,7 @@ async function deleteFollowUp(id) {
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/call_followups?id=eq.${id}`, {
       method: 'DELETE',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` }
     });
     if (!res.ok) { const e = await res.json().catch(()=>{}); console.error('Delete error', e); showToast('Error deleting — reload to resync'); loadFollowUps(); return; }
     showToast('Follow-up deleted');
@@ -5388,7 +5350,7 @@ function showMarketingHubPrompt(clientName, quoteStatus) {
 async function loadPendingQuoteFollowUps() {
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/quotes?status=eq.pending&select=id,client,date,total,notes`, {
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` }
     });
     if (!res.ok) return;
     const quotes = await res.json();
@@ -5441,11 +5403,24 @@ function showToast(msg) {
 }
 
 // Init
-loadDashboardSettings();
-loadTodos().then(() => setTimeout(showTodoReminderIfNeeded, 400));
+async function startDashboardData() {
+  if (dashboardDataStarted) return;
+  dashboardDataStarted = true;
+  await loadDashboardSettings();
+  await loadTodos();
+  setTimeout(showTodoReminderIfNeeded, 400);
+  loadFollowUps();
+  loadHomeDashboard();
+  renderPricingPage();
+  renderScriptsPage();
+  todoSyncTimer = setInterval(() => {
+    const homeOpen = document.getElementById('page-home')?.classList.contains('active');
+    if (homeOpen) loadTodos();
+  }, 15000);
+}
+
 initRep();
 document.getElementById('home-date').textContent = new Date().toLocaleDateString('en-AU', { weekday:'long', day:'numeric', month:'long' });
-loadHomeDashboard();
 document.getElementById('fu-date').valueAsDate = new Date();
 if (document.getElementById('fu-browse-date')) document.getElementById('fu-browse-date').value = localToday();
 // Set default perf dates
@@ -5453,10 +5428,6 @@ const today = new Date();
 const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 document.getElementById('perf-from').value = firstOfMonth.toISOString().split('T')[0];
 document.getElementById('perf-to').value = today.toISOString().split('T')[0];
-todoSyncTimer = setInterval(() => {
-  const homeOpen = document.getElementById('page-home')?.classList.contains('active');
-  if (homeOpen) loadTodos();
-}, 15000);
 
 // ============================================================
 // UNSCHEDULED JOBS TAB
@@ -5498,7 +5469,7 @@ function recordNotesProjection(existingText, notes) {
 
 async function fetchRecordNotes(recordType, recordId) {
   const response = await fetch(`${SUPABASE_URL}/rest/v1/record_notes?record_type=eq.${encodeURIComponent(recordType)}&record_id=eq.${encodeURIComponent(recordId)}&deleted_at=is.null&select=*&order=created_at.desc`, {
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` }
   });
   if (!response.ok) throw new Error(`Note history unavailable (${response.status}). Apply the record_notes migration if this is the first deployment.`);
   return response.json();
@@ -5512,7 +5483,7 @@ async function createRecordNote(recordType, recordId, body, metadata = {}) {
     : outcomeCode ? 'completed' : null;
   const response = await fetch(`${SUPABASE_URL}/rest/v1/record_notes`, {
     method: 'POST',
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
     body: JSON.stringify({
       record_type: recordType,
       record_id: String(recordId),
@@ -5534,7 +5505,7 @@ async function softDeleteRecordNote(noteId) {
   const now = new Date().toISOString();
   const response = await fetch(`${SUPABASE_URL}/rest/v1/record_notes?id=eq.${encodeURIComponent(noteId)}`, {
     method: 'PATCH',
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
     body: JSON.stringify({ deleted_at: now, updated_at: now })
   });
   const rows = await response.json().catch(() => []);
@@ -5545,7 +5516,7 @@ async function updateRecordNote(noteId, body) {
   const now = new Date().toISOString();
   const response = await fetch(`${SUPABASE_URL}/rest/v1/record_notes?id=eq.${encodeURIComponent(noteId)}`, {
     method: 'PATCH',
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
     body: JSON.stringify({ body: String(body || '').trim(), updated_at: now })
   });
   const rows = await response.json().catch(() => []);
@@ -5571,7 +5542,7 @@ async function copyRecordNotes(fromType, fromId, toType, toId) {
   }));
   const response = await fetch(`${SUPABASE_URL}/rest/v1/record_notes`, {
     method: 'POST',
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
     body: JSON.stringify(payload)
   });
   const rows = await response.json().catch(() => []);
@@ -5710,7 +5681,7 @@ async function loadUnscheduledTab() {
 
   try {
     const jobsResponse = await fetch(`${SUPABASE_URL}/rest/v1/jobs?select=*&order=created_at.asc`, {
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` }
     });
     if (!jobsResponse.ok) throw new Error(`CRM jobs failed: ${await jobsResponse.text()}`);
     const allJobs = await jobsResponse.json();
@@ -5729,7 +5700,7 @@ async function loadUnscheduledTab() {
     const clientIds = [...new Set(activeJobs.map(job => job.client_id).filter(Boolean))];
     await Promise.all(clientIds.map(async id => {
       const response = await fetch(`${SUPABASE_URL}/rest/v1/clients?id=eq.${encodeURIComponent(id)}&select=id,name,phone,email,address,suburb,source&limit=1`, {
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` }
       });
       if (!response.ok) return;
       const rows = await response.json();
@@ -5900,7 +5871,7 @@ function ujBackToList() {
 async function ujPatchJob(jobId, changes) {
   const response = await fetch(`${SUPABASE_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(jobId)}`, {
     method: 'PATCH',
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
     body: JSON.stringify(changes)
   });
   const rows = await response.json().catch(() => []);
@@ -6078,7 +6049,7 @@ function ujDeclineSelected() {
       if (item.job) {
         const jobResponse = await fetch(`${SUPABASE_URL}/rest/v1/jobs?id=eq.${encodeURIComponent(item.job.id)}`, {
           method: 'DELETE',
-          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Prefer': 'return=representation' }
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Prefer': 'return=representation' }
         });
         const deleted = await jobResponse.json().catch(() => []);
         if (!jobResponse.ok || !Array.isArray(deleted) || deleted.length !== 1) throw new Error('The calendar event was removed, but the CRM job could not be deleted. Check the CRM.');
@@ -6106,7 +6077,7 @@ async function loadPendingQuotesTab() {
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/quotes?status=eq.pending&select=id,client,client_id,booking_id,date,total,items,notes,ad_source,campaign_name,campaign_id,attribution_method,created_at,created_by_rep_id,created_by_rep_name,accepted_by_rep_id,accepted_by_rep_name,accepted_at&order=created_at.desc`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` } }
     );
     if (!res.ok) throw new Error('Fetch failed');
     _pqQuotes = await res.json();
@@ -6156,7 +6127,7 @@ async function pqOpenDetail(quoteId) {
       : `name=eq.${encodeURIComponent(_pqSelectedQuote.client)}`;
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/clients?${clientFilter}&select=id,name,phone,email,address,suburb,source&limit=1`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` } }
     );
     if (res.ok) { const data = await res.json(); client = data && data[0] ? data[0] : null; }
   } catch(e) {}
@@ -6327,7 +6298,7 @@ async function pqUpdateSelectedQuote(changes) {
       method: 'PATCH',
       headers: {
         'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Authorization': `Bearer ${supabaseBearerToken()}`,
         'Content-Type': 'application/json',
         'Prefer': 'return=representation'
       },
@@ -6404,7 +6375,7 @@ async function pqAcceptAndBook() {
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/clients?${q.client_id ? `id=eq.${encodeURIComponent(q.client_id)}` : `name=eq.${encodeURIComponent(q.client)}`}&select=id,address,suburb,email,phone,source,campaign_name,campaign_id&limit=1`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` } }
     );
     if (res.ok) {
       const data = await res.json();
@@ -6427,7 +6398,7 @@ async function pqAcceptAndBook() {
       if (clientId && addr) {
         await fetch(`${SUPABASE_URL}/rest/v1/clients?id=eq.${clientId}`, {
           method: 'PATCH',
-          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ address: addr })
         });
       }
@@ -6481,7 +6452,7 @@ async function _pqDoAccept(q, address, clientEmail, clientId, clientPhone) {
     // 1. Mark quote as approved
     const quoteUpdateRes = await fetch(`${SUPABASE_URL}/rest/v1/quotes?id=eq.${encodeURIComponent(q.id)}`, {
       method: 'PATCH',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'approved', follow_up_enabled: false, follow_up_paused_until: null, next_follow_up_at: null, total: jobTotal, items, ...quoteAcceptanceAttribution(), ad_source:q.ad_source||null, campaign_name:q.campaign_name||null, campaign_id:q.campaign_id||null, attribution_method:q.attribution_method||'client_default' })
     });
     if (!quoteUpdateRes.ok) throw new Error(`Quote approval failed: ${await quoteUpdateRes.text()}`);
@@ -6491,7 +6462,7 @@ async function _pqDoAccept(q, address, clientEmail, clientId, clientPhone) {
     // 2. Create job in CRM
     const jobCreateRes = await fetch(`${SUPABASE_URL}/rest/v1/jobs`, {
       method: 'POST',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
       body: JSON.stringify({
         id: jobId,
         client: q.client,
@@ -6532,7 +6503,7 @@ async function _pqDoAccept(q, address, clientEmail, clientId, clientPhone) {
     const clientSource = q.ad_source || null;
     const bookingCreateRes = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
       method: 'POST',
-      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
       body: JSON.stringify({
         client_name: q.client,
         service: serviceLabel,
@@ -6602,7 +6573,7 @@ async function pqShowCalendarModal(total, jobId) {
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/clients?name=eq.${encodeURIComponent(q.client)}&select=phone,email,address,suburb&limit=1`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` } }
     );
     if (res.ok) {
       const data = await res.json();
@@ -6664,7 +6635,7 @@ async function pqEmailQuote() {
   try {
     const response = await fetch(
       `${SUPABASE_URL}/rest/v1/clients?name=eq.${encodeURIComponent(q.client)}&select=email,name,suburb,address,phone&limit=1`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` } }
     );
     if (!response.ok) throw new Error(await response.text());
     const data = await response.json();
@@ -6895,7 +6866,7 @@ function pqAddFollowUp() {
   // Try to get phone
   fetch(
     `${SUPABASE_URL}/rest/v1/clients?name=eq.${encodeURIComponent(q.client)}&select=phone&limit=1`,
-    { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${supabaseBearerToken()}` } }
   ).then(r=>r.json()).then(data => {
     if (data && data[0] && fuPhone) fuPhone.value = data[0].phone || '';
   }).catch(()=>{});

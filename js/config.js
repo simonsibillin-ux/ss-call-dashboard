@@ -181,5 +181,3 @@ const BEDROOM_TO_METRES = {
 const BEDROOM_TO_SQM = {
   '2': 120, '3': 160, '4': 200, '5+': 260
 };
-
-const OWNER_PIN = '1234SS'; // Simon's owner PIN — change this
