@@ -4289,7 +4289,7 @@ function openPriorityItem(candidateId) {
     ${analysis.priorityConflict ? `<div class="alert alert-danger" style="margin:0 0 14px;"><strong>Priority check needed:</strong> ${_escHtml(analysis.priorityConflictMessage || 'The AI timing assessment does not match the assigned priority. Review the latest note before contacting the customer.')}</div>` : ''}
     ${candidate.kind === 'unscheduled_job' ? `<section class="priority-detail-section priority-detail-recommendation"><h4>Recommended next step</h4><p>${_escHtml(analysis.recommendedAction || 'Review the record and contact the customer.')}</p></section>` : ''}
     ${candidate.kind === 'unscheduled_job' && analysis.priority === 'review' ? `<section class="priority-detail-section"><h4>Review options</h4><div style="display:flex;gap:7px;flex-wrap:wrap;"><button class="btn-secondary" onclick="priorityPrepareReview('resume')" style="width:auto;">Resume in 10 business days</button><button class="btn-secondary" onclick="priorityPrepareReview('schedule')" style="width:auto;">Choose a date</button><button class="btn-secondary" onclick="priorityPrepareReview('customer')" style="width:auto;">Wait for customer</button><button class="btn-secondary" onclick="priorityPrepareReview('owner')" style="width:auto;">Simon handling</button><button class="btn-secondary" onclick="priorityPrepareReview('close')" style="width:auto;color:#a33;">Close - no response</button></div></section>` : ''}
-    <div class="priority-detail-section"><button class="btn-secondary" onclick="priorityToggleInternalCommunications()" style="width:auto;">Internal communications</button><div id="priority-internal-communications" style="display:none;margin-top:12px;"><div id="priority-note-timeline"><div class="priority-no-notes">Loading note history…</div></div><label class="form-label" for="priority-internal-note">New internal communication</label><textarea id="priority-internal-note" class="form-input" rows="3" placeholder="Add an internal note…"></textarea><div class="priority-note-actions"><span id="priority-note-status"></span><button class="btn-primary" onclick="priorityAddInternalCommunication()" style="width:auto;">Add communication</button></div></div></div>`;
+    <div class="priority-detail-section"><button class="btn-secondary" onclick="priorityToggleInternalCommunications()" style="width:auto;">Internal notes</button><div id="priority-internal-communications" style="display:none;margin-top:12px;"><div id="priority-note-timeline"><div class="priority-no-notes">Loading note history…</div></div><label class="form-label" for="priority-internal-note">New internal note</label><textarea id="priority-internal-note" class="form-input" rows="3" placeholder="Add an internal note…"></textarea><div class="priority-note-actions"><span id="priority-note-status"></span><button class="btn-primary" onclick="priorityAddInternalCommunication()" style="width:auto;">Add note</button></div></div></div>`;
   openButton.textContent = isPendingQuote ? 'View pending quote' : `View ${priorityRecordLabel(candidate)}`;
   openButton.onclick = () => openPriorityRecord(candidateId);
   modal.classList.add('open');
@@ -4550,7 +4550,7 @@ async function priorityAddInternalCommunication() {
     await createRecordNote(target.recordType, target.recordId, body);
     input.value = '';
     await priorityLoadNoteEntries(true);
-    showToast('Internal communication added');
+    showToast('Internal note added');
   } catch (error) { showToast(error.message || 'Could not add communication', 'error'); }
 }
 
@@ -4632,7 +4632,7 @@ async function fetchFollowUpPriorityCandidates() {
   const [quoteResponse, jobResponse, noteResponse, deliveryResponse, responseResponse, clientResponse] = await Promise.all([
     fetch(`${SUPABASE_URL}/rest/v1/quotes?status=in.(pending,draft)&deleted_at=is.null&select=id,client,client_id,date,total,status,items,notes,created_at,delivery_status,delivery_channel,sent_at,last_follow_up_at,next_follow_up_at,manual_follow_up_at,manual_only,manual_follow_up_state,follow_up_enabled,follow_up_paused_until,follow_up_count&order=created_at.desc`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/jobs?status=eq.Active&select=id,client,service,revenue,items,notes,description,created_at,completion_date,google_calendar_event_id&order=created_at.asc`, { headers }),
-    fetch(`${SUPABASE_URL}/rest/v1/record_notes?deleted_at=is.null&record_type=in.(quote,job,calendar_event)&select=record_type,record_id,body,author_name,created_at,outcome_code,next_contact_date,action_result&order=created_at.desc`, { headers }),
+    fetch(`${SUPABASE_URL}/rest/v1/record_notes?deleted_at=is.null&record_type=in.(quote,job,calendar_event)&is_historical=eq.false&select=record_type,record_id,body,author_name,created_at,outcome_code,next_contact_date,action_result&order=created_at.desc`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/quote_follow_up_deliveries?select=id,quote_id,sequence_number,channel,status,sent_at,error,created_at&order=created_at.desc`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/quote_responses?select=id,quote_id,response_type,reason,notes,preferred_timeframe,preferred_dates,contact_again_at,created_at,handled_at&order=created_at.desc`, { headers }),
     fetch(`${SUPABASE_URL}/rest/v1/clients?select=id,name,phone,email,address,suburb`, { headers })
@@ -4667,7 +4667,7 @@ async function fetchFollowUpPriorityCandidates() {
       total:Number(quote.total) || 0, createdAt:quote.created_at, recordDate:quote.date,
       latestActivityAt:quote.status === 'draft' ? (entries[0]?.at || quote.created_at || quote.date) : (quote.last_follow_up_at || quote.sent_at || quote.created_at || quote.date),
       legacyNotes:quote.status === 'draft' ? recordNotesWithoutProjection(quote.notes) : '',
-      recordLegacyNotes:recordNotesWithoutProjection(quote.notes), noteEntries:quote.status === 'draft' ? entries : [],
+      recordLegacyNotes:recordNotesWithoutProjection(quote.notes), noteEntries:quote.status === 'draft' ? entries : entries.filter(entry=>entry.outcomeCode),
       deliveryEntries:deliveriesByQuote[quote.id] || [], responseEntries:responsesByQuote[quote.id] || [],
       nextFollowUpAt:quote.next_follow_up_at, sentAt:quote.sent_at, deliveryStatus:quote.delivery_status, deliveryChannel:quote.delivery_channel,
       followUpEnabled:quote.follow_up_enabled !== false, followUpPausedUntil:quote.follow_up_paused_until,
@@ -5446,8 +5446,9 @@ function recordNoteDate(value) {
 
 function recordNotesProjection(existingText, notes) {
   const legacy = recordNotesWithoutProjection(existingText);
-  if (!notes.length) return legacy || null;
-  const history = [...notes].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).map(note =>
+  const datedNotes=notes.filter(note=>!note.is_historical);
+  if (!datedNotes.length) return legacy || null;
+  const history = datedNotes.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).map(note =>
     `[${recordNoteDate(note.created_at)} — ${note.author_name || 'Unknown rep'}]\n${note.body}`
   ).join('\n\n');
   return [legacy, `${RECORD_NOTES_START}\n${history}\n${RECORD_NOTES_END}`].filter(Boolean).join('\n\n');
@@ -5479,7 +5480,8 @@ async function createRecordNote(recordType, recordId, body, metadata = {}) {
       source: 'call_dashboard',
       outcome_code: outcomeCode,
       next_contact_date: nextContactDate,
-      action_result: actionResult
+      action_result: actionResult,
+      ...(metadata.bookingVisitId ? {booking_visit_id:metadata.bookingVisitId} : {})
     })
   });
   const rows = await response.json().catch(() => []);
@@ -5540,21 +5542,20 @@ let _recordNotesById = {};
 
 function recordNotesTimelineHtml(notes, legacySections = []) {
   _recordNotesById = Object.fromEntries(notes.map(note => [String(note.id), note]));
-  const legacy = legacySections.filter(section => section.text).map(section => `
-    <div style="border:1px solid var(--border);border-radius:9px;padding:11px 12px;background:var(--surface2);margin-bottom:9px;">
-      <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:5px;">${_escHtml(section.label)}</div>
-      <div style="font-size:13px;line-height:1.55;color:var(--text2);white-space:pre-wrap;">${_escHtml(section.text)}</div>
-    </div>`).join('');
+  notes=[...notes].sort((a,b)=>Number(Boolean(a.is_historical))-Number(Boolean(b.is_historical))||String(b.created_at).localeCompare(String(a.created_at)));
+  const regularBodies=new Set(notes.filter(note=>!note.is_historical).map(note=>String(note.body||'').trim()));
+  const seenIds=new Set(),historicalBodies=new Set();
+  notes=notes.filter(note=>{if(seenIds.has(String(note.id)))return false;seenIds.add(String(note.id));if(!note.is_historical)return true;const key=String(note.body||'').trim();if(regularBodies.has(key)||historicalBodies.has(key))return false;historicalBodies.add(key);return true;});
   const entries = notes.map(note => `
     <div style="border:1px solid var(--border);border-radius:9px;padding:11px 12px;background:#fff;margin-bottom:9px;">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:6px;">
-        <div style="font-size:11px;color:var(--text3);"><strong style="color:var(--text2);">${_escHtml(note.author_name || 'Unknown rep')}</strong> · ${_escHtml(recordNoteDate(note.created_at))}${note.updated_at && note.updated_at !== note.created_at ? ' · edited' : ''}</div>
+        <div style="font-size:11px;color:var(--text3);"><strong style="color:var(--text2);">${_escHtml(note.is_historical ? 'Historical note' : note.author_name || 'Unknown rep')}</strong>${note.is_historical ? '' : ` · ${_escHtml(recordNoteDate(note.created_at))}${note.updated_at && note.updated_at !== note.created_at ? ' · edited' : ''}`}</div>
         <div style="display:flex;gap:9px;"><button onclick="editCurrentRecordNote('${_escHtml(note.id)}')" aria-label="Edit note" style="border:none;background:none;color:var(--ss-green);font-size:11px;font-weight:700;cursor:pointer;padding:0;">Edit</button><button onclick="deleteCurrentRecordNote('${_escHtml(note.id)}')" aria-label="Delete note" style="border:none;background:none;color:#b91c1c;font-size:11px;font-weight:700;cursor:pointer;padding:0;">Delete</button></div>
       </div>
       ${note.outcome_code ? `<div class="priority-note-outcome">${_escHtml(note.outcome_code.replaceAll('_', ' '))}${note.next_contact_date ? ` · next contact ${_escHtml(priorityCandidateDate(note.next_contact_date))}` : ''}</div>` : ''}
       <div style="font-size:13px;line-height:1.55;color:var(--text1);white-space:pre-wrap;">${_escHtml(note.body)}</div>
     </div>`).join('');
-  return legacy + entries || '<div style="font-size:12px;color:var(--text3);padding:4px 0 10px;">No notes have been added yet.</div>';
+  return entries || '<div style="font-size:12px;color:var(--text3);padding:4px 0 10px;">No notes have been added yet.</div>';
 }
 
 let _activeRecordNoteContext = null;

@@ -25,11 +25,6 @@ function bookingClient(v) { const r=bookingRecord(v); const id=v.client_id||r?.c
 function bookingEvent(v) { return bookingData.events.find(e=>e.id===v.calendar_event_id); }
 function bookingTitle(v) { return bookingClient(v)?.name||bookingRecord(v)?.client||bookingEvent(v)?.summary||'Calendar record'; }
 function bookingService(v) { return bookingRecord(v)?.service||bookingEvent(v)?.summary||'Service needs review'; }
-function bookingSourceNotes(v) {
-  const record=bookingRecord(v), event=bookingEvent(v);
-  const notes=bookingData.notes.filter(n=>(n.record_type==='job'&&n.record_id===v.job_id)||(n.record_type==='calendar_event'&&n.record_id===v.calendar_event_id));
-  return [record?.notes,record?.description,event?.description,...notes.map(n=>`${priorityCandidateDate(n.created_at)} \u2014 ${n.author_name}\n${n.body}`)].filter(Boolean);
-}
 async function bookingCalendarRange(start,end) {
   let result=[],page='';
   do {
@@ -46,15 +41,19 @@ async function loadBookingWorkspace() {
   root.innerHTML='<div class="page-title">Bookings</div><div class="empty-state">Loading bookings\u2026</div>';
   try {
     await bookingRest('rpc/sync_booking_visits','POST',{});
-    const [visits,recurring,jobs,clients,notes]=await Promise.all([
-      bookingAll('booking_visits?select=*&order=created_at.asc'),bookingAll('recurring_jobs?select=*&order=id.asc'),bookingAll('jobs?select=*&order=id.asc'),bookingAll('clients?select=*&order=id.asc'),bookingAll('record_notes?select=*&record_type=in.(job,calendar_event)&deleted_at=is.null&order=created_at.desc')
+    const [visits,recurring,jobs,clients]=await Promise.all([
+      bookingAll('booking_visits?select=*&order=created_at.asc'),bookingAll('recurring_jobs?select=*&order=id.asc'),bookingAll('jobs?select=*&order=id.asc'),bookingAll('clients?select=*&order=id.asc')
     ]);
     const from=BookingRules.today().slice(0,7)+'-01', end=BookingRules.addDays(from,420);
     let events=[],warning='';
     try { const sets=await Promise.all([bookingCalendarRange('2026-01-01T00:00:00Z',end+'T00:00:00Z'),bookingCalendarRange('2099-01-01T00:00:00Z','2099-01-03T00:00:00Z')]); events=[...new Map(sets.flat().map(e=>[e.id,e])).values()]; }
     catch(error) { warning=error.message; }
     if(request!==bookingLoading)return;
-    bookingData={visits,recurring,jobs,clients,notes,events,warning};
+    if(events.length){
+      await bookingRest('rpc/archive_calendar_internal_notes','POST',{p_events:events.map(e=>({id:e.id,description:e.description||''}))});
+    }
+    const internalNotes=await bookingAll('record_notes?select=*&record_type=in.(job,recurring_job,calendar_event)&deleted_at=is.null&order=created_at.desc');
+    bookingData={visits,recurring,jobs,clients,notes:internalNotes,events,warning};
     bookingSelected=null; renderBookingWorkspace();
   } catch(error) { if(request===bookingLoading) root.innerHTML=`<div class="page-title">Bookings</div><div class="alert alert-danger">${bookingEscape(error.message)}</div><button class="btn-secondary" onclick="loadBookingWorkspace()">Retry</button>`; }
 }
@@ -188,7 +187,7 @@ function bookingOpenDetail(id,confirm=false) {
           <dl class="booking-facts"><div><dt>Service</dt><dd>${bookingEscape(bookingService(v))}</dd></div><div><dt>Service due</dt><dd>${bookingMonthLabel(v.due_month)}</dd></div>${v.work_type==='recurring'?`<div><dt>Frequency</dt><dd>${bookingEscape(frequency)}</dd></div>`:''}<div><dt>Price</dt><dd>${Number(r?.revenue)>0?'$'+Number(r.revenue).toFixed(2):'Needs review'}</dd></div><div><dt>Status</dt><dd>${confirmed?'Confirmed for '+priorityCandidateDate(v.confirmed_date):'Not confirmed'}</dd></div></dl>
         </section>
         <section class="booking-section"><h2>Contact details</h2><dl class="booking-facts"><div><dt>Phone</dt><dd>${c?.phone?`<a href="tel:${bookingEscape(c.phone.replace(/[^+0-9]/g,''))}">${bookingEscape(c.phone)}</a>`:'Not recorded'}</dd></div><div><dt>Email</dt><dd>${c?.email?`<a href="mailto:${bookingEscape(c.email)}">${bookingEscape(c.email)}</a>`:'Not recorded'}</dd></div><div><dt>Address</dt><dd>${bookingEscape([c?.address,c?.suburb].filter(Boolean).join(', ')||'Not recorded')}</dd></div></dl>${!c?.phone&&!c?.email?'<p class="booking-muted">Phone number or email needed.</p>':''}</section>
-        <section class="booking-section"><h2>Contact history</h2>${v.last_contact_at?`<p class="booking-muted">Last contact: ${bookingEscape((v.last_outcome||'Contact recorded').replaceAll('_',' '))} &middot; ${priorityCandidateDate(v.last_contact_at)}</p>`:''}${[...(v.history||[])].reverse().map(h=>`<div class="booking-history"><strong>${bookingEscape(h.by)} &middot; ${priorityCandidateDateTime(h.at)}</strong><p>${bookingEscape(h.note)}</p></div>`).join('')||'<p class="booking-muted">No recorded actions.</p>'}<details class="booking-internal"><summary>Internal notes</summary>${v.setup_note?`<p class="booking-source">${bookingEscape(v.setup_note)}</p>`:''}${bookingSourceNotes(v).map(n=>`<p class="booking-source">${bookingEscape(n)}</p>`).join('')||'<p class="booking-muted">No internal notes.</p>'}<small>CRM: ${bookingEscape(r?.id||v.source_key)}</small></details></section>
+        <section class="booking-section"><h2>Internal notes</h2><div id="booking-internal-timeline">${bookingInternalNotesHtml(v)}</div><div class="booking-form booking-add-note"><label for="booking-internal-note">Add internal note</label><textarea id="booking-internal-note" class="form-input" rows="3"></textarea><button type="button" class="btn-secondary" onclick="bookingAddInternalNote()">Add note</button></div></section>
       </div>
       <aside class="booking-detail-actions">
         <section class="booking-section"><h2>Follow-up</h2><p class="booking-follow-up-date">${v.next_contact_date?priorityCandidateDate(v.next_contact_date):BookingRules.labels[v.status]==='Needs booking'?'Not scheduled':BookingRules.labels[v.status]||'Not scheduled'}</p><details class="booking-internal"><summary>Edit dates</summary><div class="booking-form"><label for="booking-due-month">Service due month</label><input id="booking-due-month" class="form-input" type="month" value="${v.due_month?.slice(0,7)||''}"><label for="booking-edit-next">Next follow-up</label><input id="booking-edit-next" class="form-input" type="date" value="${v.next_contact_date||''}"><button class="btn-secondary" onclick="bookingSaveDates()">Save dates</button></div></details></section>
@@ -198,6 +197,7 @@ function bookingOpenDetail(id,confirm=false) {
     </main>
     <section id="booking-confirm-panel" class="booking-confirm-screen" hidden><h2>${bookingEscape(bookingTitle(v))}</h2><p class="booking-muted">${bookingEscape(bookingService(v))}</p><div class="booking-form"><label for="booking-confirm-date">Agreed date</label><input type="date" id="booking-confirm-date" class="form-input" min="${BookingRules.today()}" value="${v.confirmed_date||''}"><label class="booking-check"><input type="checkbox" id="booking-agreed"> The customer agreed to this date</label><div class="booking-confirm-actions"><button type="button" class="btn-secondary" onclick="bookingShowMain()">Back to details</button><button type="button" class="btn-primary" id="booking-confirm-save" onclick="bookingConfirm()">Save confirmed booking</button></div><div id="booking-save-status" role="status"></div></div></section>`);
   if(confirm)bookingOpenConfirmation();
+  bookingReloadInternalNotes(v).catch(error=>{if(bookingSelected?.id===v.id)bookingNotify(error.message,'error');});
 }
 function bookingOpenConfirmation(){
   if(bookingBusy)return;
@@ -232,7 +232,7 @@ async function bookingSaveOutcome(){
  try{const v=bookingSelected,code=document.getElementById('booking-outcome').value,note=document.getElementById('booking-note').value.trim(),channel=document.getElementById('booking-channel').value;
  if(['deferred','skipped','declined','do_not_contact'].includes(code)&&!note)throw Error('Add a reason for this outcome.');
  const change=BookingRules.outcome(code,v.attempt_count,document.getElementById('booking-next-date').value);
- await bookingSave(v,{...change,last_outcome:code,contact_channel:channel},`${channel}: ${code.replaceAll('_',' ')}${change.next_contact_date?' \u00b7 Next follow-up '+change.next_contact_date:''}${note?'\n'+note:''}`);
+ await bookingSave(v,{...change,last_outcome:code,contact_channel:channel},`${channel}: ${document.getElementById('booking-outcome').selectedOptions[0].textContent}${note?'\n'+note:''}`);
  bookingNotify('Contact saved');bookingCloseDetail();
  }catch(e){bookingNotify(e.message,'error');}finally{bookingBusy=false;}
 }
@@ -272,7 +272,7 @@ async function prioritySetManualOnly(enabled){const candidate=_priorityCandidate
 function bookingOpenImport(eventId){
   const event=bookingData.events.find(e=>e.id===eventId);if(!event)return;
   bookingSelected={importEvent:event};
-  bookingShowDialog('Calendar review',`<main class="booking-detail-layout booking-import-layout"><div class="booking-detail-main"><section class="booking-section"><h2>Calendar record</h2><p class="booking-source">${bookingEscape(event.summary)}</p><p class="booking-muted">Not confirmed</p>${event.location?`<p>${bookingEscape(event.location)}</p>`:''}</section><section class="booking-section"><h2>Internal notes</h2><p class="booking-source">${bookingEscape(event.description||'No notes recorded.')}</p></section></div><section class="booking-section"><h2>Link to CRM</h2><div class="booking-form"><label>Customer profile<input type="search" id="booking-client-search" class="form-input" placeholder="Search customer name, phone or address" oninput="bookingImportClients()"></label><label>Matched customer<select id="booking-import-client" class="form-input" onchange="bookingImportRecurring()"><option value="">Choose customer\u2026</option></select></label><label>Import as<select id="booking-import-kind" class="form-input"><option value="new">One-off job / requote needed</option><option value="recurring">Recurring arrangement</option></select></label><label>Existing recurring arrangement<select id="booking-import-recurring" class="form-input"><option value="">Create new arrangement</option></select></label><label>Service<input id="booking-import-service" class="form-input"></label><label>Service due month<input id="booking-import-month" type="month" class="form-input" value="${(event.start?.date||event.start?.dateTime||'').startsWith('2099')?'':(event.start?.date||event.start?.dateTime||'').slice(0,7)}"></label><label>Verified frequency<select id="booking-import-frequency" class="form-input"><option value="">Choose frequency\u2026</option>${Object.entries({weekly:'Weekly',fortnightly:'Fortnightly',monthly:'Monthly','6weekly':'Every 6 weeks',bimonthly:'Every 2 months',quarterly:'Quarterly','6monthly':'Every 6 months',annually:'Annually'}).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label><label>Verified price (leave blank if requote needed)<input id="booking-import-amount" class="form-input" type="number" min="0" step="0.01"></label><button class="btn-primary" onclick="bookingImportSave()">Import into CRM</button></div></section></main>`);
+  bookingShowDialog('Calendar review',`<main class="booking-detail-layout booking-import-layout"><div class="booking-detail-main"><section class="booking-section"><h2>Calendar record</h2><p class="booking-source">${bookingEscape(event.summary)}</p><p class="booking-muted">Not confirmed</p>${event.location?`<p>${bookingEscape(event.location)}</p>`:''}</section><section class="booking-section"><h2>Internal notes</h2><div id="booking-calendar-note-timeline">${bookingCalendarNotesHtml(event)}</div></section></div><section class="booking-section"><h2>Link to CRM</h2><div class="booking-form"><label>Customer profile<input type="search" id="booking-client-search" class="form-input" placeholder="Search customer name, phone or address" oninput="bookingImportClients()"></label><label>Matched customer<select id="booking-import-client" class="form-input" onchange="bookingImportRecurring()"><option value="">Choose customer\u2026</option></select></label><label>Import as<select id="booking-import-kind" class="form-input"><option value="new">One-off job / requote needed</option><option value="recurring">Recurring arrangement</option></select></label><label>Existing recurring arrangement<select id="booking-import-recurring" class="form-input"><option value="">Create new arrangement</option></select></label><label>Service<input id="booking-import-service" class="form-input"></label><label>Service due month<input id="booking-import-month" type="month" class="form-input" value="${(event.start?.date||event.start?.dateTime||'').startsWith('2099')?'':(event.start?.date||event.start?.dateTime||'').slice(0,7)}"></label><label>Verified frequency<select id="booking-import-frequency" class="form-input"><option value="">Choose frequency\u2026</option>${Object.entries({weekly:'Weekly',fortnightly:'Fortnightly',monthly:'Monthly','6weekly':'Every 6 weeks',bimonthly:'Every 2 months',quarterly:'Quarterly','6monthly':'Every 6 months',annually:'Annually'}).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label><label>Verified price (leave blank if requote needed)<input id="booking-import-amount" class="form-input" type="number" min="0" step="0.01"></label><button class="btn-primary" onclick="bookingImportSave()">Import into CRM</button></div></section></main>`);
 }
 function bookingImportClients(){const q=document.getElementById('booking-client-search').value.toLowerCase().trim();document.getElementById('booking-import-client').innerHTML='<option value="">Choose customer\u2026</option>'+bookingData.clients.filter(c=>q&&[c.name,c.phone,c.email,c.address,c.suburb].join(' ').toLowerCase().includes(q)).slice(0,40).map(c=>`<option value="${bookingEscape(c.id)}">${bookingEscape([c.name,c.phone,c.address].filter(Boolean).join(' \u00b7 '))}</option>`).join('');bookingImportRecurring();}
 function bookingImportRecurring(){const id=document.getElementById('booking-import-client').value;document.getElementById('booking-import-recurring').innerHTML='<option value="">Create new arrangement</option>'+bookingData.recurring.filter(r=>r.client_id===id).map(r=>`<option value="${bookingEscape(r.id)}">${bookingEscape(r.service+' \u00b7 '+r.frequency)}</option>`).join('');}
@@ -292,3 +292,44 @@ function priorityQuotePreview(){
 }
 // Customer requests should appear promptly while a rep is working on the page.
 setInterval(()=>{if(document.visibilityState==='visible'&&document.getElementById('page-followups')?.classList.contains('active')&&!_prioritySelectedId)loadAiFollowUpPriorities(true);},30000);
+function bookingNoteTarget(v){
+  return v.recurring_job_id?{recordType:'recurring_job',recordId:v.recurring_job_id}:v.job_id?{recordType:'job',recordId:v.job_id}:v.calendar_event_id?{recordType:'calendar_event',recordId:v.calendar_event_id}:null;
+}
+function bookingInternalNotes(v){
+  const target=bookingNoteTarget(v),r=bookingRecord(v);
+  return bookingData.notes.filter(n=>(n.record_type===target?.recordType&&n.record_id===target?.recordId)||(n.record_type==='calendar_event'&&n.record_id===v.calendar_event_id)||(n.record_type==='job'&&n.record_id===r?.source_job_id));
+}
+function bookingInternalNotesHtml(v){
+  const target=bookingNoteTarget(v);
+  if(target)_activeRecordNoteContext={...target,reloadAndSync:()=>bookingReloadInternalNotes(v)};
+  return recordNotesTimelineHtml(bookingInternalNotes(v));
+}
+async function bookingReloadInternalNotes(v){
+  const target=bookingNoteTarget(v);if(!target)return;
+  const targets=[target];
+  if(v.calendar_event_id&&target.recordType!=='calendar_event')targets.push({recordType:'calendar_event',recordId:v.calendar_event_id});
+  const sourceJob=bookingRecord(v)?.source_job_id;
+  if(sourceJob)targets.push({recordType:'job',recordId:sourceJob});
+  const results=await Promise.all(targets.map(t=>fetchRecordNotes(t.recordType,t.recordId)));
+  const keys=new Set(targets.map(t=>`${t.recordType}:${t.recordId}`));
+  bookingData.notes=bookingData.notes.filter(n=>!keys.has(`${n.record_type}:${n.record_id}`)).concat(results.flat());
+  if(bookingSelected?.id===v.id&&document.getElementById('booking-internal-timeline'))document.getElementById('booking-internal-timeline').innerHTML=bookingInternalNotesHtml(v);
+}
+async function bookingAddInternalNote(){
+  if(bookingBusy)return;
+  const v=bookingSelected,target=bookingNoteTarget(v),input=document.getElementById('booking-internal-note'),body=input?.value.trim();
+  if(!target||!body)return bookingNotify('Enter a note first.','error');
+  bookingBusy=true;
+  try{await createRecordNote(target.recordType,target.recordId,body,{bookingVisitId:v.id});input.value='';await bookingReloadInternalNotes(v);bookingNotify('Internal note added');}
+  catch(error){bookingNotify(error.message,'error');}finally{bookingBusy=false;}
+}
+
+function bookingCalendarNotesHtml(event){
+  _activeRecordNoteContext={recordType:'calendar_event',recordId:event.id,reloadAndSync:async()=>{
+    const notes=await fetchRecordNotes('calendar_event',event.id);
+    bookingData.notes=bookingData.notes.filter(n=>!(n.record_type==='calendar_event'&&n.record_id===event.id)).concat(notes);
+    const timeline=document.getElementById('booking-calendar-note-timeline');
+    if(timeline&&bookingSelected?.importEvent?.id===event.id)timeline.innerHTML=bookingCalendarNotesHtml(event);
+  }};
+  return recordNotesTimelineHtml(bookingData.notes.filter(n=>n.record_type==='calendar_event'&&n.record_id===event.id));
+}
