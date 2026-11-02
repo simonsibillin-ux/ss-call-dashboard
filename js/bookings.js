@@ -1,8 +1,14 @@
 /* Booking operations use the same authenticated staff session as the dashboard. */
 let bookingData={visits:[],recurring:[],jobs:[],clients:[],events:[],notes:[]};
+let bookingDialogReturnFocus=null, bookingBodyOverflow='';
 let bookingView='recurring', bookingQueue='needs', bookingMonth=BookingRules.today().slice(0,7), bookingSelected=null, bookingLoading=0, bookingBusy=false;
 const bookingEscape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const bookingArg=value=>bookingEscape(JSON.stringify(String(value)));
+function bookingNotify(message,type) {
+  showToast(message,type);
+  const feedback=document.getElementById('booking-dialog-feedback');
+  if(feedback){feedback.textContent=message;feedback.hidden=false;}
+}
 async function bookingRest(path,method='GET',body) {
   const response=await fetch(`${SUPABASE_URL}/rest/v1/${path}`,{method,headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${supabaseBearerToken()}`,'Content-Type':'application/json',Prefer:'return=representation'},...(body===undefined?{}:{body:JSON.stringify(body)})});
   const data=await response.json().catch(()=>null);
@@ -88,12 +94,13 @@ function renderBookingWorkspace() {
     <div id="booking-content"></div><div id="booking-detail"></div>`;
   const content=document.getElementById('booking-content');
   if(bookingView==='legacy') {
-    content.innerHTML=`<div class="booking-summary">${legacy.length} calendar records to review</div><div class="booking-cards">${legacy.map(e=>`<article class="booking-card"><strong>${bookingEscape(e.summary)}</strong><span class="booking-pill warning">NOT CONFIRMED \u2014 CRM link needed</span><div class="booking-month">${(e.start?.date||e.start?.dateTime||'').startsWith('2099')?'Service month needs review':'Service due: '+bookingMonthLabel((e.start?.date||e.start?.dateTime||'').slice(0,7))}</div><p class="booking-source">${bookingEscape((e.description||'').slice(0,250))}</p><button class="btn-secondary" onclick="bookingOpenImport(${bookingArg(e.id)})">Review CRM match</button></article>`).join('')||'<div class="empty-state">No calendar records waiting for review.</div>'}</div>`;return;
+    content.innerHTML=`<div class="booking-summary">Calendar review <span>${legacy.length} records</span></div><div class="booking-cards">${legacy.map(bookingCalendarCard).join('')||'<div class="empty-state">No calendar records waiting for review.</div>'}</div>`;
+    return;
   }
   const current=day.slice(0,7), next=BookingRules.addDays(current+'-01',32).slice(0,7);
   content.innerHTML=`<div class="booking-toolbar"><button class="btn-secondary ${bookingMonth===current?'selected':''}" onclick="bookingMonth='${current}';renderBookingWorkspace()">This month</button><button class="btn-secondary ${bookingMonth===next?'selected':''}" onclick="bookingMonth='${next}';renderBookingWorkspace()">Next month</button><button class="btn-secondary ${bookingMonth==='overdue'?'selected':''}" onclick="bookingMonth='overdue';renderBookingWorkspace()">Overdue <span>${records.filter(v=>v.due_month&&v.due_month<current+'-01'&&!['confirmed','skipped','stopped'].includes(v.status)).length}</span></button><input type="month" aria-label="Service month" class="form-input" value="${bookingMonth==='overdue'?'':bookingMonth}" onchange="bookingMonth=this.value;renderBookingWorkspace()"><input type="search" id="booking-search" aria-label="Search bookings" class="form-input" placeholder="Search customer, service or suburb" oninput="bookingRenderCards()"></div>
     <div class="booking-summary">${bookingMonth==='overdue'?'Overdue':bookingMonthLabel(bookingMonth)} <span>${needs} need booking \u00b7 ${confirmed} confirmed</span></div>
-    <div class="priority-sub-tabs">${[['needs','Needs booking'],['confirmed','Confirmed'],['hold','On hold'],['setup','Needs setup']].map(([key,label])=>`<button class="priority-sub-tab ${bookingQueue===key?'active':''}" onclick="bookingQueue='${key}';renderBookingWorkspace()">${label}</button>`).join('')}</div>${bookingView==='recurring'&&legacyMonth.length?`<div class="booking-review-notice"><strong>${legacyMonth.length} more calendar series need CRM review for ${bookingMonthLabel(bookingMonth)}.</strong><span class="booking-pill warning">NOT CONFIRMED</span><button class="btn-secondary" onclick="bookingView='legacy';renderBookingWorkspace()">Review calendar records</button></div>`:''}<div id="booking-cards"></div>`;
+    <div class="priority-sub-tabs">${[['needs','Needs booking'],['confirmed','Confirmed'],['hold','On hold'],['setup','Needs setup']].map(([key,label])=>`<button class="priority-sub-tab ${bookingQueue===key?'active':''}" onclick="bookingQueue='${key}';renderBookingWorkspace()">${label}</button>`).join('')}</div>${bookingView==='recurring'&&legacyMonth.length?`<button class="booking-review-link" onclick="bookingView='legacy';renderBookingWorkspace()">${legacyMonth.length} calendar series for this month need CRM review <span aria-hidden="true">&rarr;</span></button>`:''}<div id="booking-cards"></div>`;
   bookingRenderCards();
 }
 function bookingRenderCards() {
@@ -116,22 +123,92 @@ function bookingRenderCards() {
     return `<section class="priority-group"><div class="priority-group-header"><div class="priority-group-title">${label}</div><span class="priority-group-count">${rows.length}</span></div><div class="booking-cards">${rows.map(bookingCard).join('')}</div></section>`;
   }).join('')||'<div class="empty-state">No bookings in this view.</div>';
 }
+function bookingLocation(v) {
+  const c=bookingClient(v);
+  return c?.suburb||c?.address||'Location not recorded';
+}
 function bookingCard(v) {
- const c=bookingClient(v), confirmed=v.status==='confirmed';
- return `<article class="booking-card ${v.high_priority?'is-priority':''}"><div class="booking-card-top"><strong>${bookingEscape(bookingTitle(v))}</strong><button class="booking-star ${v.high_priority?'selected':''}" aria-label="${v.high_priority?'Remove':'Mark'} high priority" onclick="bookingTogglePriority(${bookingArg(v.id)})">${v.high_priority?'\u2605 High priority':'\u2606 Priority'}</button></div><div class="booking-service">${bookingEscape(bookingService(v))}</div>${c?.suburb?`<div class="booking-muted">${bookingEscape(c.suburb)}</div>`:''}<div class="booking-month">Service due: <strong>${bookingMonthLabel(v.due_month)}</strong></div><div class="booking-pill ${confirmed?'confirmed':'warning'}">${confirmed?'CONFIRMED \u2014 '+priorityCandidateDate(v.confirmed_date):'NOT CONFIRMED'}</div>${!confirmed&&v.status!=='needs_booking'?`<div class="booking-status">${BookingRules.labels[v.status]||v.status}</div>`:''}${v.last_contact_at?`<div class="booking-muted">Last contact: ${bookingEscape((v.last_outcome||'').replaceAll('_',' '))} \u00b7 ${priorityCandidateDate(v.last_contact_at)}</div>`:''}${!confirmed?`<div class="booking-next">${v.next_contact_date?'Next follow-up: '+priorityCandidateDate(v.next_contact_date):['waiting','owner','stopped','skipped'].includes(v.status)?BookingRules.labels[v.status]:'Next follow-up not set'}</div>`:''}<div class="booking-actions"><button class="btn-secondary" onclick="bookingOpenDetail(${bookingArg(v.id)})">${confirmed?'View booking':'Record contact'}</button>${!confirmed?`<button class="btn-primary" onclick="bookingOpenDetail(${bookingArg(v.id)},true)">Confirm booking</button>`:''}</div></article>`;
+  const confirmed=v.status==='confirmed';
+  return `<button type="button" class="booking-card" data-booking-id="${bookingEscape(v.id)}" onclick="bookingOpenDetail(${bookingArg(v.id)})">
+    <span class="booking-card-name">${bookingEscape(bookingTitle(v))}</span>
+    <span class="booking-card-location">${bookingEscape(bookingLocation(v))}</span>
+    <span class="booking-card-bottom"><span>${v.due_month?'Due '+bookingMonthLabel(v.due_month):'Due month not set'}</span><span class="booking-card-status ${confirmed?'is-confirmed':''}">${confirmed?'Confirmed':'Not confirmed'}</span></span>
+  </button>`;
+}
+function bookingCalendarCard(event) {
+  const date=event.start?.date||event.start?.dateTime||'';
+  // Legacy titles may contain prices, phones and scope. Keep that detail inside.
+  const name=(event.summary||'Calendar record').split(/[|\n]/)[0].split(/\s[-\u2013\u2014]\s/)[0].split(/\.\s/)[0].trim();
+  return `<button type="button" class="booking-card" onclick="bookingOpenImport(${bookingArg(event.id)})"><span class="booking-card-name">${bookingEscape(name)}</span><span class="booking-card-location">${bookingEscape(event.location||'Location needs review')}</span><span class="booking-card-bottom"><span>${date.startsWith('2099')?'Due month needs review':'Due '+bookingMonthLabel(date)}</span><span class="booking-card-status">Not confirmed</span></span></button>`;
+}
+function bookingShowDialog(title,content) {
+  const old=document.getElementById('booking-dialog');
+  if(!old){bookingDialogReturnFocus=document.activeElement;bookingBodyOverflow=document.body.style.overflow;}
+  old?.remove();
+  const dialog=document.createElement('div');
+  dialog.id='booking-dialog';dialog.className='booking-dialog';dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-labelledby','booking-dialog-title');
+  dialog.innerHTML=`<header class="booking-dialog-header"><button type="button" class="booking-back" onclick="bookingDialogBack()" aria-label="Back">&larr; Back</button><h1 id="booking-dialog-title">${bookingEscape(title)}</h1><button type="button" class="booking-close" onclick="bookingDismissDetail()" aria-label="Close booking details">&times;</button></header><div id="booking-dialog-feedback" class="booking-feedback" role="status" aria-live="polite" hidden></div><div class="booking-dialog-scroll">${content}</div>`;
+  document.body.append(dialog);document.body.style.overflow='hidden';
+  document.getElementById('app')?.setAttribute('inert','');
+  dialog.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){e.preventDefault();e.stopPropagation();bookingDialogBack();return;}
+    if(e.key!=='Tab')return;
+    const controls=[...dialog.querySelectorAll('button,a[href],input,select,textarea,summary,[tabindex="0"]')].filter(el=>!el.disabled&&el.getClientRects().length);
+    const first=controls[0],last=controls[controls.length-1];
+    if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}
+    else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
+  });
+  dialog.querySelector('.booking-back').focus();
+}
+function bookingRemoveDialog() {
+  document.getElementById('booking-dialog')?.remove();
+  document.getElementById('app')?.removeAttribute('inert');document.body.style.overflow=bookingBodyOverflow;
+  if(bookingDialogReturnFocus?.isConnected)bookingDialogReturnFocus.focus();
+  bookingDialogReturnFocus=null;
+}
+function bookingDismissDetail(){if(bookingBusy)return;bookingRemoveDialog();bookingSelected=null;}
+function bookingDialogBack(){
+  if(bookingBusy)return;
+  if(document.getElementById('booking-confirm-panel')&&!document.getElementById('booking-confirm-panel').hidden){bookingShowMain();return;}
+  bookingDismissDetail();
+}
+function bookingCloseDetail(){
+  const selectedId=bookingSelected?.id;
+  bookingRemoveDialog();bookingSelected=null;renderBookingWorkspace();
+  if(selectedId)[...document.querySelectorAll('[data-booking-id]')].find(el=>el.dataset.bookingId===selectedId)?.focus();
 }
 function bookingOpenDetail(id,confirm=false) {
- const v=bookingData.visits.find(v=>v.id===id);if(!v)return; bookingSelected=v;
- const c=bookingClient(v),r=bookingRecord(v), el=document.getElementById('booking-detail');
- document.getElementById('booking-content').hidden=true;
- el.innerHTML=`<button class="btn-secondary" onclick="bookingCloseDetail()">\u2190 Back</button><div class="booking-detail-card"><h2>${bookingEscape(bookingTitle(v))}</h2><div>${bookingEscape(bookingService(v))}</div><div class="booking-month">Service due: <strong>${bookingMonthLabel(v.due_month)}</strong></div><span class="booking-pill ${v.status==='confirmed'?'confirmed':'warning'}">${v.status==='confirmed'?'CONFIRMED \u2014 '+priorityCandidateDate(v.confirmed_date):'NOT CONFIRMED'}</span><div class="booking-contact">${c?.phone?`<a href="tel:${bookingEscape(c.phone.replace(/[^+0-9]/g,''))}">${bookingEscape(c.phone)}</a>`:''}${c?.email?`<a href="mailto:${bookingEscape(c.email)}">${bookingEscape(c.email)}</a>`:''}<span>${bookingEscape([c?.address,c?.suburb].filter(Boolean).join(', '))}</span>${!c?.phone&&!c?.email?'<span class="booking-warning">Collect a phone number or email.</span>':''}</div>
- ${v.status!=='confirmed'?`<div class="booking-form"><h3>Record contact</h3><label>Channel<select class="form-input" id="booking-channel">${['Phone','SMS','Email','Messenger','Other'].map(x=>`<option ${v.contact_channel===x?'selected':''}>${x}</option>`).join('')}</select></label><label>Outcome<select class="form-input" id="booking-outcome" onchange="bookingOutcomePreview()"><option value="">Select outcome\u2026</option>${Object.entries({no_answer:'No answer',voicemail_left:'Voicemail left',sms_sent:'SMS sent',email_sent:'Email sent',messenger_sent:'Messenger sent',call_on_date:'Contact on a specific date',ready_to_book:'Ready to book',customer_will_contact:'Customer will contact us',owner_handling:'Simon handling',deferred:'Defer visit',skipped:'Skip this visit',declined:'Declined',do_not_contact:'Do not contact'}).map(([key,label])=>`<option value="${key}">${label}</option>`).join('')}</select></label><label id="booking-date-field" hidden>Next contact date<input id="booking-next-date" type="date" min="${BookingRules.today()}" class="form-input" onchange="bookingOutcomePreview()"></label><div id="booking-next-preview" class="booking-next"></div><label>Note<textarea class="form-input" id="booking-note" rows="3"></textarea></label><button class="btn-primary" onclick="bookingSaveOutcome()">Save contact</button></div>`:''}
- <div class="booking-form" id="booking-confirm-form"><h3>${v.status==='confirmed'?'Change confirmed date':'Confirm booking'}</h3><label>Agreed date<input type="date" id="booking-confirm-date" class="form-input" min="${BookingRules.today()}" value="${v.confirmed_date||''}"></label><label class="booking-check"><input type="checkbox" id="booking-agreed"> The customer agreed to this date</label><button class="btn-primary" onclick="bookingConfirm()">Save confirmed booking</button><div id="booking-save-status" role="status"></div></div>
- <details class="booking-form"><summary>Service month &amp; follow-up date</summary><label>Service due month<input id="booking-due-month" class="form-input" type="month" value="${v.due_month?.slice(0,7)||''}"></label><label>Next follow-up<input id="booking-edit-next" class="form-input" type="date" value="${v.next_contact_date||''}"></label><button class="btn-secondary" onclick="bookingSaveDates()">Save dates</button></details>
- <details class="booking-form"><summary>Internal notes &amp; history</summary>${v.setup_note?`<p>${bookingEscape(v.setup_note)}</p>`:''}${bookingSourceNotes(v).map(n=>`<p class="booking-source">${bookingEscape(n)}</p>`).join('')}${[...(v.history||[])].reverse().map(h=>`<div class="booking-history"><strong>${bookingEscape(h.by)} \u00b7 ${priorityCandidateDateTime(h.at)}</strong><p>${bookingEscape(h.note)}</p></div>`).join('')}<small>CRM: ${bookingEscape(r?.id||v.source_key)}</small></details></div>`;
- if(confirm)document.getElementById('booking-confirm-form').scrollIntoView({block:'center'});
+  const v=bookingData.visits.find(v=>v.id===id);if(!v)return;bookingSelected=v;
+  const c=bookingClient(v),r=bookingRecord(v),confirmed=v.status==='confirmed';
+  const frequency={weekly:'Weekly',fortnightly:'Every 2 weeks',monthly:'Monthly','6weekly':'Every 6 weeks',bimonthly:'Every 2 months',quarterly:'Every 3 months','6monthly':'Every 6 months',annually:'Annually',custom:r?.custom_days?'Every '+r.custom_days+' days':'Custom'}[r?.frequency]||'Not recorded';
+  bookingShowDialog(bookingTitle(v),`
+    <main id="booking-main-panel" class="booking-detail-layout">
+      <div class="booking-detail-main">
+        <section class="booking-section"><div class="booking-section-heading"><h2>${v.work_type==='recurring'?'Recurring job':'Job details'}</h2><button type="button" class="booking-priority-control" id="booking-priority-control" aria-pressed="${Boolean(v.high_priority)}" onclick="bookingTogglePriority(${bookingArg(v.id)})">${v.high_priority?'High priority':'Mark high priority'}</button></div>
+          <dl class="booking-facts"><div><dt>Service</dt><dd>${bookingEscape(bookingService(v))}</dd></div><div><dt>Service due</dt><dd>${bookingMonthLabel(v.due_month)}</dd></div>${v.work_type==='recurring'?`<div><dt>Frequency</dt><dd>${bookingEscape(frequency)}</dd></div>`:''}<div><dt>Price</dt><dd>${Number(r?.revenue)>0?'$'+Number(r.revenue).toFixed(2):'Needs review'}</dd></div><div><dt>Status</dt><dd>${confirmed?'Confirmed for '+priorityCandidateDate(v.confirmed_date):'Not confirmed'}</dd></div></dl>
+        </section>
+        <section class="booking-section"><h2>Contact details</h2><dl class="booking-facts"><div><dt>Phone</dt><dd>${c?.phone?`<a href="tel:${bookingEscape(c.phone.replace(/[^+0-9]/g,''))}">${bookingEscape(c.phone)}</a>`:'Not recorded'}</dd></div><div><dt>Email</dt><dd>${c?.email?`<a href="mailto:${bookingEscape(c.email)}">${bookingEscape(c.email)}</a>`:'Not recorded'}</dd></div><div><dt>Address</dt><dd>${bookingEscape([c?.address,c?.suburb].filter(Boolean).join(', ')||'Not recorded')}</dd></div></dl>${!c?.phone&&!c?.email?'<p class="booking-muted">Phone number or email needed.</p>':''}</section>
+        <section class="booking-section"><h2>Contact history</h2>${v.last_contact_at?`<p class="booking-muted">Last contact: ${bookingEscape((v.last_outcome||'Contact recorded').replaceAll('_',' '))} &middot; ${priorityCandidateDate(v.last_contact_at)}</p>`:''}${[...(v.history||[])].reverse().map(h=>`<div class="booking-history"><strong>${bookingEscape(h.by)} &middot; ${priorityCandidateDateTime(h.at)}</strong><p>${bookingEscape(h.note)}</p></div>`).join('')||'<p class="booking-muted">No recorded actions.</p>'}<details class="booking-internal"><summary>Internal notes</summary>${v.setup_note?`<p class="booking-source">${bookingEscape(v.setup_note)}</p>`:''}${bookingSourceNotes(v).map(n=>`<p class="booking-source">${bookingEscape(n)}</p>`).join('')||'<p class="booking-muted">No internal notes.</p>'}<small>CRM: ${bookingEscape(r?.id||v.source_key)}</small></details></section>
+      </div>
+      <aside class="booking-detail-actions">
+        <section class="booking-section"><h2>Follow-up</h2><p class="booking-follow-up-date">${v.next_contact_date?priorityCandidateDate(v.next_contact_date):BookingRules.labels[v.status]==='Needs booking'?'Not scheduled':BookingRules.labels[v.status]||'Not scheduled'}</p><details class="booking-internal"><summary>Edit dates</summary><div class="booking-form"><label for="booking-due-month">Service due month</label><input id="booking-due-month" class="form-input" type="month" value="${v.due_month?.slice(0,7)||''}"><label for="booking-edit-next">Next follow-up</label><input id="booking-edit-next" class="form-input" type="date" value="${v.next_contact_date||''}"><button class="btn-secondary" onclick="bookingSaveDates()">Save dates</button></div></details></section>
+        ${!confirmed?`<section class="booking-section"><h2>Record contact</h2><div class="booking-form"><label for="booking-channel">Channel</label><select class="form-input" id="booking-channel">${['Phone','SMS','Email','Messenger','Other'].map(x=>`<option ${v.contact_channel===x?'selected':''}>${x}</option>`).join('')}</select><label for="booking-outcome">Outcome</label><select class="form-input" id="booking-outcome" onchange="bookingOutcomePreview()"><option value="">Select outcome...</option>${Object.entries({no_answer:'No answer',voicemail_left:'Voicemail left',sms_sent:'SMS sent',email_sent:'Email sent',messenger_sent:'Messenger sent',call_on_date:'Contact on a specific date',ready_to_book:'Ready to book',customer_will_contact:'Customer will contact us',owner_handling:'Simon handling',deferred:'Defer visit',skipped:'Skip this visit',declined:'Declined',do_not_contact:'Do not contact'}).map(([key,label])=>`<option value="${key}">${label}</option>`).join('')}</select><div id="booking-date-field" hidden><label for="booking-next-date">Next contact date</label><input id="booking-next-date" type="date" min="${BookingRules.today()}" class="form-input" onchange="bookingOutcomePreview()"></div><div id="booking-next-preview" class="booking-next" role="status"></div><label for="booking-note">Note</label><textarea class="form-input" id="booking-note" rows="3"></textarea><button class="btn-primary" onclick="bookingSaveOutcome()">Save contact</button></div></section>`:''}
+        <section class="booking-section"><h2>${confirmed?'Confirmed booking':'Booking'}</h2>${confirmed?`<p>${priorityCandidateDate(v.confirmed_date)}</p>`:''}<button type="button" class="btn-secondary booking-confirm-launch" onclick="bookingOpenConfirmation()">${confirmed?'Change confirmed date':'Confirm booking'} &rarr;</button></section>
+      </aside>
+    </main>
+    <section id="booking-confirm-panel" class="booking-confirm-screen" hidden><h2>${bookingEscape(bookingTitle(v))}</h2><p class="booking-muted">${bookingEscape(bookingService(v))}</p><div class="booking-form"><label for="booking-confirm-date">Agreed date</label><input type="date" id="booking-confirm-date" class="form-input" min="${BookingRules.today()}" value="${v.confirmed_date||''}"><label class="booking-check"><input type="checkbox" id="booking-agreed"> The customer agreed to this date</label><div class="booking-confirm-actions"><button type="button" class="btn-secondary" onclick="bookingShowMain()">Back to details</button><button type="button" class="btn-primary" id="booking-confirm-save" onclick="bookingConfirm()">Save confirmed booking</button></div><div id="booking-save-status" role="status"></div></div></section>`);
+  if(confirm)bookingOpenConfirmation();
 }
-function bookingCloseDetail(){bookingSelected=null;renderBookingWorkspace();}
+function bookingOpenConfirmation(){
+  if(bookingBusy)return;
+  document.getElementById('booking-main-panel').hidden=true;document.getElementById('booking-confirm-panel').hidden=false;
+  document.getElementById('booking-dialog-title').textContent='Confirm booking';document.querySelector('.booking-dialog-scroll').scrollTop=0;document.getElementById('booking-confirm-date').focus();
+}
+function bookingShowMain(){
+  if(bookingBusy)return;
+  document.getElementById('booking-confirm-panel').hidden=true;document.getElementById('booking-main-panel').hidden=false;
+  document.getElementById('booking-dialog-title').textContent=bookingTitle(bookingSelected);document.querySelector('.booking-dialog-scroll').scrollTop=0;document.querySelector('.booking-confirm-launch').focus();
+}
 function bookingOutcomePreview(){
  const code=document.getElementById('booking-outcome')?.value;
  document.getElementById('booking-date-field').hidden=!['call_on_date','deferred'].includes(code);
@@ -141,17 +218,25 @@ async function bookingSave(v,changes,note){
  const updated=await bookingRest('rpc/save_booking_visit','POST',{p_id:v.id,p_changes:changes,p_note:note,p_expected_at:v.updated_at});
  const row=Array.isArray(updated)?updated[0]:updated;bookingData.visits=bookingData.visits.map(x=>x.id===row.id?row:x);return row;
 }
-async function bookingTogglePriority(id){if(bookingBusy)return;bookingBusy=true;try{const v=bookingData.visits.find(v=>v.id===id);await bookingSave(v,{high_priority:!v.high_priority},v.high_priority?'High priority removed':'Marked high priority');bookingRenderCards();}catch(e){showToast(e.message,'error');}finally{bookingBusy=false;}}
+async function bookingTogglePriority(id){
+  if(bookingBusy)return;bookingBusy=true;
+  try{
+    const v=bookingData.visits.find(v=>v.id===id);
+    const updated=await bookingSave(v,{high_priority:!v.high_priority},v.high_priority?'High priority removed':'Marked high priority');
+    if(bookingSelected?.id===id){bookingSelected=updated;const control=document.getElementById('booking-priority-control');if(control){control.textContent=updated.high_priority?'High priority':'Mark high priority';control.setAttribute('aria-pressed',String(updated.high_priority));}}
+    bookingRenderCards();
+  }catch(e){bookingNotify(e.message,'error');}finally{bookingBusy=false;}
+}
 async function bookingSaveOutcome(){
  if(bookingBusy)return;bookingBusy=true;
  try{const v=bookingSelected,code=document.getElementById('booking-outcome').value,note=document.getElementById('booking-note').value.trim(),channel=document.getElementById('booking-channel').value;
  if(['deferred','skipped','declined','do_not_contact'].includes(code)&&!note)throw Error('Add a reason for this outcome.');
  const change=BookingRules.outcome(code,v.attempt_count,document.getElementById('booking-next-date').value);
  await bookingSave(v,{...change,last_outcome:code,contact_channel:channel},`${channel}: ${code.replaceAll('_',' ')}${change.next_contact_date?' \u00b7 Next follow-up '+change.next_contact_date:''}${note?'\n'+note:''}`);
- showToast('Contact saved');bookingCloseDetail();
- }catch(e){showToast(e.message,'error');}finally{bookingBusy=false;}
+ bookingNotify('Contact saved');bookingCloseDetail();
+ }catch(e){bookingNotify(e.message,'error');}finally{bookingBusy=false;}
 }
-async function bookingSaveDates(){if(bookingBusy)return;bookingBusy=true;try{const month=document.getElementById('booking-due-month').value,next=document.getElementById('booking-edit-next').value; if(!month)throw Error('Choose a service month.');await bookingSave(bookingSelected,{due_month:month+'-01',next_contact_date:next||null,...(['stopped','skipped'].includes(bookingSelected.status)&&next?{status:'needs_booking'}:{})},'Service month / follow-up date updated');showToast('Dates saved');bookingCloseDetail();}catch(e){showToast(e.message,'error');}finally{bookingBusy=false;}}
+async function bookingSaveDates(){if(bookingBusy)return;bookingBusy=true;try{const month=document.getElementById('booking-due-month').value,next=document.getElementById('booking-edit-next').value; if(!month)throw Error('Choose a service month.');await bookingSave(bookingSelected,{due_month:month+'-01',next_contact_date:next||null,...(['stopped','skipped'].includes(bookingSelected.status)&&next?{status:'needs_booking'}:{})},'Service month / follow-up date updated');bookingNotify('Dates saved');bookingCloseDetail();}catch(e){bookingNotify(e.message,'error');}finally{bookingBusy=false;}}
 function bookingMatchingEvents(v){
  if(v.calendar_event_id)return bookingData.events.filter(e=>e.id===v.calendar_event_id);
  const r=bookingRecord(v);if(!r)return [];
@@ -160,9 +245,10 @@ function bookingMatchingEvents(v){
 }
 async function bookingConfirm(){
  if(bookingBusy)return;const v=bookingSelected,date=document.getElementById('booking-confirm-date').value;
- if(!date||date<BookingRules.today())return showToast('Choose a current or future date.','error');
- if(!document.getElementById('booking-agreed').checked)return showToast('Confirm the customer agreed to this date.','error');
- bookingBusy=true;const status=document.getElementById('booking-save-status');status.textContent='Saving\u2026';
+ if(!date||date<BookingRules.today())return bookingNotify('Choose a current or future date.','error');
+ if(!document.getElementById('booking-agreed').checked)return bookingNotify('Confirm the customer agreed to this date.','error');
+ bookingBusy=true;const status=document.getElementById('booking-save-status');status.textContent='Saving...';
+ const saveButton=document.getElementById('booking-confirm-save');if(saveButton)saveButton.disabled=true;
  let lockedVisit=null;const lockToken=crypto.randomUUID();
  try {
   const claim=await bookingRest('rpc/claim_booking_confirmation','POST',{p_id:v.id,p_expected_at:v.updated_at,p_token:lockToken});
@@ -179,14 +265,14 @@ async function bookingConfirm(){
   if(!response.ok)throw Error(saved.error?.message||'Calendar did not save.');
   await bookingSave(lockedVisit,{status:'confirmed',confirmed_date:date,calendar_event_id:saved.id,next_contact_date:null,_booking_token:lockToken},`Customer agreed to ${date}. Calendar updated.`);
   bookingData.events=bookingData.events.filter(e=>e.id!==saved.id).concat(saved);
-  showToast('Booking confirmed');bookingCloseDetail();
- }catch(e){status.textContent=e.message;showToast(e.message,'error');}finally{if(lockedVisit){try{await bookingRest('rpc/release_booking_confirmation','POST',{p_id:v.id,p_token:lockToken});}catch{}}bookingBusy=false;}
+  bookingNotify('Booking confirmed');bookingCloseDetail();
+ }catch(e){status.textContent=e.message;bookingNotify(e.message,'error');}finally{if(lockedVisit){try{await bookingRest('rpc/release_booking_confirmation','POST',{p_id:v.id,p_token:lockToken});}catch{}}bookingBusy=false;if(saveButton?.isConnected)saveButton.disabled=false;}
 }
-async function prioritySetManualOnly(enabled){const candidate=_priorityCandidatesById[_prioritySelectedId];if(!candidate)return;try{await priorityPatchRecord('quotes',candidate.recordId,enabled?{manual_only:true,follow_up_enabled:false,next_follow_up_at:null,follow_up_paused_until:null,manual_follow_up_at:candidate.manualFollowUpAt||new Date().toISOString(),manual_follow_up_state:'active'}:{manual_only:false});await priorityRefreshEditedQuote(candidate.id,enabled?'Manual-only follow-up enabled':'Manual-only mode removed');}catch(e){showToast(e.message,'error');}}
+async function prioritySetManualOnly(enabled){const candidate=_priorityCandidatesById[_prioritySelectedId];if(!candidate)return;try{await priorityPatchRecord('quotes',candidate.recordId,enabled?{manual_only:true,follow_up_enabled:false,next_follow_up_at:null,follow_up_paused_until:null,manual_follow_up_at:candidate.manualFollowUpAt||new Date().toISOString(),manual_follow_up_state:'active'}:{manual_only:false});await priorityRefreshEditedQuote(candidate.id,enabled?'Manual-only follow-up enabled':'Manual-only mode removed');}catch(e){bookingNotify(e.message,'error');}}
 function bookingOpenImport(eventId){
- const event=bookingData.events.find(e=>e.id===eventId);if(!event)return;
- bookingSelected={importEvent:event};document.getElementById('booking-content').hidden=true;
- document.getElementById('booking-detail').innerHTML=`<button class="btn-secondary" onclick="bookingCloseDetail()">\u2190 Back</button><div class="booking-detail-card"><h2>${bookingEscape(event.summary)}</h2><span class="booking-pill warning">NOT CONFIRMED</span><p class="booking-source">${bookingEscape(event.description||'')}</p><div class="booking-form"><label>Customer profile<input type="search" id="booking-client-search" class="form-input" placeholder="Search customer name, phone or address" oninput="bookingImportClients()"></label><label>Matched customer<select id="booking-import-client" class="form-input" onchange="bookingImportRecurring()"><option value="">Choose customer\u2026</option></select></label><label>Import as<select id="booking-import-kind" class="form-input"><option value="new">One-off job / requote needed</option><option value="recurring">Recurring arrangement</option></select></label><label>Existing recurring arrangement<select id="booking-import-recurring" class="form-input"><option value="">Create new arrangement</option></select></label><label>Service<input id="booking-import-service" class="form-input"></label><label>Service due month<input id="booking-import-month" type="month" class="form-input" value="${(event.start?.date||event.start?.dateTime||'').startsWith('2099')?'':(event.start?.date||event.start?.dateTime||'').slice(0,7)}"></label><label>Verified frequency<select id="booking-import-frequency" class="form-input"><option value="">Choose frequency\u2026</option>${Object.entries({weekly:'Weekly',fortnightly:'Fortnightly',monthly:'Monthly','6weekly':'Every 6 weeks',bimonthly:'Every 2 months',quarterly:'Quarterly','6monthly':'Every 6 months',annually:'Annually'}).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label><label>Verified price (leave blank if requote needed)<input id="booking-import-amount" class="form-input" type="number" min="0" step="0.01"></label><button class="btn-primary" onclick="bookingImportSave()">Import into CRM</button></div></div>`;
+  const event=bookingData.events.find(e=>e.id===eventId);if(!event)return;
+  bookingSelected={importEvent:event};
+  bookingShowDialog('Calendar review',`<main class="booking-detail-layout booking-import-layout"><div class="booking-detail-main"><section class="booking-section"><h2>Calendar record</h2><p class="booking-source">${bookingEscape(event.summary)}</p><p class="booking-muted">Not confirmed</p>${event.location?`<p>${bookingEscape(event.location)}</p>`:''}</section><section class="booking-section"><h2>Internal notes</h2><p class="booking-source">${bookingEscape(event.description||'No notes recorded.')}</p></section></div><section class="booking-section"><h2>Link to CRM</h2><div class="booking-form"><label>Customer profile<input type="search" id="booking-client-search" class="form-input" placeholder="Search customer name, phone or address" oninput="bookingImportClients()"></label><label>Matched customer<select id="booking-import-client" class="form-input" onchange="bookingImportRecurring()"><option value="">Choose customer\u2026</option></select></label><label>Import as<select id="booking-import-kind" class="form-input"><option value="new">One-off job / requote needed</option><option value="recurring">Recurring arrangement</option></select></label><label>Existing recurring arrangement<select id="booking-import-recurring" class="form-input"><option value="">Create new arrangement</option></select></label><label>Service<input id="booking-import-service" class="form-input"></label><label>Service due month<input id="booking-import-month" type="month" class="form-input" value="${(event.start?.date||event.start?.dateTime||'').startsWith('2099')?'':(event.start?.date||event.start?.dateTime||'').slice(0,7)}"></label><label>Verified frequency<select id="booking-import-frequency" class="form-input"><option value="">Choose frequency\u2026</option>${Object.entries({weekly:'Weekly',fortnightly:'Fortnightly',monthly:'Monthly','6weekly':'Every 6 weeks',bimonthly:'Every 2 months',quarterly:'Quarterly','6monthly':'Every 6 months',annually:'Annually'}).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label><label>Verified price (leave blank if requote needed)<input id="booking-import-amount" class="form-input" type="number" min="0" step="0.01"></label><button class="btn-primary" onclick="bookingImportSave()">Import into CRM</button></div></section></main>`);
 }
 function bookingImportClients(){const q=document.getElementById('booking-client-search').value.toLowerCase().trim();document.getElementById('booking-import-client').innerHTML='<option value="">Choose customer\u2026</option>'+bookingData.clients.filter(c=>q&&[c.name,c.phone,c.email,c.address,c.suburb].join(' ').toLowerCase().includes(q)).slice(0,40).map(c=>`<option value="${bookingEscape(c.id)}">${bookingEscape([c.name,c.phone,c.address].filter(Boolean).join(' \u00b7 '))}</option>`).join('');bookingImportRecurring();}
 function bookingImportRecurring(){const id=document.getElementById('booking-import-client').value;document.getElementById('booking-import-recurring').innerHTML='<option value="">Create new arrangement</option>'+bookingData.recurring.filter(r=>r.client_id===id).map(r=>`<option value="${bookingEscape(r.id)}">${bookingEscape(r.service+' \u00b7 '+r.frequency)}</option>`).join('');}
@@ -196,8 +282,8 @@ async function bookingImportSave(){if(bookingBusy)return;bookingBusy=true;try{
  if(kind==='recurring'&&!val('recurring')&&bookingData.recurring.some(r=>r.active&&r.client_id===client))throw Error('This customer already has a recurring arrangement. Select it, or review the CRM first.');
  if(kind==='recurring'&&!val('recurring')&&!val('frequency'))throw Error('Verify the recurrence frequency first.');
  await bookingRest('rpc/import_calendar_booking','POST',{p_event:bookingSelected.importEvent,p_client_id:client,p_kind:kind,p_existing_recurring_id:val('recurring')||null,p_service:service,p_frequency:val('frequency')||null,p_due_month:month?month+'-01':null,p_amount:val('amount')?Number(val('amount')):null});
- showToast('Imported into CRM');await loadBookingWorkspace();
- }catch(e){showToast(e.message,'error');}finally{bookingBusy=false;}}
+ bookingNotify('Imported into CRM');bookingRemoveDialog();bookingSelected=null;await loadBookingWorkspace();
+ }catch(e){bookingNotify(e.message,'error');}finally{bookingBusy=false;}}
 function priorityQuotePreview(){
  const el=document.getElementById('priority-next-preview'),candidate=_priorityCandidatesById[_prioritySelectedId],code=document.getElementById('priority-outcome')?.value;
  if(!el||!candidate)return;if(!code){el.textContent='';return;}
