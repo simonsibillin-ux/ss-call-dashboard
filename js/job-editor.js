@@ -23,7 +23,21 @@ function bookingSecondaryPanel(id,html,title){
  panel.innerHTML=html;bookingSwitchPanel(id,title);
  panel.querySelector('input,select,button')?.focus();
 }
-function bookingOpenEditor(){
+async function bookingOpenEditor(){
+ if(bookingBusy||!bookingSelected?.id)return;
+ const selected=bookingSelected,table=selected.recurring_job_id?'recurring_jobs':'jobs',recordId=selected.recurring_job_id||selected.job_id;
+ bookingBusy=true;
+ try{
+  const [records,visits]=await Promise.all([bookingRest(table+'?id=eq.'+encodeURIComponent(recordId)+'&select=*&limit=1'),bookingRest('booking_visits?id=eq.'+encodeURIComponent(selected.id)+'&select=*&limit=1')]);
+  const record=records[0],visit=visits[0];
+  if(!record||!visit||visit.archived_at||record.archived_at||record.deleted_at||(selected.recurring_job_id&&!record.active)||(!selected.recurring_job_id&&String(record.status).toLowerCase()!=='active'))throw Error('This job is no longer active. Refresh the booking list.');
+  const collection=selected.recurring_job_id?'recurring':'jobs';
+  bookingData[collection]=bookingData[collection].map(row=>row.id===record.id?record:row);
+  bookingData.visits=bookingData.visits.map(row=>row.id===visit.id?visit:row);bookingSelected=visit;
+  bookingBusy=false;bookingRenderEditor();
+ }catch(e){bookingNotify(e.message,'error');}finally{bookingBusy=false;}
+}
+function bookingRenderEditor(){
  if(bookingBusy||!bookingSelected?.id)return;
  const v=bookingSelected,r=bookingBaseRecord(v),effective=bookingRecord(v);if(!r)return;
  bookingEditorState={visitId:v.id,recordVersion:r.updated_at,scope:v.recurring_job_id?'visit':'job',items:JobEditRules.itemsFromRecord(effective)};
