@@ -21,7 +21,7 @@ async function bookingAll(path) {
   for(;;) { const page=await bookingRest(path+`&limit=500&offset=${offset}`); rows.push(...page); if(page.length<500)return rows; offset+=500; }
 }
 function bookingMonthLabel(value) { return value?new Date(value.slice(0,7)+'-01T12:00:00').toLocaleDateString('en-AU',{month:'long',year:'numeric'}):'Month not set'; }
-function bookingRecord(v) { return v.recurring_job_id?bookingData.recurring.find(r=>r.id===v.recurring_job_id):bookingData.jobs.find(j=>j.id===v.job_id); }
+function bookingRecord(v) { const record=bookingBaseRecord(v);return record&&v.service_override?{...record,...v.service_override}:record; }
 function bookingClient(v) { const r=bookingRecord(v); const id=v.client_id||r?.client_id; if(id)return bookingData.clients.find(c=>c.id===id); const matches=bookingData.clients.filter(c=>c.name?.trim().toLowerCase()===r?.client?.trim().toLowerCase()); return matches.length===1?matches[0]:null; }
 function bookingEvent(v) { return bookingData.events.find(e=>e.id===v.calendar_event_id); }
 function bookingTitle(v) { return bookingClient(v)?.name||bookingRecord(v)?.client||bookingEvent(v)?.summary||'Calendar record'; }
@@ -61,7 +61,7 @@ async function loadBookingWorkspace() {
 function bookingLegacyEvents() {
   const linked=new Set(bookingData.visits.map(v=>v.calendar_event_id).filter(Boolean));
   const jobEvents=new Set(bookingData.jobs.map(j=>j.google_calendar_event_id).filter(Boolean));
-  const linkedSeries=new Set(bookingData.recurring.filter(r=>r.active).map(r=>r.source_calendar_series_id).filter(Boolean));
+  const linkedSeries=new Set(bookingData.recurring.map(r=>r.source_calendar_series_id).filter(Boolean));
   const legacy=bookingData.events.filter(e=>(e.start?.date||e.start?.dateTime||'').startsWith('2099')&&!linked.has(e.id)&&!jobEvents.has(e.id));
   const unresolvedSeries=new Set(legacy.map(e=>e.recurringEventId).filter(Boolean));
   const future=new Map();
@@ -73,7 +73,9 @@ function bookingLegacyEvents() {
   return legacy.concat([...future.values()]);
 }
 function bookingRelevant(v) {
+  if(v.archived_at)return false;
   const r=bookingRecord(v);
+  if(r?.deleted_at||r?.archived_at)return false;
   if(v.recurring_job_id && (!r||!r.active))return false;
   if(v.job_id && (!r||String(r.status).toLowerCase()!=='active'))return false;
   if(v.job_id && r.completion_date && v.status!=='confirmed')return false;
@@ -90,7 +92,7 @@ function renderBookingWorkspace() {
   const unscheduledCount=records.filter(v=>BookingRules.category(v,day)==='unscheduled').length;
   const legacyMonth=legacy.filter(e=>(e.start?.date||e.start?.dateTime||'').slice(0,7)===bookingMonth);
   const tab=(value,label,count)=>`<button class="priority-page-tab ${bookingView===value?'active':''}" onclick="bookingView='${value}';bookingQueue='needs';renderBookingWorkspace()">${label}${count===undefined?'':` <span>${count}</span>`}</button>`;
-  root.innerHTML=`<div class="booking-heading"><div class="page-title">Bookings</div><button class="btn-secondary" onclick="loadBookingWorkspace()">Refresh</button></div>
+  root.innerHTML=`<div class="booking-heading"><div class="page-title">Bookings</div><div class="booking-heading-actions"><button class="booking-text-action" onclick="bookingOpenArchived()">Archived jobs</button><button class="btn-secondary" onclick="loadBookingWorkspace()">Refresh</button></div></div>
     <div class="priority-page-tabs">${tab('recurring','Recurring bookings')}${tab('new','Unscheduled jobs')}${tab('legacy','Calendar review',legacy.length)}</div>
     ${bookingData.warning?`<div class="alert alert-danger">Calendar unavailable: ${bookingEscape(bookingData.warning)}. CRM records are still available.</div>`:''}
     <div id="booking-content"></div><div id="booking-detail"></div>`;
@@ -163,7 +165,7 @@ function bookingRemoveDialog() {
 function bookingDismissDetail(){if(bookingBusy)return;bookingRemoveDialog();bookingSelected=null;}
 function bookingDialogBack(){
   if(bookingBusy)return;
-  if(document.getElementById('booking-confirm-panel')&&!document.getElementById('booking-confirm-panel').hidden){bookingShowMain();return;}
+  if(document.getElementById('booking-main-panel')?.hidden){bookingShowMain();return;}
   bookingDismissDetail();
 }
 function bookingCloseDetail(){
@@ -179,7 +181,7 @@ function bookingOpenDetail(id,confirm=false) {
     <main id="booking-main-panel" class="booking-detail-layout">
       <div class="booking-detail-main">
         <section class="booking-section"><div class="booking-section-heading"><h2>${v.work_type==='recurring'?'Recurring job':'Job details'}</h2><button type="button" class="booking-priority-control" id="booking-priority-control" aria-pressed="${Boolean(v.high_priority)}" onclick="bookingTogglePriority(${bookingArg(v.id)})">${v.high_priority?'High priority':'Mark high priority'}</button></div>
-          <dl class="booking-facts"><div><dt>Service</dt><dd>${bookingEscape(bookingService(v))}</dd></div><div><dt>Service due</dt><dd>${bookingMonthLabel(v.due_month)}</dd></div>${v.work_type==='recurring'?`<div><dt>Frequency</dt><dd>${bookingEscape(frequency)}</dd></div>`:''}<div><dt>Price</dt><dd>${Number(r?.revenue)>0?'$'+Number(r.revenue).toFixed(2):'Needs review'}</dd></div><div><dt>Status</dt><dd>${confirmed?'Confirmed for '+priorityCandidateDate(v.confirmed_date):'Not confirmed'}</dd></div></dl>
+          <dl class="booking-facts"><div><dt>Service</dt><dd>${bookingEscape(bookingService(v))}</dd></div><div><dt>Service due</dt><dd>${bookingMonthLabel(v.due_month)}</dd></div>${v.work_type==='recurring'?`<div><dt>Frequency</dt><dd>${bookingEscape(frequency)}</dd></div>`:''}<div><dt>Price</dt><dd>${Number(r?.revenue)>0?'$'+Number(r.revenue).toFixed(2):'Needs review'}</dd></div><div><dt>Status</dt><dd>${confirmed?'Confirmed for '+priorityCandidateDate(v.confirmed_date):'Not confirmed'}</dd></div></dl>${bookingItemsHtml(r)}${bookingJobActionsHtml(v)}
         </section>
         <section class="booking-section"><h2>Contact details</h2><dl class="booking-facts"><div><dt>Phone</dt><dd>${c?.phone?`<a href="tel:${bookingEscape(c.phone.replace(/[^+0-9]/g,''))}">${bookingEscape(c.phone)}</a>`:'Not recorded'}</dd></div><div><dt>Email</dt><dd>${c?.email?`<a href="mailto:${bookingEscape(c.email)}">${bookingEscape(c.email)}</a>`:'Not recorded'}</dd></div><div><dt>Address</dt><dd>${bookingEscape([c?.address,c?.suburb].filter(Boolean).join(', ')||'Not recorded')}</dd></div></dl>${!c?.phone&&!c?.email?'<p class="booking-muted">Phone number or email needed.</p>':''}</section>
         <section class="booking-section"><h2>Internal notes</h2><div id="booking-internal-timeline">${bookingInternalNotesHtml(v)}</div><div class="booking-form booking-add-note"><label for="booking-internal-note">Add internal note</label><textarea id="booking-internal-note" class="form-input" rows="3"></textarea><button type="button" class="btn-secondary" onclick="bookingAddInternalNote()">Add note</button></div></section>
@@ -195,14 +197,14 @@ function bookingOpenDetail(id,confirm=false) {
   bookingReloadInternalNotes(v).catch(error=>{if(bookingSelected?.id===v.id)bookingNotify(error.message,'error');});
 }
 function bookingOpenConfirmation(){
-  if(bookingBusy)return;
-  document.getElementById('booking-main-panel').hidden=true;document.getElementById('booking-confirm-panel').hidden=false;
-  document.getElementById('booking-dialog-title').textContent='Confirm booking';document.querySelector('.booking-dialog-scroll').scrollTop=0;document.getElementById('booking-confirm-date').focus();
+  if(!bookingSwitchPanel('booking-confirm-panel','Confirm booking'))return;
+  document.getElementById('booking-confirm-date').focus();
 }
 function bookingShowMain(){
   if(bookingBusy)return;
-  document.getElementById('booking-confirm-panel').hidden=true;document.getElementById('booking-main-panel').hidden=false;
-  document.getElementById('booking-dialog-title').textContent=bookingTitle(bookingSelected);document.querySelector('.booking-dialog-scroll').scrollTop=0;document.querySelector('.booking-confirm-launch').focus();
+  if(!document.getElementById('booking-main-panel'))return bookingDismissDetail();
+  bookingSwitchPanel('booking-main-panel',bookingTitle(bookingSelected));
+  document.querySelector('.booking-confirm-launch')?.focus();
 }
 function bookingOutcomePreview(){
  const code=document.getElementById('booking-outcome')?.value;
@@ -234,9 +236,9 @@ async function bookingSaveOutcome(){
 async function bookingSaveDates(){if(bookingBusy)return;bookingBusy=true;try{const month=document.getElementById('booking-due-month').value,next=document.getElementById('booking-edit-next').value; if(!month)throw Error('Choose a service month.');await bookingSave(bookingSelected,{due_month:month+'-01',next_contact_date:next||null,...(['stopped','skipped'].includes(bookingSelected.status)&&next?{status:'needs_booking'}:{})},'Service month / follow-up date updated');bookingNotify('Dates saved');bookingCloseDetail();}catch(e){bookingNotify(e.message,'error');}finally{bookingBusy=false;}}
 function bookingMatchingEvents(v){
  if(v.calendar_event_id)return bookingData.events.filter(e=>e.id===v.calendar_event_id);
- const r=bookingRecord(v);if(!r)return [];
+ const r=bookingBaseRecord(v);if(!r)return [];
  const linked=new Set(bookingData.visits.filter(x=>x.id!==v.id).map(x=>x.calendar_event_id).filter(Boolean));
- return bookingData.events.filter(e=>!linked.has(e.id)&&((e.extendedProperties?.private?.ss_visit_id===v.id)||(((r.source_calendar_series_id&&e.recurringEventId===r.source_calendar_series_id&&(e.originalStartTime?.date||e.originalStartTime?.dateTime||e.start?.date||'').slice(0,7)===v.due_month?.slice(0,7))||(e.start?.date||e.start?.dateTime||'').slice(0,10)===v.occurrence_date)&&((r.source_calendar_series_id&&e.recurringEventId===r.source_calendar_series_id)||((e.summary||'').startsWith(r.client+' | ')&&(e.summary||'').includes(r.service)&&(e.summary||'').includes('(Recurring)'))))));
+ return bookingData.events.filter(e=>!linked.has(e.id)&&((e.extendedProperties?.private?.ss_visit_id===v.id)||(((r.source_calendar_series_id&&e.recurringEventId===r.source_calendar_series_id&&(e.originalStartTime?.date||e.originalStartTime?.dateTime||e.start?.date||'').slice(0,7)===v.due_month?.slice(0,7))||(e.start?.date||e.start?.dateTime||'').slice(0,10)===v.occurrence_date)&&((r.source_calendar_series_id&&e.recurringEventId===r.source_calendar_series_id)||((e.summary||'').startsWith(r.client+' | ')&&[r.service,...(r.calendar_service_aliases||[])].filter(Boolean).some(service=>(e.summary||'').includes(service))&&(e.summary||'').includes('(Recurring)'))))));
 }
 async function bookingConfirm(){
  if(bookingBusy)return;const v=bookingSelected,date=document.getElementById('booking-confirm-date').value;

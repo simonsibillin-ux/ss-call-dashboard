@@ -1392,7 +1392,7 @@ async function loadHomeDashboard(force = false) {
     const responseCount = responseQuoteIds.size + unreadThreads.size;
 
     const day=BookingRules.today();
-    const unscheduled=bookingVisits.filter(v=>!['confirmed','skipped','stopped'].includes(v.status) && (!v.due_month||v.due_month<=day.slice(0,7)+'-01'||v.high_priority));
+    const unscheduled=bookingVisits.filter(v=>!v.archived_at&&!['confirmed','skipped','stopped'].includes(v.status) && (!v.due_month||v.due_month<=day.slice(0,7)+'-01'||v.high_priority));
     const urgentJobs=unscheduled.filter(v=>['immediate','due'].includes(BookingRules.queue(v,day))).length;
     const openTodos = getOpenTodos();
 
@@ -7712,6 +7712,8 @@ clearAndNewQuote = function() {
 
 </script>
 
+<script src="/js/job-edit-rules.js"></script>
 <script src="/js/bookings.js"></script>
+<script src="/js/job-editor.js"></script>
 </body>
 </html>

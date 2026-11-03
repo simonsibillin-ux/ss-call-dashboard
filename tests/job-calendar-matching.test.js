@@ -1,0 +1,6 @@
+const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');const path=require('node:path');
+const source=fs.readFileSync(path.join(__dirname,'../js/bookings.js'),'utf8');const fn=source.slice(source.indexOf('function bookingMatchingEvents('),source.indexOf('async function bookingConfirm('));
+function match(base,visit){const event={id:'old-event',summary:'Test customer | Old service | $250 (Recurring)',start:{date:'2026-11-15'}};const context={bookingBaseRecord:()=>base,bookingData:{events:[event],visits:[visit]}};vm.createContext(context);vm.runInContext(fn,context);return context.bookingMatchingEvents(visit);}
+const visit={id:'visit',occurrence_date:'2026-11-15',due_month:'2026-11-01'};
+test('renaming a recurring service retains the existing Calendar match',()=>{assert.equal(match({client:'Test customer',service:'New service',calendar_service_aliases:['Old service']},visit)[0].id,'old-event');});
+test('a one-visit service override does not hide the regular Calendar entry',()=>{assert.equal(match({client:'Test customer',service:'Old service'},{...visit,service_override:{service:'One-off service'}})[0].id,'old-event');});
